@@ -1,0 +1,31 @@
+extensions: sbnf
+
+prototype = comment ;
+
+comment = '(#+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+
+main = header # comments work too
+     | rule
+     ;
+
+header = '[[:alnum:]_\-\.]+'{entity.name.tag}
+         '(:)(.*)\n?'{string.unquoted} ;
+
+rule = '[[:alnum:]_\-\.]+'{entity.name.function} arguments? '='{keyword.operator} pattern ';'{keyword.operator} ;
+
+pattern = pattern-element ('\|'{keyword.operator}? pattern)? ;
+
+pattern-element = '~|!'? pattern-item '\*|\?'? ;
+
+pattern-item = literal arguments?
+             | regex arguments?
+             | '\(' pattern '\)'
+             | '[[:alnum:]_\-\.]+'{variable.function}
+             ;
+
+literal{string.quoted, include-prototype: false} = '`' ~'`' ;
+regex{string.quoted, include-prototype: false} = '\'' (~'\\\'')* ~'\'' ;
+
+embed = '%' arguments ;
+
+arguments = '{[^}]*}' ;
