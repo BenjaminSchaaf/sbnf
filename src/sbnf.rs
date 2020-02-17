@@ -223,6 +223,35 @@ impl TextLocation {
             self.column += 1;
         }
     }
+
+    pub fn extract_line<'a>(&self, source: &'a str) -> &'a str {
+        source.split('\n').nth(self.line as usize).unwrap()
+    }
+
+    pub fn fmt_marker(&self) -> String {
+        let mut s = String::new();
+        for _ in 0..self.column {
+            s.push(' ');
+        }
+        s.push('^');
+        s
+    }
+
+    pub fn fmt_source(&self, source: &str) -> String {
+        let line_number = format!("{}", self.line + 1);
+        let mut spacing = String::new();
+        for _ in 0..line_number.len() {
+            spacing.push(' ');
+        }
+
+        format!("{} | {}\n{} | {}", line_number, self.extract_line(source), spacing, self.fmt_marker())
+    }
+}
+
+impl std::fmt::Display for TextLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line + 1, self.column + 1)
+    }
 }
 
 impl std::fmt::Debug for TextLocation {
@@ -240,6 +269,10 @@ pub struct ParseError {
 impl ParseError {
     fn new(location: TextLocation, error: String) -> ParseError {
         ParseError { location: location, error: error }
+    }
+
+    pub fn fmt(&self, origin: &str, source: &str) -> String {
+        format!("Parser Error: {} ({}:{})\n\n{}", self.error, origin, self.location, self.location.fmt_source(source))
     }
 }
 

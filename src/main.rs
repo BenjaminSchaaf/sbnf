@@ -24,28 +24,31 @@ fn main() -> std::io::Result<()> {
     }
 
     let grammar = sbnf::parse(&contents);
-    println!("GRAMMAR: {:?}", grammar);
 
-    if let Ok(grammar) = grammar {
-        let path = Path::new(&args[1]);
+    match grammar {
+        Err(e) => {
+            println!("{}", e.fmt(&args[1], &contents));
+        },
+        Ok(grammar) => {
+            let path = Path::new(&args[1]);
 
-        let syntax = compiler::compile(Some(path.file_stem().unwrap().to_str().unwrap()), &grammar);
+            let syntax = compiler::compile(Some(path.file_stem().unwrap().to_str().unwrap()), &grammar);
 
-        match syntax {
-            Err(e) => {
-                println!("SYNTAX: {:?}", e);
-            },
-            Ok(syntax) => {
-                let mut buf = String::new();
-                syntax.serialize(&mut buf);
-                println!("{}", buf);
+            match syntax {
+                Err(e) => {
+                    println!("{}", e.fmt(&args[1], &contents));
+                },
+                Ok(syntax) => {
+                    let mut buf = String::new();
+                    syntax.serialize(&mut buf);
 
-                if let Some(output) = output {
-                    let mut file = File::create(output)?;
-                    file.write_fmt(format_args!("{}", buf));
+                    if let Some(output) = output {
+                        let mut file = File::create(output)?;
+                        file.write_fmt(format_args!("{}", buf));
+                    }
                 }
             }
-        }
+        },
     }
 
     Ok(())

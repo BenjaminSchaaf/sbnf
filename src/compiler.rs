@@ -74,6 +74,17 @@ impl CompileError<'_> {
     fn from_str<'a>(err: &str, node: Option<&'a Node<'a>>) -> CompileError<'a> {
         CompileError { error: err.to_string(), node: node }
     }
+
+    pub fn fmt(&self, origin: &str, source: &str) -> String {
+        match self.node {
+            Some(node) => {
+                format!("Compiler Error: {} ({}:{})\n\n{}", self.error, origin, node.location, node.location.fmt_source(source))
+            },
+            None => {
+                format!("Compiler Error: {}", self.error)
+            }
+        }
+    }
 }
 
 pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<sublime_syntax::Syntax, CompileError<'a>> {
