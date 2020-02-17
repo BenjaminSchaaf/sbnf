@@ -121,8 +121,9 @@ main = 'aa'{scope1} 'b'
 This is unlikely to change in the future, as SBNF does not make any attempt to
 understand any regexes.
 
-## Known Bugs
+## TODO
 
-* Literal matches (`` `like this` ``) currently do not work.
-* Known edge cases in compiler. In a couple places we panic!() instead of
-  providing an implementation. These rare edgecases will be fixed.
+* Implement literal matches `` `like this` ``. Currently only regexes work.
+* Fix known edge cases in compiler. In a couple places we panic!() instead of
+  providing an implementation.
+* Implement a proper command line interface.
