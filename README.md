@@ -123,7 +123,6 @@ understand any regexes.
 
 ## TODO
 
-* Implement literal matches `` `like this` ``. Currently only regexes work.
 * Fix known edge cases in compiler. In a couple places we panic!() instead of
   providing an implementation.
 * Additional tests for compilation

@@ -20,10 +20,10 @@ impl<'a> Node<'a> {
         Node { text: text, location: location, data: data }
     }
 
-    pub fn get_regex(&self) -> &'a str {
+    pub fn get_regex(&'a self) -> &'a str {
         match &self.data {
             NodeData::RegexTerminal { .. } => self.text,
-            NodeData::LiteralTerminal { .. } => panic!(),
+            NodeData::LiteralTerminal { regex, .. } => regex,
             _ => panic!(),
         }
     }
@@ -31,7 +31,7 @@ impl<'a> Node<'a> {
     pub fn get_arguments(&'a self) -> &'a Vec<Node<'a>> {
         match &self.data {
             NodeData::RegexTerminal { arguments }
-            | NodeData::LiteralTerminal { arguments } => arguments,
+            | NodeData::LiteralTerminal { arguments, .. } => arguments,
             _ => panic!(),
         }
     }
@@ -76,7 +76,7 @@ impl<'a> Node<'a> {
                 }
                 Ok(())
             },
-            NodeData::LiteralTerminal { arguments } => {
+            NodeData::LiteralTerminal { arguments, .. } => {
                 write!(f, "`{}`", self.text)?;
                 if !arguments.is_empty() {
                     write!(f, "{{")?;
@@ -172,6 +172,7 @@ pub enum NodeData<'a> {
     },
     // `literal`
     LiteralTerminal {
+        regex: String,
         arguments: Vec<Node<'a>>,
     },
     // %{args}
@@ -818,8 +819,27 @@ fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, Parse
             vec!()
         };
 
-    Ok(Node::new(&parser.source[start..end], location,
-                 NodeData::LiteralTerminal { arguments: arguments }))
+    let literal = &parser.source[start..end];
+    // Convert the literal to a regex now. This makes further compilation much
+    // simpler.
+    let regex = literal_to_regex(literal);
+
+    Ok(Node::new(literal, location,
+                 NodeData::LiteralTerminal { regex, arguments }))
+}
+
+fn literal_to_regex(literal: &str) -> String {
+    const ESCAPE_CHARACTERS: &str = "^$\\.*+?()[]{}|";
+
+    let mut result = String::new();
+    for chr in literal.chars() {
+        if ESCAPE_CHARACTERS.find(chr).is_some() {
+            result.push('\\');
+        }
+
+        result.push(chr);
+    }
+    result
 }
 
 #[cfg(test)]
