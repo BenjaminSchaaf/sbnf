@@ -34,6 +34,9 @@ following values are allowed:
   `first_line_match` in sublime-syntax.
 * `scope`: The default scope for the grammar. This defaults to `source.`
   followed by the name lowercased.
+* `scope-postfix`: A postfix appended to all scopes in the grammar (excluding
+  the `scope` header). This defaults to the name lowercased. Leave empty to
+  leave out the postfix.
 * `hidden`: Whether the syntax will be shown in the menu in Sublime Text.
 
 Example:
@@ -127,5 +130,3 @@ understand any regexes.
   providing an implementation.
 * Additional tests for compilation
 * Fix meta scopes not being properly applied in all cases
-* Automatically apply standard scoping convention with the language name at the
-  end of scopes

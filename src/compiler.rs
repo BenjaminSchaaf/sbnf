@@ -12,6 +12,7 @@ struct Compiler<'a> {
     file_extensions: Option<String>,
     first_line_match: Option<String>,
     scope: Option<String>,
+    scope_postfix: Option<String>,
     hidden: Option<bool>,
     rules: HashMap<&'a str, Rule<'a>>,
     context_cache: HashMap<Context<'a>, String>,
@@ -26,6 +27,7 @@ impl<'a> Compiler<'a> {
             file_extensions: None,
             first_line_match: None,
             scope: None,
+            scope_postfix: None,
             hidden: None,
             rules: HashMap::new(),
             context_cache: HashMap::new(),
@@ -33,17 +35,14 @@ impl<'a> Compiler<'a> {
             warnings: vec!(),
         };
 
+        // Collect headers
         for node in &grammar.nodes {
             match node.data {
                 NodeData::Header(_) => {
                     compiler.compile_header(&node)?;
                 },
-                NodeData::Rule { .. } => {
-                    compiler.collect_rule(&node)?;
-                },
-                _ => {
-                    panic!("Top level nodes should only be headers and rules");
-                }
+                NodeData::Rule { .. } => {},
+                _ => panic!(),
             }
         }
 
@@ -98,6 +97,27 @@ pub struct CompilerOutput<'a> {
 pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
     let mut compiler = Compiler::new(grammar)?;
 
+    // Use the name_hint as a default name
+    let name = compiler.name.clone().or_else(
+            || name_hint.map(|s| trim_ascii(s).to_string())
+        ).ok_or(Error::from_str("No syntax name provided", None))?;
+
+    // Default the scope postfix to the name lowercased
+    if compiler.scope_postfix.is_none() {
+        compiler.scope_postfix = Some(name.to_lowercase());
+    }
+
+    // Collect rules
+    for node in &grammar.nodes {
+        match node.data {
+            NodeData::Header(_) => {},
+            NodeData::Rule { .. } => {
+                compiler.collect_rule(&node)?;
+            },
+            _ => panic!(),
+        }
+    }
+
     // Compile rules
     for entry_point in &["main", "prototype"] {
         if compiler.rules.get(entry_point).is_some() {
@@ -113,11 +133,7 @@ pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> R
         }
     }
 
-    // Propagate defaults. Use the name_hint as a default name
-    let name = compiler.name.or_else(
-            || name_hint.map(|s| trim_ascii(s).to_string())
-        ).ok_or(Error::from_str("No syntax name provided", None))?;
-
+    // Propagate defaults
     let extensions = compiler.file_extensions.map_or(vec!(),
         |s| s.split_ascii_whitespace()
              .map(|s| s.to_string())
@@ -130,7 +146,7 @@ pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> R
     let scope = compiler.scope.map_or_else(
         || sublime_syntax::Scope::new(
             vec!(format!("source.{}", name.to_lowercase()))),
-        |s| parse_scope(&s));
+        |s| parse_top_level_scope(&s));
 
     let hidden = compiler.hidden.unwrap_or(false);
 
@@ -150,10 +166,9 @@ pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> R
     })
 }
 
-fn parse_scope(s: &str) -> sublime_syntax::Scope {
-    let scopes = s.split_ascii_whitespace().map(|s| s.to_string()).collect::<Vec<String>>();
-
-    sublime_syntax::Scope::new(scopes)
+fn parse_top_level_scope(s: &str) -> sublime_syntax::Scope {
+    sublime_syntax::Scope::new(
+        s.split_ascii_whitespace().map(|s| s.to_string()).collect::<Vec<String>>())
 }
 
 fn trim_ascii<'a>(s: &'a str) -> &'a str {
@@ -161,6 +176,18 @@ fn trim_ascii<'a>(s: &'a str) -> &'a str {
 }
 
 impl<'a> Compiler<'a> {
+    fn parse_scope(&self, s: &str) -> sublime_syntax::Scope {
+        let mut s = parse_top_level_scope(s);
+        for scope in &mut s.scopes {
+            let postfix = self.scope_postfix.as_ref().unwrap();
+            if !postfix.is_empty() {
+                scope.push('.');
+                scope.push_str(postfix);
+            }
+        }
+        s
+    }
+
     fn compile_header(&mut self, node: &'a Node<'a>) -> Result<(), Error<'a>> {
         let value =
             if let NodeData::Header(value_node) = &node.data {
@@ -197,6 +224,13 @@ impl<'a> Compiler<'a> {
                 }
 
                 self.scope = Some(value.to_string());
+            },
+            "scope-postfix" => {
+                if self.scope_postfix.is_some() {
+                    return Err(Error::from_str("Duplicate 'scope-postfix' header", Some(node)));
+                }
+
+                self.scope_postfix = Some(trim_ascii(value).to_string());
             },
             "hidden" => {
                 if self.hidden.is_some() {
@@ -239,7 +273,7 @@ impl<'a> Compiler<'a> {
 
         for (i, argument) in arguments.iter().enumerate() {
             if i == 0 && argument.data == NodeData::PositionalArgument {
-                meta_scope = parse_scope(argument.text);
+                meta_scope = self.parse_scope(argument.text);
             } else if argument.data == NodeData::PositionalArgument {
                 return Err(Error::from_str(
                     "Rules may only have one positional argument specifying the meta scope", Some(argument)));
@@ -476,7 +510,7 @@ impl<'a> Compiler<'a> {
                                 sublime_syntax::ContextChange::Pop(1)
                             };
 
-                        patterns.push(Compiler::compile_terminal(m.terminal(), exit)?);
+                        patterns.push(self.compile_terminal(m.terminal(), exit)?);
                     } else {
                         patterns.push(self.compile_simple_match(rule, m)?);
                     }
@@ -542,7 +576,7 @@ impl<'a> Compiler<'a> {
                             meta_include_prototype: false,
                             clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                             matches: vec!(
-                                Compiler::compile_terminal(m.terminal(), exit)?,
+                                self.compile_terminal(m.terminal(), exit)?,
                             ),
                         });
                     }
@@ -606,7 +640,7 @@ impl<'a> Compiler<'a> {
         name
     }
 
-    fn compile_terminal(node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+    fn compile_terminal(&self, node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
         let arguments = node.get_arguments();
 
@@ -614,7 +648,7 @@ impl<'a> Compiler<'a> {
         let mut captures: HashMap<u16, sublime_syntax::Scope> = HashMap::new();
         for (i, argument) in arguments.iter().enumerate() {
             if i == 0 && argument.data == NodeData::PositionalArgument {
-                scope = parse_scope(argument.text);
+                scope = self.parse_scope(argument.text);
             } else if argument.data == NodeData::PositionalArgument {
                 return Err(Error::from_str(
                     "Positional argument for terminal scope may only be the first argument", Some(&argument)));
@@ -629,7 +663,7 @@ impl<'a> Compiler<'a> {
                     return Err(Error::from_str(
                         "Duplicate keyword argument", Some(argument)));
                 } else {
-                    captures.insert(key, parse_scope(value.text));
+                    captures.insert(key, self.parse_scope(value.text));
                 }
             } else {
                 panic!();
@@ -707,7 +741,7 @@ impl<'a> Compiler<'a> {
                 sublime_syntax::ContextChange::Set(set)
             };
 
-        Compiler::compile_terminal(current_match.node, exit)
+        self.compile_terminal(current_match.node, exit)
     }
 
     fn collect_branch_context(&mut self, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, Error<'a>> {
