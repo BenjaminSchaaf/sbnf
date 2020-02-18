@@ -130,3 +130,6 @@ understand any regexes.
 * Implement proper error formatting
 * Fix argument parsing when more than one scope is used
 * Additional tests for compilation
+* Fix meta scopes not being properly applied in all cases
+* Automatically apply standard scoping convention with the language name at the
+  end of scopes
