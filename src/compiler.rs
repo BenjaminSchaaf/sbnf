@@ -244,7 +244,7 @@ impl<'a> Compiler<'a> {
                 return Err(Error::from_str(
                     "Rules may only have one positional argument specifying the meta scope", Some(argument)));
             } else if let NodeData::KeyworkArgument(value_node) = &argument.data {
-                if argument.text == "include-prototype" {
+                if trim_ascii(argument.text) == "include-prototype" {
                     if meta_include_prototype.is_none() {
                         if let Ok(v) = trim_ascii(value_node.text).parse::<bool>() {
                             meta_include_prototype = Some(v);
