@@ -519,16 +519,19 @@ impl<'a> Compiler<'a> {
                         }
 
                         let exit = if let Some(name) = next_name {
-                                let set =
+                                let push =
                                     match context.match_end {
-                                        ContextEnd::None => vec!(name),
+                                        ContextEnd::None => {
+                                            vec!(self.compile_pop(2), name)
+                                        },
                                         _ => {
-                                            self.ensure_pop2_compiled();
-                                            vec!("pop-2".to_string(), name)
+                                            vec!(self.compile_pop(3), name)
                                         }
                                     };
 
-                                sublime_syntax::ContextChange::Set(set)
+                                // Using set in branch_point is broken, so we
+                                // have to use push.
+                                sublime_syntax::ContextChange::Push(push)
                             } else {
                                 sublime_syntax::ContextChange::Pop(2)
                             };
@@ -578,12 +581,14 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn ensure_pop2_compiled(&mut self) {
-        if self.contexts.get("pop-2").is_some() {
-            return;
+    fn compile_pop(&mut self, amount: u16) -> String {
+        let name = format!("pop-{}", amount);
+
+        if self.contexts.get(&name).is_some() {
+            return name;
         }
 
-        self.contexts.insert("pop-2".to_string(), sublime_syntax::Context {
+        self.contexts.insert(name.clone(), sublime_syntax::Context {
             meta_scope: sublime_syntax::Scope::empty(),
             meta_content_scope: sublime_syntax::Scope::empty(),
             meta_include_prototype: false,
@@ -593,10 +598,12 @@ impl<'a> Compiler<'a> {
                     pattern: sublime_syntax::Pattern::from_str(""),
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
-                    change_context: sublime_syntax::ContextChange::Pop(2),
+                    change_context: sublime_syntax::ContextChange::Pop(amount),
                 }),
             ),
         });
+
+        name
     }
 
     fn compile_terminal(node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
