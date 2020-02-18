@@ -462,8 +462,6 @@ fn parse_arguments<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseEr
     let mut arguments = vec!(parse_argument(parser)?);
 
     loop {
-        skip_whitespace(parser);
-
         match parser.peek_char() {
             Some('}') => {
                 parser.next();
@@ -473,14 +471,11 @@ fn parse_arguments<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseEr
                 parser.next();
                 arguments.push(parse_argument(parser)?);
             },
-            Some(chr) => {
-                return Err(parser.char_error(
-                    format!("Expected '}}' or ',' for the argument list. Got {:?} instead", chr)));
-            },
             None => {
                 return Err(parser.char_error(
                     "Expected '}', the end of an argument list. Got EOF instead".to_string()));
             },
+            _ => panic!(), // parse_argument should eat all other characters
         }
     }
 
@@ -488,19 +483,62 @@ fn parse_arguments<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseEr
 }
 
 fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
-    skip_whitespace(parser);
-    let (loc, text) = parse_identifier(parser)?;
-    skip_whitespace(parser);
-
-    if parser.peek_char() == Some(':') {
-        parser.next();
-        skip_whitespace(parser);
-        let (value_loc, value_text) = parse_identifier(parser)?;
-
-        Ok(Node::new(text, loc, NodeData::KeyworkArgument(Box::new(
-            Node::new(value_text, value_loc, NodeData::KeywordArgumentValue)))))
+    let loc = parser.location.clone();
+    let start: usize;
+    if let Some((loc, _)) = parser.peek() {
+        start = loc;
     } else {
-        Ok(Node::new(text, loc, NodeData::PositionalArgument))
+        return Err(parser.char_error(
+            "Expected an argument, got EOF instead".to_string()));
+    }
+
+    loop {
+        match parser.peek() {
+            Some((end, '}')) | Some((end, ',')) => {
+                return Ok(Node::new(
+                    &parser.source[start..end], loc, NodeData::PositionalArgument));
+            },
+            Some((end, ':')) => {
+                parser.next();
+
+                return Ok(Node::new(
+                    &parser.source[start..end],
+                    loc,
+                    NodeData::KeyworkArgument(Box::new(parse_kwarg_value(parser)?))));
+            },
+            Some(_) => {},
+            None => {
+                // Let the caller handle it
+                return Ok(Node::new("", loc, NodeData::PositionalArgument))
+            },
+        }
+        parser.next();
+    }
+}
+
+fn parse_kwarg_value<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let loc = parser.location.clone();
+    let start: usize;
+    if let Some((loc, _)) = parser.peek() {
+        start = loc;
+    } else {
+        return Err(parser.char_error(
+            "Expected a keyword argument value, got EOF instead".to_string()));
+    }
+
+    loop {
+        match parser.peek() {
+            Some((end, '}')) | Some((end, ',')) => {
+                return Ok(Node::new(
+                    &parser.source[start..end], loc, NodeData::KeywordArgumentValue));
+            },
+            Some(_) => {},
+            None => {
+                // Let the caller handle it
+                return Ok(Node::new("", loc, NodeData::KeywordArgumentValue))
+            }
+        }
+        parser.next();
     }
 }
 
@@ -909,12 +947,12 @@ mod tests {
                 capture((0, 20), repetition((0, 22), var("g", (0, 21)))),
             ))),
         ));
-        assert!(parse("a{b, 2:d, e}=a;").unwrap().nodes == vec!(
+        assert!(parse("a{b c, 2:d, e}=a;").unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(
-                    arg("b", (0, 2)),
-                    keyarg("2", (0, 5), "d", (0, 7)),
-                    arg("e", (0, 10)),
-                ), var("a", (0, 13)))
+                    arg("b c", (0, 2)),
+                    keyarg(" 2", (0, 6), "d", (0, 9)),
+                    arg(" e", (0, 11)),
+                ), var("a", (0, 15)))
         ));
     }
 
@@ -929,11 +967,11 @@ mod tests {
         assert!(parse(r#"a='\'';"#).unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(), regex("\\'", (0, 3), vec!()))
         ));
-        assert!(parse(r#"a='b(c)'{d, 1: e}?;"#).unwrap().nodes == vec!(
+        assert!(parse(r#"a='b(c)'{d, 1 :d e}?;"#).unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(),
-                optional((0, 17), regex("b(c)", (0, 3), vec!(
+                optional((0, 19), regex("b(c)", (0, 3), vec!(
                     arg("d", (0, 9)),
-                    keyarg("1", (0, 12), "e", (0, 15)),
+                    keyarg(" 1 ", (0, 11), "d e", (0, 15)),
                 )))
             )
         ));
