@@ -126,8 +126,6 @@ understand any regexes.
 * Implement literal matches `` `like this` ``. Currently only regexes work.
 * Fix known edge cases in compiler. In a couple places we panic!() instead of
   providing an implementation.
-* Implement a proper command line interface.
-* Implement proper error formatting
 * Fix argument parsing when more than one scope is used
 * Additional tests for compilation
 * Fix meta scopes not being properly applied in all cases

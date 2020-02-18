@@ -7,6 +7,11 @@ edition = "2018"
 [dependencies]
 indexmap = "1.3.2"
 
+[dependencies.clap]
+version = "~2.27.0"
+default-features = false
+features = [ "wrap_help" ]
+
 [dev-dependencies]
 maplit = "1.0.2"
 matches = "0.1.8"
