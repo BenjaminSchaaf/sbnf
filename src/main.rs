@@ -32,13 +32,18 @@ fn main() -> std::io::Result<()> {
         Ok(grammar) => {
             let path = Path::new(&args[1]);
 
-            let syntax = compiler::compile(Some(path.file_stem().unwrap().to_str().unwrap()), &grammar);
+            let result = compiler::compile(Some(path.file_stem().unwrap().to_str().unwrap()), &grammar);
 
-            match syntax {
+            match result {
                 Err(e) => {
-                    println!("{}", e.fmt(&args[1], &contents));
+                    println!("{}", e.fmt("Compiler Error", &args[1], &contents));
                 },
-                Ok(syntax) => {
+                Ok(result) => {
+                    let syntax = result.syntax;
+                    for warning in result.warnings {
+                        println!("{}", warning.fmt("Warning", &args[1], &contents));
+                    }
+
                     let mut buf = String::new();
                     syntax.serialize(&mut buf);
 

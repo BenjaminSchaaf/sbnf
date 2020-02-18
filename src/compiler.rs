@@ -16,10 +16,11 @@ struct Compiler<'a> {
     rules: HashMap<&'a str, Rule<'a>>,
     context_cache: HashMap<Context<'a>, String>,
     contexts: HashMap<String, sublime_syntax::Context>,
+    warnings: Vec<Error<'a>>,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(grammar: &'a sbnf::Grammar<'a>) -> Result<Compiler<'a>, CompileError<'a>> {
+    fn new(grammar: &'a sbnf::Grammar<'a>) -> Result<Compiler<'a>, Error<'a>> {
         let mut compiler = Compiler {
             name: None,
             file_extensions: None,
@@ -29,6 +30,7 @@ impl<'a> Compiler<'a> {
             rules: HashMap::new(),
             context_cache: HashMap::new(),
             contexts: HashMap::new(),
+            warnings: vec!(),
         };
 
         for node in &grammar.nodes {
@@ -51,8 +53,9 @@ impl<'a> Compiler<'a> {
 
 #[derive(Debug)]
 struct Rule<'a> {
+    rule_node: &'a Node<'a>,
     pattern: &'a Node<'a>,
-    collected: bool,
+    used: bool,
 
     inner_context_count: usize,
     branch_point_count: usize,
@@ -61,44 +64,59 @@ struct Rule<'a> {
 }
 
 #[derive(Debug)]
-pub struct CompileError<'a> {
+pub struct Error<'a> {
     error: String,
     node: Option<&'a Node<'a>>,
 }
 
-impl CompileError<'_> {
-    fn new<'a>(err: String, node: Option<&'a Node<'a>>) -> CompileError<'a> {
-        CompileError { error: err, node: node }
+impl Error<'_> {
+    fn new<'a>(err: String, node: Option<&'a Node<'a>>) -> Error<'a> {
+        Error { error: err, node: node }
     }
 
-    fn from_str<'a>(err: &str, node: Option<&'a Node<'a>>) -> CompileError<'a> {
-        CompileError { error: err.to_string(), node: node }
+    fn from_str<'a>(err: &str, node: Option<&'a Node<'a>>) -> Error<'a> {
+        Error { error: err.to_string(), node: node }
     }
 
-    pub fn fmt(&self, origin: &str, source: &str) -> String {
+    pub fn fmt(&self, typ: &str, origin: &str, source: &str) -> String {
         match self.node {
             Some(node) => {
-                format!("Compiler Error: {} ({}:{})\n\n{}", self.error, origin, node.location, node.location.fmt_source(source))
+                format!("{}: {} ({}:{})\n\n{}", typ, self.error, origin, node.location, node.location.fmt_source(source))
             },
             None => {
-                format!("Compiler Error: {}", self.error)
+                format!("{}: {}", typ, self.error)
             }
         }
     }
 }
 
-pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<sublime_syntax::Syntax, CompileError<'a>> {
+pub struct CompilerOutput<'a> {
+    pub syntax: sublime_syntax::Syntax,
+    pub warnings: Vec<Error<'a>>,
+}
+
+pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
     let mut compiler = Compiler::new(grammar)?;
 
     // Compile rules
     for entry_point in &["main", "prototype"] {
-        compiler.compile_rule(entry_point)?;
+        if compiler.rules.get(entry_point).is_some() {
+            compiler.compile_rule(entry_point)?;
+        }
+    }
+
+    // Add warmings for unused rules
+    for (_, rule) in &compiler.rules {
+        if !rule.used {
+            compiler.warnings.push(
+                Error::from_str("Unused rule", Some(rule.rule_node)));
+        }
     }
 
     // Propagate defaults. Use the name_hint as a default name
     let name = compiler.name.or_else(
             || name_hint.map(|s| trim_ascii(s).to_string())
-        ).ok_or(CompileError::from_str("No syntax name provided", None))?;
+        ).ok_or(Error::from_str("No syntax name provided", None))?;
 
     let extensions = compiler.file_extensions.map_or(vec!(),
         |s| s.split_ascii_whitespace()
@@ -116,7 +134,7 @@ pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> R
 
     let hidden = compiler.hidden.unwrap_or(false);
 
-    Ok(sublime_syntax::Syntax {
+    let syntax = sublime_syntax::Syntax {
         name: name,
         file_extensions: extensions,
         first_line_match: first_line_match,
@@ -124,6 +142,11 @@ pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> R
         hidden: hidden,
         variables: HashMap::new(),
         contexts: compiler.contexts,
+    };
+
+    Ok(CompilerOutput {
+        syntax: syntax,
+        warnings: compiler.warnings,
     })
 }
 
@@ -138,7 +161,7 @@ fn trim_ascii<'a>(s: &'a str) -> &'a str {
 }
 
 impl<'a> Compiler<'a> {
-    fn compile_header(&mut self, node: &'a Node<'a>) -> Result<(), CompileError<'a>> {
+    fn compile_header(&mut self, node: &'a Node<'a>) -> Result<(), Error<'a>> {
         let value =
             if let NodeData::Header(value_node) = &node.data {
                 value_node.text
@@ -149,56 +172,56 @@ impl<'a> Compiler<'a> {
         match node.text {
             "name" => {
                 if self.name.is_some() {
-                    return Err(CompileError::from_str("Duplicate 'name' header", Some(node)));
+                    return Err(Error::from_str("Duplicate 'name' header", Some(node)));
                 }
 
                 self.name = Some(trim_ascii(value).to_string());
             },
             "extensions" => {
                 if self.file_extensions.is_some() {
-                    return Err(CompileError::from_str("Duplicate 'extensions' header", Some(node)));
+                    return Err(Error::from_str("Duplicate 'extensions' header", Some(node)));
                 }
 
                 self.file_extensions = Some(value.to_string());
             },
             "first-line" => {
                 if self.first_line_match.is_some() {
-                    return Err(CompileError::from_str("Duplicate 'first-line' header", Some(node)));
+                    return Err(Error::from_str("Duplicate 'first-line' header", Some(node)));
                 }
 
                 self.first_line_match = Some(trim_ascii(value).to_string());
             },
             "scope" => {
                 if self.scope.is_some() {
-                    return Err(CompileError::from_str("Duplicate 'scope' header", Some(node)));
+                    return Err(Error::from_str("Duplicate 'scope' header", Some(node)));
                 }
 
                 self.scope = Some(value.to_string());
             },
             "hidden" => {
                 if self.hidden.is_some() {
-                    return Err(CompileError::from_str("Duplicate 'hidden' header", Some(node)));
+                    return Err(Error::from_str("Duplicate 'hidden' header", Some(node)));
                 }
 
                 if let Some(v) = trim_ascii(value).parse::<bool>().ok() {
                     self.hidden = Some(v);
                 } else {
-                    return Err(CompileError::from_str("Expected either 'true' or 'false' for header 'hidden'", Some(node)));
+                    return Err(Error::from_str("Expected either 'true' or 'false' for header 'hidden'", Some(node)));
                 }
             },
             _ => {
-                return Err(CompileError::new(format!("Unknown header '{}'", node.text), Some(node)));
+                return Err(Error::new(format!("Unknown header '{}'", node.text), Some(node)));
             }
         }
 
         Ok(())
     }
 
-    fn collect_rule(&mut self, node: &'a Node<'a>) -> Result<(), CompileError<'a>> {
+    fn collect_rule(&mut self, node: &'a Node<'a>) -> Result<(), Error<'a>> {
         let name = node.text;
 
         if self.rules.contains_key(name) {
-            return Err(CompileError::new(format!("Rule '{}' has already been defined", name), Some(node)));
+            return Err(Error::new(format!("Rule '{}' has already been defined", name), Some(node)));
         }
 
         let arguments: &'a Vec<Node<'a>>;
@@ -218,7 +241,7 @@ impl<'a> Compiler<'a> {
             if i == 0 && argument.data == NodeData::PositionalArgument {
                 meta_scope = parse_scope(argument.text);
             } else if argument.data == NodeData::PositionalArgument {
-                return Err(CompileError::from_str(
+                return Err(Error::from_str(
                     "Rules may only have one positional argument specifying the meta scope", Some(argument)));
             } else if let NodeData::KeyworkArgument(value_node) = &argument.data {
                 if argument.text == "include-prototype" {
@@ -226,23 +249,24 @@ impl<'a> Compiler<'a> {
                         if let Ok(v) = trim_ascii(value_node.text).parse::<bool>() {
                             meta_include_prototype = Some(v);
                         } else {
-                            return Err(CompileError::from_str(
+                            return Err(Error::from_str(
                                 "Expected 'true' or 'false'", Some(&value_node)));
                         }
                     } else {
-                        return Err(CompileError::from_str(
+                        return Err(Error::from_str(
                             "Duplicate 'include-prototype' argument", Some(argument)));
                     }
                 } else {
-                    return Err(CompileError::from_str(
+                    return Err(Error::from_str(
                         "Unknown argument", Some(argument)));
                 }
             }
         }
 
         self.rules.insert(name, Rule {
+            rule_node: node,
             pattern: pattern,
-            collected: false,
+            used: false,
 
             inner_context_count: 0,
             branch_point_count: 0,
@@ -365,7 +389,10 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn compile_rule(&mut self, name: &'a str) -> Result<(), CompileError<'a>> {
+    fn compile_rule(&mut self, name: &'a str) -> Result<(), Error<'a>> {
+        // Mark rule as used
+        self.rules.get_mut(name).unwrap().used = true;
+
         let node = self.rules.get(name).unwrap().pattern;
 
         let mut ctx = self.collect_context_nodes(node)?;
@@ -382,7 +409,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn compile_contexts(&mut self, rule: &'a str, contexts: Vec<(String, Context<'a>)>) -> Result<(), CompileError<'a>> {
+    fn compile_contexts(&mut self, rule: &'a str, contexts: Vec<(String, Context<'a>)>) -> Result<(), Error<'a>> {
         assert!(!contexts.is_empty());
         let branch_point = contexts[0].1.branch_point.clone();
 
@@ -572,7 +599,7 @@ impl<'a> Compiler<'a> {
         });
     }
 
-    fn compile_terminal(node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, CompileError<'a>> {
+    fn compile_terminal(node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
         let arguments = node.get_arguments();
 
@@ -582,17 +609,17 @@ impl<'a> Compiler<'a> {
             if i == 0 && argument.data == NodeData::PositionalArgument {
                 scope = parse_scope(argument.text);
             } else if argument.data == NodeData::PositionalArgument {
-                return Err(CompileError::from_str(
+                return Err(Error::from_str(
                     "Positional argument for terminal scope may only be the first argument", Some(&argument)));
             } else if let NodeData::KeyworkArgument(value) = &argument.data {
                 let key = trim_ascii(argument.text).parse::<u16>().ok().ok_or(
-                    CompileError::from_str(
+                    Error::from_str(
                         "Expected integer key for regex capture scope",
                         Some(argument)))?;
 
                 assert!(value.data == NodeData::KeywordArgumentValue);
                 if captures.contains_key(&key) {
-                    return Err(CompileError::from_str(
+                    return Err(Error::from_str(
                         "Duplicate keyword argument", Some(argument)));
                 } else {
                     captures.insert(key, parse_scope(value.text));
@@ -640,7 +667,7 @@ impl<'a> Compiler<'a> {
         }.map(&sublime_syntax::ContextPattern::Match)
     }
 
-    fn compile_simple_match(&mut self, rule: &'a str, _match: &ContextMatch<'a>) -> Result<sublime_syntax::ContextPattern, CompileError<'a>> {
+    fn compile_simple_match(&mut self, rule: &'a str, _match: &ContextMatch<'a>) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let mut set = vec!();
         let mut rule_name = rule;
         let mut current_match = _match;
@@ -676,7 +703,7 @@ impl<'a> Compiler<'a> {
         Compiler::compile_terminal(current_match.node, exit)
     }
 
-    fn collect_branch_context(&mut self, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, CompileError<'a>> {
+    fn collect_branch_context(&mut self, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, Error<'a>> {
         if let Some(child) = &_match.child {
             if let Some(mut context) = self.collect_branch_context(&child)? {
                 let mut new_matches = vec!();
@@ -697,7 +724,7 @@ impl<'a> Compiler<'a> {
     }
 
     // Transform and collect nodes that the context for node needs to match
-    fn collect_context_nodes(&mut self, node: &'a Node<'a>) -> Result<Context<'a>, CompileError<'a>> {
+    fn collect_context_nodes(&mut self, node: &'a Node<'a>) -> Result<Context<'a>, Error<'a>> {
         Ok(match &node.data {
             NodeData::RegexTerminal { .. }
             | NodeData::LiteralTerminal { .. }
@@ -714,7 +741,10 @@ impl<'a> Compiler<'a> {
                 let pattern = self.rules.get(node.text)
                                         .map(|r| r.pattern)
                                         .ok_or_else(||
-                    CompileError::from_str("Variable references rule that has not been defined", Some(node)))?;
+                    Error::from_str("Variable references rule that has not been defined", Some(node)))?;
+
+                // Mark rule as used
+                self.rules.get_mut(node.text).unwrap().used = true;
 
                 let mut r = self.collect_context_nodes(pattern)?;
 
@@ -831,7 +861,7 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    fn collect_context_nodes_concatenation(&mut self, nodes: &[&'a Node<'a>]) -> Result<Context<'a>, CompileError<'a>> {
+    fn collect_context_nodes_concatenation(&mut self, nodes: &[&'a Node<'a>]) -> Result<Context<'a>, Error<'a>> {
         assert!(nodes.len() >= 1);
         if nodes.len() == 1 {
             return Ok(self.collect_context_nodes(nodes[0])?);
