@@ -376,6 +376,7 @@ impl<'a> ContextMatch<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Context<'a> {
+    rule: &'a str,
     matches: Vec<ContextMatch<'a>>,
     match_end: ContextEnd<'a>,
     allow_empty: bool,
@@ -385,6 +386,8 @@ struct Context<'a> {
 
 impl<'a> Context<'a> {
     fn append(&mut self, mut other: Context<'a>) {
+        assert!(self.rule == other.rule);
+
         self.matches.append(&mut other.matches);
 
         self.append_update_end(other.match_end, other.allow_empty);
@@ -448,7 +451,7 @@ impl<'a> Compiler<'a> {
 
         let node = self.rules.get(name).unwrap().pattern;
 
-        let mut ctx = self.collect_context_nodes(node)?;
+        let mut ctx = self.collect_context_nodes(name, node)?;
 
         // Top level rules are always repetitions
         ctx.match_end = ContextEnd::None;
@@ -457,12 +460,12 @@ impl<'a> Compiler<'a> {
         assert!(self.context_cache.get(&ctx).is_none());
         self.context_cache.insert(ctx.clone(), name.to_string());
 
-        self.compile_contexts(name, vec!((name.to_string(), ctx)))?;
+        self.compile_contexts(vec!((name.to_string(), ctx)))?;
 
         Ok(())
     }
 
-    fn compile_contexts(&mut self, rule: &'a str, contexts: Vec<(String, Context<'a>)>) -> Result<(), Error<'a>> {
+    fn compile_contexts(&mut self, contexts: Vec<(String, Context<'a>)>) -> Result<(), Error<'a>> {
         assert!(!contexts.is_empty());
         let branch_point = contexts[0].1.branch_point.clone();
 
@@ -500,6 +503,8 @@ impl<'a> Compiler<'a> {
         let mut next_contexts: Vec<(String, Context<'a>)> = vec!();
 
         for ((name, context), matches_map) in contexts.iter().zip(context_maps.iter()) {
+            let rule = context.rule;
+
             let mut patterns = vec!();
 
             for (regex, matches) in matches_map {
@@ -511,7 +516,7 @@ impl<'a> Compiler<'a> {
                     // Continue branch
                     if continue_branch {
                         let exit =
-                            if let Some(mut ctx) = self.collect_branch_context(m)? {
+                            if let Some(mut ctx) = self.collect_branch_context(rule, m)? {
                                 ctx.branch_point = branch_point.clone();
 
                                 if let Some(name) = self.context_cache.get(&ctx) {
@@ -551,7 +556,7 @@ impl<'a> Compiler<'a> {
 
                         let next_name: Option<String>;
 
-                        if let Some(mut ctx) = self.collect_branch_context(m)? {
+                        if let Some(mut ctx) = self.collect_branch_context(rule, m)? {
                             if i != matches.len() - 1 {
                                 ctx.branch_point = branch_point.clone();
 
@@ -628,7 +633,7 @@ impl<'a> Compiler<'a> {
         }
 
         if !next_contexts.is_empty() {
-            self.compile_contexts(rule, next_contexts)?;
+            self.compile_contexts(next_contexts)?;
         }
 
         Ok(())
@@ -733,7 +738,7 @@ impl<'a> Compiler<'a> {
         let mut current_match = _match;
         loop {
             if !current_match.remaining.is_empty() {
-                let ctx = self.collect_context_nodes_concatenation(&current_match.remaining)?;
+                let ctx = self.collect_context_nodes_concatenation(rule_name, &current_match.remaining)?;
 
                 if let Some(name) = self.context_cache.get(&ctx) {
                     set.push(name.clone());
@@ -742,7 +747,33 @@ impl<'a> Compiler<'a> {
                     self.context_cache.insert(ctx.clone(), name.clone());
                     set.push(name.clone());
 
-                    self.compile_contexts(rule_name, vec!((name, ctx)))?;
+                    self.compile_contexts(vec!((name, ctx)))?;
+                }
+            } else {
+                let meta_scope = self.rules.get(rule_name).unwrap().scope.clone();
+
+                // If a rule is part of the matches stack we can ignore it if it
+                // has no remaining nodes, except if it has a meta scope. Then
+                // we create a special context for it.
+                if !meta_scope.is_empty() {
+                    let rule_meta_ctx_name = format!("{}|meta", rule_name);
+
+                    if self.contexts.get(&rule_meta_ctx_name).is_none() {
+                        self.contexts.insert(rule_meta_ctx_name.clone(), sublime_syntax::Context {
+                            meta_scope,
+                            meta_content_scope: sublime_syntax::Scope::empty(),
+                            meta_include_prototype: true,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match{
+                                pattern: sublime_syntax::Pattern::from_str(""),
+                                scope: sublime_syntax::Scope::empty(),
+                                captures: HashMap::new(),
+                                change_context: sublime_syntax::ContextChange::Pop(1),
+                            })),
+                        });
+                    }
+
+                    set.push(rule_meta_ctx_name);
                 }
             }
 
@@ -763,9 +794,9 @@ impl<'a> Compiler<'a> {
         self.compile_terminal(current_match.node, exit)
     }
 
-    fn collect_branch_context(&mut self, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, Error<'a>> {
+    fn collect_branch_context(&mut self, rule: &'a str, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, Error<'a>> {
         if let Some(child) = &_match.child {
-            if let Some(mut context) = self.collect_branch_context(&child)? {
+            if let Some(mut context) = self.collect_branch_context(rule, &child)? {
                 let mut new_matches = vec!();
                 for node in context.matches {
                     new_matches.push(_match.clone_with_new_child(node));
@@ -779,18 +810,19 @@ impl<'a> Compiler<'a> {
         if _match.remaining.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(self.collect_context_nodes_concatenation(&_match.remaining)?))
+            Ok(Some(self.collect_context_nodes_concatenation(rule, &_match.remaining)?))
         }
     }
 
     // Transform and collect nodes that the context for node needs to match
-    fn collect_context_nodes(&mut self, node: &'a Node<'a>) -> Result<Context<'a>, Error<'a>> {
+    fn collect_context_nodes(&mut self, rule: &'a str, node: &'a Node<'a>) -> Result<Context<'a>, Error<'a>> {
         Ok(match &node.data {
             NodeData::RegexTerminal { .. }
             | NodeData::LiteralTerminal { .. }
             | NodeData::Embed { .. } => {
                 let term = ContextMatch { node: &node, child: None, remaining: vec!() };
                 Context {
+                    rule,
                     matches: vec!(term),
                     match_end: ContextEnd::Match,
                     allow_empty: false,
@@ -806,7 +838,7 @@ impl<'a> Compiler<'a> {
                 // Mark rule as used
                 self.rules.get_mut(node.text).unwrap().used = true;
 
-                let mut r = self.collect_context_nodes(pattern)?;
+                let mut r = self.collect_context_nodes(node.text, pattern)?;
 
                 let mut matches = vec!();
                 for child in r.matches {
@@ -826,6 +858,7 @@ impl<'a> Compiler<'a> {
                     };
 
                 Context {
+                    rule,
                     matches: r.matches,
                     match_end: end,
                     allow_empty: r.allow_empty,
@@ -833,7 +866,7 @@ impl<'a> Compiler<'a> {
                 }
             },
             NodeData::Passive(node) => {
-                let r = self.collect_context_nodes(&node)?;
+                let r = self.collect_context_nodes(rule, &node)?;
 
                 match r.match_end {
                     ContextEnd::Match => {},
@@ -841,6 +874,7 @@ impl<'a> Compiler<'a> {
                 }
 
                 Context {
+                    rule,
                     matches: r.matches,
                     match_end: ContextEnd::None,
                     allow_empty: r.allow_empty,
@@ -848,11 +882,12 @@ impl<'a> Compiler<'a> {
                 }
             },
             NodeData::Optional(node) => {
-                let r = self.collect_context_nodes(&node)?;
+                let r = self.collect_context_nodes(rule, &node)?;
 
                 match r.match_end {
                     ContextEnd::Match => {
                         Context {
+                            rule,
                             matches: r.matches,
                             match_end: r.match_end,
                             allow_empty: true,
@@ -861,6 +896,7 @@ impl<'a> Compiler<'a> {
                     },
                     ContextEnd::None | ContextEnd::Push(_) => {
                         Context {
+                            rule,
                             matches: vec!(),
                             match_end: ContextEnd::Push(Box::new(r)),
                             allow_empty: true,
@@ -870,7 +906,7 @@ impl<'a> Compiler<'a> {
                 }
             },
             NodeData::Repetition(child) => {
-                let r = self.collect_context_nodes(&child)?;
+                let r = self.collect_context_nodes(rule, &child)?;
 
                 let matches = r.matches.iter().map(|_match| {
                     let mut remaining = _match.remaining.clone();
@@ -891,6 +927,7 @@ impl<'a> Compiler<'a> {
                     };
 
                 Context {
+                    rule,
                     matches: matches,
                     match_end: end,
                     allow_empty: true,
@@ -899,6 +936,7 @@ impl<'a> Compiler<'a> {
             },
             NodeData::Alternation(nodes) => {
                 let mut result = Context {
+                    rule,
                     matches: vec!(),
                     match_end: ContextEnd::Match,
                     allow_empty: false,
@@ -906,14 +944,14 @@ impl<'a> Compiler<'a> {
                 };
 
                 for node in nodes {
-                    result.append(self.collect_context_nodes(&node)?);
+                    result.append(self.collect_context_nodes(rule, &node)?);
                 }
 
                 result
             },
             NodeData::Concatenation(nodes) => {
                 let n = nodes.iter().collect::<Vec<_>>();
-                self.collect_context_nodes_concatenation(&n)?
+                self.collect_context_nodes_concatenation(rule, &n)?
             },
             _ => {
                 panic!();
@@ -921,16 +959,16 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    fn collect_context_nodes_concatenation(&mut self, nodes: &[&'a Node<'a>]) -> Result<Context<'a>, Error<'a>> {
+    fn collect_context_nodes_concatenation(&mut self, rule: &'a str, nodes: &[&'a Node<'a>]) -> Result<Context<'a>, Error<'a>> {
         assert!(nodes.len() >= 1);
         if nodes.len() == 1 {
-            return Ok(self.collect_context_nodes(nodes[0])?);
+            return Ok(self.collect_context_nodes(rule, nodes[0])?);
         }
 
         let first = nodes[0];
         let rest = &nodes[1..];
 
-        let mut result = self.collect_context_nodes(first)?;
+        let mut result = self.collect_context_nodes(rule, first)?;
 
         for _match in &mut result.matches {
             _match.remaining.extend(rest.iter().map(|n| *n));
@@ -940,7 +978,7 @@ impl<'a> Compiler<'a> {
             return Ok(result);
         }
 
-        let mut next = self.collect_context_nodes_concatenation(rest)?;
+        let mut next = self.collect_context_nodes_concatenation(rule, rest)?;
 
         result.match_end =
             match result.match_end {
@@ -949,6 +987,7 @@ impl<'a> Compiler<'a> {
                         ContextEnd::Match => ContextEnd::Match,
                         ContextEnd::None => {
                             ContextEnd::Push(Box::new(Context {
+                                rule,
                                 matches: next.matches.clone(),
                                 match_end: ContextEnd::None,
                                 allow_empty: next.allow_empty,
@@ -962,6 +1001,7 @@ impl<'a> Compiler<'a> {
                     match next.match_end {
                         ContextEnd::Match => {
                             ContextEnd::Push(Box::new(Context {
+                                rule,
                                 matches: result.matches.clone(),
                                 match_end: ContextEnd::None,
                                 allow_empty: next.allow_empty,
@@ -974,6 +1014,8 @@ impl<'a> Compiler<'a> {
                 },
                 _ => panic!(),
             };
+
+        assert!(result.rule == rule);
 
         result.matches.append(&mut next.matches);
         result.allow_empty = next.allow_empty;
@@ -995,7 +1037,7 @@ mod tests {
 
         let node = compiler.rules.get(rule).unwrap().pattern;
 
-        let cn = compiler.collect_context_nodes(node).unwrap();
+        let cn = compiler.collect_context_nodes(rule, node).unwrap();
         fun(cn);
     }
 
