@@ -894,9 +894,9 @@ mod tests {
         Node::new(name, TextLocation::from_tuple(loc), NodeData::Variable)
     }
 
-    fn literal<'a>(contents: &'a str, loc: (u32, u32), arguments: Vec<Node<'a>>) -> Node<'a> {
+    fn literal<'a>(contents: &'a str, loc: (u32, u32), regex: &str, arguments: Vec<Node<'a>>) -> Node<'a> {
         Node::new(contents, TextLocation::from_tuple(loc),
-                  NodeData::LiteralTerminal { arguments: arguments })
+                  NodeData::LiteralTerminal { regex: regex.to_string(), arguments: arguments })
     }
 
     fn regex<'a>(contents: &'a str, loc: (u32, u32), arguments: Vec<Node<'a>>) -> Node<'a> {
@@ -951,7 +951,7 @@ mod tests {
                 )),
                 var("d", (0, 8)),
             ))),
-            rule("b", (0, 11), vec!(), literal("a", (0, 14), vec!())),
+            rule("b", (0, 11), vec!(), literal("a", (0, 14), "a", vec!())),
         ));
         assert!(parse("a=~(b c)? (d|(e)|f) !g*;").unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(), concat((0, 2), vec!(
@@ -981,7 +981,7 @@ mod tests {
         assert!(parse("a=`;").is_err());
         assert!(parse("a=\';").is_err());
         assert!(parse("a=`\\`;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), literal("\\", (0, 3), vec!()))
+            rule("a", (0, 0), vec!(), literal("\\", (0, 3), "\\\\", vec!()))
         ));
         assert!(parse(r#"a='\';"#).is_err());
         assert!(parse(r#"a='\'';"#).unwrap().nodes == vec!(

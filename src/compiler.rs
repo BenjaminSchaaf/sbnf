@@ -8,186 +8,29 @@ use crate::sublime_syntax;
 
 #[derive(Debug)]
 struct Compiler<'a> {
-    name: Option<String>,
-    file_extensions: Option<String>,
-    first_line_match: Option<String>,
-    scope: Option<String>,
-    scope_postfix: Option<String>,
-    hidden: Option<bool>,
+    name: String,
+    file_extensions: Vec<String>,
+    first_line_match: Option<sublime_syntax::Pattern>,
+    scope: sublime_syntax::Scope,
+    hidden: bool,
+
+    scope_postfix: String,
     rules: HashMap<&'a str, Rule<'a>>,
     context_cache: HashMap<Context<'a>, String>,
     contexts: HashMap<String, sublime_syntax::Context>,
     warnings: Vec<Error<'a>>,
 }
 
-impl<'a> Compiler<'a> {
-    fn new(grammar: &'a sbnf::Grammar<'a>) -> Result<Compiler<'a>, Error<'a>> {
-        let mut compiler = Compiler {
-            name: None,
-            file_extensions: None,
-            first_line_match: None,
-            scope: None,
-            scope_postfix: None,
-            hidden: None,
-            rules: HashMap::new(),
-            context_cache: HashMap::new(),
-            contexts: HashMap::new(),
-            warnings: vec!(),
-        };
-
-        // Collect headers
-        for node in &grammar.nodes {
-            match node.data {
-                NodeData::Header(_) => {
-                    compiler.compile_header(&node)?;
-                },
-                NodeData::Rule { .. } => {},
-                _ => panic!(),
-            }
-        }
-
-        Ok(compiler)
-    }
+struct SyntaxMetadata {
+    name: Option<String>,
+    file_extensions: Option<String>,
+    first_line_match: Option<String>,
+    scope: Option<String>,
+    scope_postfix: Option<String>,
+    hidden: Option<bool>,
 }
 
-#[derive(Debug)]
-struct Rule<'a> {
-    rule_node: &'a Node<'a>,
-    pattern: &'a Node<'a>,
-    used: bool,
-
-    inner_context_count: usize,
-    branch_point_count: usize,
-    meta_scope: sublime_syntax::Scope,
-    meta_include_prototype: bool,
-}
-
-#[derive(Debug)]
-pub struct Error<'a> {
-    error: String,
-    node: Option<&'a Node<'a>>,
-}
-
-impl Error<'_> {
-    fn new<'a>(err: String, node: Option<&'a Node<'a>>) -> Error<'a> {
-        Error { error: err, node: node }
-    }
-
-    fn from_str<'a>(err: &str, node: Option<&'a Node<'a>>) -> Error<'a> {
-        Error { error: err.to_string(), node: node }
-    }
-
-    pub fn fmt(&self, typ: &str, origin: &str, source: &str) -> String {
-        match self.node {
-            Some(node) => {
-                format!("{}: {} ({}:{})\n\n{}", typ, self.error, origin, node.location, node.location.fmt_source(source))
-            },
-            None => {
-                format!("{}: {}", typ, self.error)
-            }
-        }
-    }
-}
-
-pub struct CompilerOutput<'a> {
-    pub syntax: sublime_syntax::Syntax,
-    pub warnings: Vec<Error<'a>>,
-}
-
-pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
-    let mut compiler = Compiler::new(grammar)?;
-
-    // Use the name_hint as a default name
-    let name = compiler.name.clone().or_else(
-            || name_hint.map(|s| trim_ascii(s).to_string())
-        ).ok_or(Error::from_str("No syntax name provided", None))?;
-
-    // Default the scope postfix to the name lowercased
-    if compiler.scope_postfix.is_none() {
-        compiler.scope_postfix = Some(name.to_lowercase());
-    }
-
-    // Collect rules
-    for node in &grammar.nodes {
-        match node.data {
-            NodeData::Header(_) => {},
-            NodeData::Rule { .. } => {
-                compiler.collect_rule(&node)?;
-            },
-            _ => panic!(),
-        }
-    }
-
-    // Compile rules
-    for entry_point in &["main", "prototype"] {
-        if compiler.rules.get(entry_point).is_some() {
-            compiler.compile_rule(entry_point)?;
-        }
-    }
-
-    // Add warmings for unused rules
-    for (_, rule) in &compiler.rules {
-        if !rule.used {
-            compiler.warnings.push(
-                Error::from_str("Unused rule", Some(rule.rule_node)));
-        }
-    }
-
-    // Propagate defaults
-    let extensions = compiler.file_extensions.map_or(vec!(),
-        |s| s.split_ascii_whitespace()
-             .map(|s| s.to_string())
-             .collect::<Vec<String>>());
-
-    let first_line_match = compiler.first_line_match.map(
-        |r| sublime_syntax::Pattern::new(r));
-
-    // Default scope to source.{name}
-    let scope = compiler.scope.map_or_else(
-        || sublime_syntax::Scope::new(
-            vec!(format!("source.{}", name.to_lowercase()))),
-        |s| parse_top_level_scope(&s));
-
-    let hidden = compiler.hidden.unwrap_or(false);
-
-    let syntax = sublime_syntax::Syntax {
-        name: name,
-        file_extensions: extensions,
-        first_line_match: first_line_match,
-        scope: scope,
-        hidden: hidden,
-        variables: HashMap::new(),
-        contexts: compiler.contexts,
-    };
-
-    Ok(CompilerOutput {
-        syntax: syntax,
-        warnings: compiler.warnings,
-    })
-}
-
-fn parse_top_level_scope(s: &str) -> sublime_syntax::Scope {
-    sublime_syntax::Scope::new(
-        s.split_ascii_whitespace().map(|s| s.to_string()).collect::<Vec<String>>())
-}
-
-fn trim_ascii<'a>(s: &'a str) -> &'a str {
-    s.trim_matches(|c: char| c.is_ascii_whitespace())
-}
-
-impl<'a> Compiler<'a> {
-    fn parse_scope(&self, s: &str) -> sublime_syntax::Scope {
-        let mut s = parse_top_level_scope(s);
-        for scope in &mut s.scopes {
-            let postfix = self.scope_postfix.as_ref().unwrap();
-            if !postfix.is_empty() {
-                scope.push('.');
-                scope.push_str(postfix);
-            }
-        }
-        s
-    }
-
+impl<'a> SyntaxMetadata {
     fn compile_header(&mut self, node: &'a Node<'a>) -> Result<(), Error<'a>> {
         let value =
             if let NodeData::Header(value_node) = &node.data {
@@ -250,6 +93,182 @@ impl<'a> Compiler<'a> {
 
         Ok(())
     }
+}
+
+impl<'a> Compiler<'a> {
+    fn new(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<Compiler<'a>, Error<'a>> {
+        let mut metadata = SyntaxMetadata {
+            name: None,
+            file_extensions: None,
+            first_line_match: None,
+            scope: None,
+            scope_postfix: None,
+            hidden: None,
+        };
+
+        // Collect headers
+        for node in &grammar.nodes {
+            match node.data {
+                NodeData::Header(_) => {
+                    metadata.compile_header(&node)?;
+                },
+                NodeData::Rule { .. } => {},
+                _ => panic!(),
+            }
+        }
+
+        // Use the name_hint as a default name
+        let name = metadata.name.clone().or_else(
+                || name_hint.map(|s| trim_ascii(s).to_string())
+            ).ok_or(Error::from_str("No syntax name provided", None))?;
+
+        // Default the scope postfix to the name lowercased
+        let scope_postfix = metadata.scope_postfix.unwrap_or_else(|| name.to_lowercase());
+
+        // Propagate defaults
+        let file_extensions = metadata.file_extensions.map_or(vec!(),
+            |s| s.split_ascii_whitespace()
+                 .map(|s| s.to_string())
+                 .collect::<Vec<String>>());
+
+        let first_line_match = metadata.first_line_match.map(
+            |r| sublime_syntax::Pattern::new(r));
+
+        // Default scope to source.{name}
+        let scope = metadata.scope.map_or_else(
+            || sublime_syntax::Scope::new(
+                vec!(format!("source.{}", name.to_lowercase()))),
+            |s| parse_top_level_scope(&s));
+
+        let hidden = metadata.hidden.unwrap_or(false);
+
+        let mut compiler = Compiler {
+            name,
+            file_extensions,
+            first_line_match,
+            scope,
+            hidden,
+            scope_postfix,
+            rules: HashMap::new(),
+            context_cache: HashMap::new(),
+            contexts: HashMap::new(),
+            warnings: vec!(),
+        };
+
+        // Collect rules
+        for node in &grammar.nodes {
+            match node.data {
+                NodeData::Header(_) => {},
+                NodeData::Rule { .. } => {
+                    compiler.collect_rule(&node)?;
+                },
+                _ => panic!(),
+            }
+        }
+
+        Ok(compiler)
+    }
+}
+
+#[derive(Debug)]
+struct Rule<'a> {
+    rule_node: &'a Node<'a>,
+    pattern: &'a Node<'a>,
+    used: bool,
+
+    inner_context_count: usize,
+    branch_point_count: usize,
+    scope: sublime_syntax::Scope,
+    include_prototype: bool,
+}
+
+#[derive(Debug)]
+pub struct Error<'a> {
+    error: String,
+    node: Option<&'a Node<'a>>,
+}
+
+impl Error<'_> {
+    fn new<'a>(err: String, node: Option<&'a Node<'a>>) -> Error<'a> {
+        Error { error: err, node: node }
+    }
+
+    fn from_str<'a>(err: &str, node: Option<&'a Node<'a>>) -> Error<'a> {
+        Error { error: err.to_string(), node: node }
+    }
+
+    pub fn fmt(&self, typ: &str, origin: &str, source: &str) -> String {
+        match self.node {
+            Some(node) => {
+                format!("{}: {} ({}:{})\n\n{}", typ, self.error, origin, node.location, node.location.fmt_source(source))
+            },
+            None => {
+                format!("{}: {}", typ, self.error)
+            }
+        }
+    }
+}
+
+pub struct CompilerOutput<'a> {
+    pub syntax: sublime_syntax::Syntax,
+    pub warnings: Vec<Error<'a>>,
+}
+
+pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
+    let mut compiler = Compiler::new(name_hint, grammar)?;
+
+    // Compile rules
+    for entry_point in &["main", "prototype"] {
+        if compiler.rules.get(entry_point).is_some() {
+            compiler.compile_rule(entry_point)?;
+        }
+    }
+
+    // Add warmings for unused rules
+    for (_, rule) in &compiler.rules {
+        if !rule.used {
+            compiler.warnings.push(
+                Error::from_str("Unused rule", Some(rule.rule_node)));
+        }
+    }
+
+    let syntax = sublime_syntax::Syntax {
+        name: compiler.name,
+        file_extensions: compiler.file_extensions,
+        first_line_match: compiler.first_line_match,
+        scope: compiler.scope,
+        hidden: compiler.hidden,
+        variables: HashMap::new(),
+        contexts: compiler.contexts,
+    };
+
+    Ok(CompilerOutput {
+        syntax: syntax,
+        warnings: compiler.warnings,
+    })
+}
+
+fn parse_top_level_scope(s: &str) -> sublime_syntax::Scope {
+    sublime_syntax::Scope::new(
+        s.split_ascii_whitespace().map(|s| s.to_string()).collect::<Vec<String>>())
+}
+
+fn trim_ascii<'a>(s: &'a str) -> &'a str {
+    s.trim_matches(|c: char| c.is_ascii_whitespace())
+}
+
+impl<'a> Compiler<'a> {
+    fn parse_scope(&self, s: &str) -> sublime_syntax::Scope {
+        let mut s = parse_top_level_scope(s);
+        for scope in &mut s.scopes {
+            let postfix = &self.scope_postfix;
+            if !postfix.is_empty() {
+                scope.push('.');
+                scope.push_str(postfix);
+            }
+        }
+        s
+    }
 
     fn collect_rule(&mut self, node: &'a Node<'a>) -> Result<(), Error<'a>> {
         let name = node.text;
@@ -268,20 +287,20 @@ impl<'a> Compiler<'a> {
         }
 
         // Parse arguments
-        let mut meta_scope = sublime_syntax::Scope::empty();
-        let mut meta_include_prototype: Option<bool> = None;
+        let mut scope = sublime_syntax::Scope::empty();
+        let mut include_prototype: Option<bool> = None;
 
         for (i, argument) in arguments.iter().enumerate() {
             if i == 0 && argument.data == NodeData::PositionalArgument {
-                meta_scope = self.parse_scope(argument.text);
+                scope = self.parse_scope(argument.text);
             } else if argument.data == NodeData::PositionalArgument {
                 return Err(Error::from_str(
                     "Rules may only have one positional argument specifying the meta scope", Some(argument)));
             } else if let NodeData::KeyworkArgument(value_node) = &argument.data {
                 if trim_ascii(argument.text) == "include-prototype" {
-                    if meta_include_prototype.is_none() {
+                    if include_prototype.is_none() {
                         if let Ok(v) = trim_ascii(value_node.text).parse::<bool>() {
-                            meta_include_prototype = Some(v);
+                            include_prototype = Some(v);
                         } else {
                             return Err(Error::from_str(
                                 "Expected 'true' or 'false'", Some(&value_node)));
@@ -304,8 +323,8 @@ impl<'a> Compiler<'a> {
 
             inner_context_count: 0,
             branch_point_count: 0,
-            meta_scope: meta_scope,
-            meta_include_prototype: meta_include_prototype.unwrap_or(true),
+            scope: scope,
+            include_prototype: include_prototype.unwrap_or(true),
         });
 
         Ok(())
@@ -599,9 +618,9 @@ impl<'a> Compiler<'a> {
 
                 assert!(self.contexts.get(name).is_none());
                 self.contexts.insert(name.clone(), sublime_syntax::Context {
-                    meta_scope: r.meta_scope.clone(),
+                    meta_scope: r.scope.clone(),
                     meta_content_scope: sublime_syntax::Scope::empty(),
-                    meta_include_prototype: r.meta_include_prototype,
+                    meta_include_prototype: r.include_prototype,
                     clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                     matches: patterns,
                 });
@@ -972,7 +991,8 @@ mod tests {
     fn collect_node<F>(source: &str, rule: &str, fun: F) where F: Fn(Context) -> () {
         let grammar = sbnf::parse(source).unwrap();
 
-        let mut compiler = Compiler::new(&grammar).unwrap();
+        let mut compiler = Compiler::new(Some(rule), &grammar).unwrap();
+
         let node = compiler.rules.get(rule).unwrap().pattern;
 
         let cn = compiler.collect_context_nodes(node).unwrap();
