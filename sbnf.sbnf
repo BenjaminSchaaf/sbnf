@@ -26,6 +26,4 @@ pattern-item = literal arguments?
 literal{string.quoted, include-prototype: false} = '`' ~'`' ;
 regex{string.quoted, include-prototype: false} = '\'' (~'\\\'')* ~'\'' ;
 
-embed = '%' arguments ;
-
 arguments = '{[^}]*}' ;

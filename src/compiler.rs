@@ -350,34 +350,62 @@ enum ContextEnd<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ContextMatchData<'a> {
+    Terminal {
+        node: &'a Node<'a>,
+    },
+    Variable {
+        name: &'a str,
+        child: Box<ContextMatch<'a>>,
+    },
+    Repetition {
+        child: Box<ContextMatch<'a>>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ContextMatch<'a> {
-    node: &'a Node<'a>,
-    child: Option<Box<ContextMatch<'a>>>,
+    data: ContextMatchData<'a>,
     remaining: Vec<&'a Node<'a>>,
 }
 
 impl<'a> ContextMatch<'a> {
     fn terminal(&self) -> &'a Node<'a> {
-        if let Some(child) = &self.child {
-            child.terminal()
-        } else {
-            self.node
+        match &self.data {
+            ContextMatchData::Terminal { node } => node,
+            ContextMatchData::Variable { child, .. }
+            | ContextMatchData::Repetition { child } => child.terminal(),
         }
     }
 
     fn rule(&self, top_level: &'a str) -> &'a str {
-        if let Some(child) = &self.child {
-            child.rule(self.node.text)
-        } else {
-            top_level
+        match &self.data {
+            ContextMatchData::Terminal { .. } => top_level,
+            ContextMatchData::Variable { name, child } => child.rule(name),
+            ContextMatchData::Repetition { child } => child.rule(top_level),
         }
     }
 
     fn clone_with_new_child(&self, child: ContextMatch<'a>) -> ContextMatch<'a> {
-        ContextMatch {
-            node: self.node,
-            child: Some(Box::new(child)),
-            remaining: self.remaining.clone(),
+        match &self.data {
+            ContextMatchData::Variable { name, .. } => {
+                ContextMatch {
+                    data: ContextMatchData::Variable {
+                        name,
+                        child: Box::new(child),
+                    },
+                    remaining: self.remaining.clone(),
+                }
+            },
+            ContextMatchData::Repetition { .. } => {
+                ContextMatch {
+                    data: ContextMatchData::Repetition {
+                        child: Box::new(child),
+                    },
+                    remaining: self.remaining.clone(),
+                }
+            },
+            _ => panic!(),
         }
     }
 }
@@ -467,6 +495,15 @@ impl<'a> Compiler<'a> {
         // Top level rules are always repetitions
         ctx.match_end = ContextEnd::None;
         ctx.allow_empty = false;
+
+        let mut matches = vec!();
+        for _match in ctx.matches {
+            matches.push(ContextMatch {
+                data: ContextMatchData::Repetition { child: Box::new(_match) },
+                remaining: vec!(),
+            });
+        }
+        ctx.matches = matches;
 
         assert!(self.context_cache.get(&ctx).is_none());
         self.context_cache.insert(ctx.clone(), name.to_string());
@@ -568,11 +605,9 @@ impl<'a> Compiler<'a> {
                         let next_name: Option<String>;
 
                         if let Some(mut ctx) = self.collect_branch_context(rule, m)? {
-                            if i != matches.len() - 1 {
-                                ctx.branch_point = branch_point.clone();
+                            ctx.branch_point = branch_point.clone();
 
-                                assert!(self.context_cache.get(&ctx).is_none());
-                            }
+                            assert!(self.context_cache.get(&ctx).is_none());
 
                             if let Some(name) = self.context_cache.get(&ctx) {
                                 next_name = Some(name.clone());
@@ -632,10 +667,18 @@ impl<'a> Compiler<'a> {
             {
                 let r = self.rules.get(rule).unwrap();
 
+                // For branch points, the meta scope has already been added
+                let meta_content_scope =
+                    if context.branch_point.is_some() {
+                        sublime_syntax::Scope::empty()
+                    } else {
+                        r.scope.clone()
+                    };
+
                 assert!(self.contexts.get(name).is_none());
                 self.contexts.insert(name.clone(), sublime_syntax::Context {
-                    meta_scope: r.scope.clone(),
-                    meta_content_scope: sublime_syntax::Scope::empty(),
+                    meta_scope: sublime_syntax::Scope::empty(),
+                    meta_content_scope,
                     meta_include_prototype: r.include_prototype,
                     clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                     matches: patterns,
@@ -744,6 +787,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_simple_match(&mut self, rule: &'a str, _match: &ContextMatch<'a>) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+        println!("{:?}", _match);
         let mut set = vec!();
         let mut rule_name = rule;
         let mut current_match = _match;
@@ -788,11 +832,15 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            if let Some(child) = &current_match.child {
-                rule_name = current_match.node.text;
-                current_match = &child;
-            } else {
-                break;
+            match &current_match.data {
+                ContextMatchData::Terminal { .. } => break,
+                ContextMatchData::Variable { name, child } => {
+                    rule_name = name;
+                    current_match = &child;
+                },
+                ContextMatchData::Repetition { child } => {
+                    current_match = &child;
+                },
             }
         }
 
@@ -802,19 +850,23 @@ impl<'a> Compiler<'a> {
                 sublime_syntax::ContextChange::Set(set)
             };
 
-        self.compile_terminal(current_match.node, exit)
+        self.compile_terminal(current_match.terminal(), exit)
     }
 
     fn collect_branch_context(&mut self, rule: &'a str, _match: &ContextMatch<'a>) -> Result<Option<Context<'a>>, Error<'a>> {
-        if let Some(child) = &_match.child {
-            if let Some(mut context) = self.collect_branch_context(rule, &child)? {
-                let mut new_matches = vec!();
-                for node in context.matches {
-                    new_matches.push(_match.clone_with_new_child(node));
-                }
-                context.matches = new_matches;
+        match &_match.data {
+            ContextMatchData::Terminal { .. } => {},
+            ContextMatchData::Variable { child, .. }
+            | ContextMatchData::Repetition { child } => {
+                if let Some(mut context) = self.collect_branch_context(rule, &child)? {
+                    let mut new_matches = vec!();
+                    for node in context.matches {
+                        new_matches.push(_match.clone_with_new_child(node));
+                    }
+                    context.matches = new_matches;
 
-                return Ok(Some(context))
+                    return Ok(Some(context))
+                }
             }
         }
 
@@ -831,10 +883,14 @@ impl<'a> Compiler<'a> {
             NodeData::RegexTerminal { .. }
             | NodeData::LiteralTerminal { .. }
             | NodeData::Embed { .. } => {
-                let term = ContextMatch { node: &node, child: None, remaining: vec!() };
                 Context {
                     rule,
-                    matches: vec!(term),
+                    matches: vec!(
+                        ContextMatch {
+                            data: ContextMatchData::Terminal { node },
+                            remaining: vec!()
+                        },
+                    ),
                     match_end: ContextEnd::Match,
                     allow_empty: false,
                     branch_point: None,
@@ -854,8 +910,10 @@ impl<'a> Compiler<'a> {
                 let mut matches = vec!();
                 for child in r.matches {
                     matches.push(ContextMatch {
-                        node: &node,
-                        child: Some(Box::new(child)),
+                        data: ContextMatchData::Variable {
+                            name: node.text,
+                            child: Box::new(child),
+                        },
                         remaining: vec!(),
                     });
                 }
@@ -917,18 +975,17 @@ impl<'a> Compiler<'a> {
                 }
             },
             NodeData::Repetition(child) => {
-                let r = self.collect_context_nodes(rule, &child)?;
+                let mut r = self.collect_context_nodes(rule, &child)?;
 
-                let matches = r.matches.iter().map(|_match| {
-                    let mut remaining = _match.remaining.clone();
-                    remaining.push(node);
-
-                    ContextMatch {
-                        node: _match.node,
-                        child: _match.child.clone(),
-                        remaining: remaining,
-                    }
-                }).collect::<Vec<_>>();
+                let mut matches = vec!();
+                for child in r.matches {
+                    matches.push(ContextMatch {
+                        data: ContextMatchData::Repetition {
+                            child: Box::new(child),
+                        },
+                        remaining: vec!(),
+                    });
+                }
 
                 let end =
                     match r.match_end {
@@ -1053,20 +1110,20 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    enum TestNode<'a> {
-        Variable(&'a str),
-        RegexTerminal(&'a str),
-        LiteralTerminal(&'a str),
+    enum TestNode {
+        Variable(&'static str),
+        RegexTerminal(&'static str),
+        LiteralTerminal(&'static str),
         Embed,
-        Passive(Box<TestNode<'a>>),
-        Repetition(Box<TestNode<'a>>),
-        Optional(Box<TestNode<'a>>),
-        Alternation(Vec<TestNode<'a>>),
-        Concatenation(Vec<TestNode<'a>>),
+        Passive(Box<TestNode>),
+        Repetition(Box<TestNode>),
+        Optional(Box<TestNode>),
+        Alternation(Vec<TestNode>),
+        Concatenation(Vec<TestNode>),
     }
 
-    impl<'a, 'b> PartialEq<TestNode<'a>> for Node<'b> {
-        fn eq(&self, other: &TestNode<'a>) -> bool {
+    impl<'a> PartialEq<TestNode> for Node<'a> {
+        fn eq(&self, other: &TestNode) -> bool {
             match &self.data {
                 NodeData::Variable => match other {
                     TestNode::Variable(name) => &self.text == name,
@@ -1109,63 +1166,81 @@ mod tests {
         }
     }
 
-    fn variable<'a>(s: &'a str) -> TestNode<'a> { TestNode::Variable(s) }
-    fn regex<'a>(s: &'a str) -> TestNode<'a> { TestNode::RegexTerminal(s) }
-    fn literal<'a>(s: &'a str) -> TestNode<'a> { TestNode::LiteralTerminal(s) }
-    fn embed<'a>() -> TestNode<'a> { TestNode::Embed }
-    fn passive<'a>(n: TestNode<'a>) -> TestNode<'a> {
+    fn variable(s: &'static str) -> TestNode { TestNode::Variable(s) }
+    fn regex(s: &'static str) -> TestNode { TestNode::RegexTerminal(s) }
+    fn literal(s: &'static str) -> TestNode { TestNode::LiteralTerminal(s) }
+    fn embed() -> TestNode { TestNode::Embed }
+    fn passive(n: TestNode) -> TestNode {
         TestNode::Passive(Box::new(n))
     }
-    fn repetition<'a>(n: TestNode<'a>) -> TestNode<'a> {
+    fn repetition(n: TestNode) -> TestNode {
         TestNode::Repetition(Box::new(n))
     }
-    fn optional<'a>(n: TestNode<'a>) -> TestNode<'a> {
+    fn optional(n: TestNode) -> TestNode {
         TestNode::Optional(Box::new(n))
     }
-    fn alternation<'a>(ns: &[TestNode<'a>]) -> TestNode<'a> {
+    fn alternation(ns: &[TestNode]) -> TestNode {
         TestNode::Alternation(ns.to_vec())
     }
-    fn concatenation<'a>(ns: &[TestNode<'a>]) -> TestNode<'a> {
+    fn concatenation(ns: &[TestNode]) -> TestNode {
         TestNode::Concatenation(ns.to_vec())
     }
 
     #[derive(Debug, Clone)]
-    struct TestContextMatch<'a> {
-        node: String,
-        child: Option<Box<TestContextMatch<'a>>>,
-        remaining: Vec<TestNode<'a>>,
+    enum TestContextMatchData {
+        Terminal { regex: String },
+        Variable { name: String, child: Box<TestContextMatch> },
+        Repetition { child: Box<TestContextMatch> },
     }
 
-    impl<'a, 'b> PartialEq<TestContextMatch<'a>> for ContextMatch<'b> {
-        fn eq(&self, other: &TestContextMatch<'a>) -> bool {
-            (if let Some(child) = &self.child {
-                self.node.text == other.node
-                    && other.child.is_some()
-                    && **child == **other.child.as_ref().unwrap()
-            } else {
-                self.node.get_regex() == other.node
+    #[derive(Debug, Clone)]
+    struct TestContextMatch {
+        data: TestContextMatchData,
+        remaining: Vec<TestNode>,
+    }
+
+    impl<'a> PartialEq<TestContextMatch> for ContextMatch<'a> {
+        fn eq(&self, other: &TestContextMatch) -> bool {
+            (match &self.data {
+                ContextMatchData::Terminal { node } => {
+                    match &other.data {
+                        TestContextMatchData::Terminal { regex } => node.get_regex() == regex,
+                        _ => false,
+                    }
+                },
+                ContextMatchData::Variable { name, child } => {
+                    match &other.data {
+                        TestContextMatchData::Variable { name: oname, child: ochild } => *name == oname && **child == **ochild,
+                        _ => false,
+                    }
+                },
+                ContextMatchData::Repetition { child } => {
+                    match &other.data {
+                        TestContextMatchData::Repetition { child: ochild } => **child == **ochild,
+                        _ => false,
+                    }
+                },
             }) && self.remaining.iter().map(|&n| n).eq(other.remaining.iter())
         }
     }
 
-    fn m_term<'a>(s: &str) -> TestContextMatch<'a> {
+    fn m_term(s: &str, r: &[TestNode]) -> TestContextMatch {
         TestContextMatch {
-            node: s.to_string(),
-            child: None,
-            remaining: vec!(),
-        }
-    }
-    fn m_concat<'a>(s: &str, r: &[TestNode<'a>]) -> TestContextMatch<'a> {
-        TestContextMatch {
-            node: s.to_string(),
-            child: None,
+            data: TestContextMatchData::Terminal { regex: s.to_string() },
             remaining: r.to_vec(),
         }
     }
-    fn m_var<'a>(s: &str, child: TestContextMatch<'a>, r: &[TestNode<'a>]) -> TestContextMatch<'a> {
+
+    fn m_var(s: &str, child: TestContextMatch, r: &[TestNode]) -> TestContextMatch {
         TestContextMatch {
-            node: s.to_string(),
-            child: Some(Box::new(child)),
+            data: TestContextMatchData::Variable { name: s.to_string(), child: Box::new(child) },
+            remaining: r.to_vec(),
+        }
+    }
+
+    fn m_rep(child: TestContextMatch, r: &[TestNode]) -> TestContextMatch {
+        TestContextMatch {
+            data: TestContextMatchData::Repetition { child: Box::new(child) },
             remaining: r.to_vec(),
         }
     }
@@ -1175,7 +1250,7 @@ mod tests {
         collect_node("m = ~'a';", "m", |cn| {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert_eq!(cn.matches, [
-                m_term("a"),
+                m_term("a", &[]),
             ]);
         });
 
@@ -1183,7 +1258,7 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[regex("b")]),
+                m_term("a", &[regex("b")]),
             ]);
         });
 
@@ -1191,8 +1266,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(regex("a")), passive(regex("b"))]),
-                m_term("b"),
+                m_rep(m_term("a", &[]), &[passive(regex("b"))]),
+                m_term("b", &[]),
             ]);
         });
 
@@ -1200,8 +1275,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(passive(regex("a"))), passive(regex("b"))]),
-                m_term("b"),
+                m_rep(m_term("a", &[]), &[passive(regex("b"))]),
+                m_term("b", &[]),
             ]);
         });
 
@@ -1209,8 +1284,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[regex("c")]),
-                m_concat("b", &[regex("c")]),
+                m_term("a", &[regex("c")]),
+                m_term("b", &[regex("c")]),
             ]);
         });
 
@@ -1218,7 +1293,7 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::None);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
+                m_term("a", &[]),
             ]);
         });
 
@@ -1228,7 +1303,7 @@ mod tests {
                     assert_matches!(cn2.match_end, ContextEnd::None);
                     assert!(!cn2.allow_empty);
                     assert_eq!(cn2.matches, [
-                        m_term("a"),
+                        m_term("a", &[]),
                     ]);
                 },
                 _ => panic!(),
@@ -1243,15 +1318,15 @@ mod tests {
                     assert_matches!(cn2.match_end, ContextEnd::None);
                     assert!(!cn2.allow_empty);
                     assert_eq!(cn2.matches, [
-                        m_concat("a", &[repetition(passive(regex("a"))), regex("b")]),
+                        m_rep(m_term("a", &[]), &[regex("b")]),
                     ]);
                 },
                 _ => panic!(),
             }
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(passive(regex("a"))), regex("b")]),
-                m_term("b"),
+                m_rep(m_term("a", &[]), &[regex("b")]),
+                m_term("b", &[]),
             ]);
         });
 
@@ -1261,15 +1336,15 @@ mod tests {
                     assert_matches!(cn2.match_end, ContextEnd::None);
                     assert!(!cn2.allow_empty);
                     assert_eq!(cn2.matches, [
-                        m_term("b"),
+                        m_term("b", &[]),
                     ]);
                 },
                 _ => panic!(),
             }
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[passive(regex("b"))]),
-                m_term("b"),
+                m_term("a", &[passive(regex("b"))]),
+                m_term("b", &[]),
             ]);
         });
     }
@@ -1280,7 +1355,7 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(regex("a"))]),
+                m_rep(m_term("a", &[]), &[]),
             ]);
         });
 
@@ -1288,34 +1363,9 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[
-                    regex("b"),
-                    repetition(alternation(&[
-                        concatenation(&[
-                            optional(regex("a")),
-                            regex("b"),
-                        ]),
-                        regex("c"),
-                    ])),
-                ]),
-                m_concat("b", &[
-                    repetition(alternation(&[
-                        concatenation(&[
-                            optional(regex("a")),
-                            regex("b"),
-                        ]),
-                        regex("c"),
-                    ])),
-                ]),
-                m_concat("c", &[
-                    repetition(alternation(&[
-                        concatenation(&[
-                            optional(regex("a")),
-                            regex("b"),
-                        ]),
-                        regex("c"),
-                    ])),
-                ]),
+                m_rep(m_term("a", &[regex("b")]), &[]),
+                m_rep(m_term("b", &[]), &[]),
+                m_rep(m_term("c", &[]), &[]),
             ]);
         });
     }
@@ -1326,7 +1376,7 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
+                m_term("a", &[]),
             ]);
         });
 
@@ -1334,9 +1384,9 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
-                m_concat("b", &[repetition(regex("b")), regex("c")]),
-                m_term("c"),
+                m_term("a", &[]),
+                m_rep(m_term("b", &[]), &[regex("c")]),
+                m_term("c", &[]),
             ]);
         });
     }
@@ -1347,8 +1397,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
-                m_term("b"),
+                m_term("a", &[]),
+                m_term("b", &[]),
             ]);
         });
 
@@ -1356,8 +1406,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
-                m_concat("b", &[regex("c")]),
+                m_term("a", &[]),
+                m_term("b", &[regex("c")]),
             ]);
         });
 
@@ -1365,9 +1415,9 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_term("a"),
-                m_term("b"),
-                m_concat("c", &[repetition(regex("c"))]),
+                m_term("a", &[]),
+                m_term("b", &[]),
+                m_rep(m_term("c", &[]), &[]),
             ]);
         });
     }
@@ -1378,7 +1428,7 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[regex("b")]),
+                m_term("a", &[regex("b")]),
             ]);
         });
 
@@ -1386,8 +1436,8 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[regex("c")]),
-                m_concat("b", &[regex("c")]),
+                m_term("a", &[regex("c")]),
+                m_term("b", &[regex("c")]),
             ]);
         });
 
@@ -1395,18 +1445,19 @@ mod tests {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(!cn.allow_empty);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(regex("b")), regex("c")]),
-                m_concat("b", &[repetition(regex("b")), regex("c")]),
-                m_term("c"),
+                m_term("a", &[repetition(regex("b")), regex("c")]),
+                m_rep(m_term("b", &[]), &[regex("c")]),
+                m_term("c", &[]),
             ]);
         });
 
         collect_node("m = 'a'* 'b'?;", "m", |cn| {
             assert_matches!(cn.match_end, ContextEnd::Match);
             assert!(cn.allow_empty);
+            println!("{:?}", cn.matches);
             assert_eq!(cn.matches, [
-                m_concat("a", &[repetition(regex("a")), optional(regex("b"))]),
-                m_term("b"),
+                m_rep(m_term("a", &[]), &[optional(regex("b"))]),
+                m_term("b", &[]),
             ]);
         });
     }
