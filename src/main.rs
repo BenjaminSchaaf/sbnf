@@ -30,6 +30,7 @@ fn try_main() -> Result<(), String> {
         (name: "SBNF compiler")
         (version: crate_version!())
         (@arg quiet: -q "Do not display warnings")
+        (@arg debug: -g "Compile with debug scopes")
         (@arg INPUT: +required "The SBNF file to compile")
         (@arg OUTPUT: "The file to write the compiled sublime-syntax to.
                        Leaving this out will instead write to stdout")
@@ -49,7 +50,11 @@ fn try_main() -> Result<(), String> {
     // Use the base name of the input as a name hint
     let name_hint = Path::new(&input).file_stem().unwrap().to_str().unwrap();
 
-    let result = compiler::compile(Some(name_hint), &grammar).map_err(
+    let options = compiler::CompilerOptions {
+        debug_contexts: matches.is_present("debug"),
+    };
+
+    let result = compiler::compile(Some(name_hint), &options, &grammar).map_err(
         |e| e.fmt("Compiler Error", &input, &contents))?;
 
     if !matches.is_present("quiet") {

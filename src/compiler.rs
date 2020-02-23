@@ -209,13 +209,24 @@ impl Error<'_> {
     }
 }
 
+pub struct CompilerOptions {
+    pub debug_contexts: bool,
+}
+
 pub struct CompilerOutput<'a> {
     pub syntax: sublime_syntax::Syntax,
     pub warnings: Vec<Error<'a>>,
 }
 
-pub fn compile<'a>(name_hint: Option<&str>, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
+pub fn compile<'a>(name_hint: Option<&str>, options: &CompilerOptions, grammar: &'a sbnf::Grammar<'a>) -> Result<CompilerOutput<'a>, Error<'a>> {
     let mut compiler = Compiler::new(name_hint, grammar)?;
+
+    // When debugging contexts we simple add the rule name to each context
+    if options.debug_contexts {
+        for (name, rule) in &mut compiler.rules {
+            rule.scope.scopes.insert(0, format!("sbnf.{}", name));
+        }
+    }
 
     // Compile rules
     for entry_point in &["main", "prototype"] {
