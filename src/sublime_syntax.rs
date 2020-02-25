@@ -105,7 +105,7 @@ impl Syntax {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Pattern {
     pub regex: String,
 }
@@ -126,7 +126,7 @@ impl std::fmt::Display for Pattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Scope {
     pub scopes: Vec<String>,
 }
@@ -171,13 +171,13 @@ impl std::fmt::Display for Scope {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ScopeClear {
     All,
     Amount(i32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Context {
     pub meta_scope: Scope,
     pub meta_content_scope: Scope,
@@ -218,7 +218,7 @@ impl Context {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ContextPattern {
     Match(Match),
     Include(String),
@@ -239,7 +239,7 @@ impl ContextPattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Match {
     pub pattern: Pattern,
     pub scope: Scope,
@@ -356,7 +356,7 @@ fn write_context_list(state: &mut SerializeState, list: &Vec<String>) -> Result<
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Embed {
     pub embed: String,
     pub embed_scope: Scope,
@@ -364,13 +364,13 @@ pub struct Embed {
     pub escape_captures: HashMap<u16, Scope>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct IncludeEmbed {
     pub path: String,
     pub with_prototype: Vec<ContextPattern>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ContextChange {
     None,
     Push(Vec<String>),
