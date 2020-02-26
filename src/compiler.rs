@@ -838,7 +838,7 @@ impl<'a> Compiler<'a> {
                 } else {
                     sublime_syntax::Match {
                         pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
-                        scope: sublime_syntax::Scope::from_str(&["invalid.illegal"]),
+                        scope: self.parse_scope("invalid.illegal"),
                         captures: HashMap::new(),
                         change_context: sublime_syntax::ContextChange::Pop(1),
                     }

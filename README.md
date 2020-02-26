@@ -129,6 +129,5 @@ understand any regexes.
 * Fix known edge cases in compiler. In a couple places we panic!() instead of
   providing an implementation.
 * Additional tests for compilation
-* Fix illegal scopes missing language specific scoping
 * Prevent popping from main
 * Add warnings for when branches are used in non-popping loops.
