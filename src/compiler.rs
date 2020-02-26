@@ -872,7 +872,7 @@ impl<'a> Compiler<'a> {
             assert!(!_match.remaining.is_empty());
             let ctx = self.collect_context_nodes_concatenation(rule, &_match.remaining)?;
 
-            contexts = self.compile_simple_match_impl(rule, &child_match)?;
+            contexts = self.compile_simple_match_impl(ContextRule { name: rule.name, transparent: true }, &child_match)?;
 
             if ctx == *top_level_context {
                 // If the remaining of a top-level repetition leads to the same
@@ -926,7 +926,7 @@ impl<'a> Compiler<'a> {
                 ContextMatchData::Variable { name, child: child_match } =>
                     self.compile_simple_match_impl(ContextRule { name, transparent: false }, child_match)?,
                 ContextMatchData::Repetition { child: child_match } =>
-                    self.compile_simple_match_impl(rule, child_match)?,
+                    self.compile_simple_match_impl(ContextRule { name: rule.name, transparent: true }, child_match)?,
             };
 
         if _match.remaining.is_empty() && !rule.transparent && !_match.is_repetition() && !contexts.is_empty() {
