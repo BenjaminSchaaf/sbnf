@@ -574,6 +574,8 @@ impl<'a> Compiler<'a> {
 
                     // Continue branch
                     if continue_branch {
+                        let scope = self.scope_for_match_stack(rule, m);
+
                         let exit =
                             if let Some(mut ctx) = self.collect_branch_context(rule, m)? {
                                 ctx.branch_point = branch_point.clone();
@@ -593,9 +595,16 @@ impl<'a> Compiler<'a> {
                                 sublime_syntax::ContextChange::Pop(1)
                             };
 
-                        patterns.push(self.compile_terminal(m.terminal(), exit)?);
+                        patterns.push(self.compile_terminal(scope, m.terminal(), exit)?);
                     } else {
-                        patterns.push(self.compile_simple_match(rule, context, m)?);
+                        // End points of branch points need to use
+                        let scope = if branch_point.is_some() {
+                                self.scope_for_match_stack(rule, m)
+                            } else {
+                                sublime_syntax::Scope::empty()
+                            };
+
+                        patterns.push(self.compile_simple_match(scope, rule, context, m)?);
                     }
                 } else {
                     // TOOD: Handle continue_branch?
@@ -649,6 +658,8 @@ impl<'a> Compiler<'a> {
                             next_name = None;
                         }
 
+                        let scope = self.scope_for_match_stack(branch_rule, branch_match);
+
                         let exit = if let Some(name) = next_name {
                                 let push =
                                     // TODO: is_repetition or is_simple_repetition here?
@@ -671,7 +682,7 @@ impl<'a> Compiler<'a> {
                             meta_include_prototype: false,
                             clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                             matches: vec!(
-                                self.compile_terminal(branch_match.terminal(), exit)?,
+                                self.compile_terminal(scope, branch_match.terminal(), exit)?,
                             ),
                         });
                     }
@@ -744,15 +755,40 @@ impl<'a> Compiler<'a> {
         name
     }
 
-    fn compile_terminal(&self, node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+    fn scope_for_match_stack(&self, mut rule: ContextRule<'a>, mut _match: &ContextMatch<'a>) -> sublime_syntax::Scope {
+        let mut scopes: Vec<String> = vec!();
+        loop {
+            if !rule.transparent {
+                let r = self.rules.get(rule.name).unwrap();
+
+                scopes.extend(r.scope.scopes.iter().cloned());
+            }
+
+            match &_match.data {
+                ContextMatchData::Terminal { .. } => {
+                    break;
+                },
+                ContextMatchData::Variable { child, name } => {
+                    rule = ContextRule { name, transparent: false };
+                    _match = &child;
+                },
+                ContextMatchData::Repetition { child } => {
+                    _match = &child;
+                },
+            }
+        }
+        sublime_syntax::Scope::new(scopes)
+    }
+
+    fn compile_terminal(&self, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
         let arguments = node.get_arguments();
 
-        let mut scope = sublime_syntax::Scope::empty();
         let mut captures: HashMap<u16, sublime_syntax::Scope> = HashMap::new();
         for (i, argument) in arguments.iter().enumerate() {
             if i == 0 && argument.data == NodeData::PositionalArgument {
-                scope = self.parse_scope(argument.text);
+                let mut parsed_scope = self.parse_scope(argument.text);
+                scope.scopes.append(&mut parsed_scope.scopes);
             } else if argument.data == NodeData::PositionalArgument {
                 return Err(Error::from_str(
                     "Positional argument for terminal scope may only be the first argument", Some(&argument)));
@@ -812,7 +848,7 @@ impl<'a> Compiler<'a> {
         }.map(&sublime_syntax::ContextPattern::Match)
     }
 
-    fn compile_simple_match(&mut self, rule: ContextRule<'a>, top_level_context: &Context<'a>, _match: &ContextMatch<'a>) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+    fn compile_simple_match(&mut self, scope: sublime_syntax::Scope, rule: ContextRule<'a>, top_level_context: &Context<'a>, _match: &ContextMatch<'a>) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let mut contexts: Vec<String>;
 
         if let ContextMatchData::Repetition { child: child_match } = &_match.data {
@@ -836,7 +872,7 @@ impl<'a> Compiler<'a> {
                         sublime_syntax::ContextChange::Push(contexts)
                     };
 
-                return self.compile_terminal(_match.terminal(), exit);
+                return self.compile_terminal(scope, _match.terminal(), exit);
             } else {
                 // Otherwise we have a complex repetition, which behaves the
                 // same way as a regular match.
@@ -864,7 +900,7 @@ impl<'a> Compiler<'a> {
                 sublime_syntax::ContextChange::Set(contexts)
             };
 
-        self.compile_terminal(_match.terminal(), exit)
+        self.compile_terminal(scope, _match.terminal(), exit)
     }
 
     fn compile_simple_match_impl(&mut self, rule: ContextRule<'a>, _match: &ContextMatch<'a>) -> Result<Vec<String>, Error<'a>> {
@@ -876,20 +912,21 @@ impl<'a> Compiler<'a> {
                     self.compile_simple_match_impl(rule, child_match)?,
             };
 
-        if _match.remaining.is_empty() && !rule.transparent && !_match.is_repetition() && !contexts.is_empty() {
+        println!("{} {:?} {:?} {:?} {:?}", rule.name, _match.remaining.is_empty(), !rule.transparent, !_match.is_repetition(), !contexts.is_empty());
+        if _match.remaining.is_empty() && !rule.transparent && !_match.is_repetition() {
             // If a match has no remaining nodes it can generally be ignored,
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
-            let meta_scope = self.rules.get(rule.name).unwrap().scope.clone();
+            let meta_content_scope = self.rules.get(rule.name).unwrap().scope.clone();
 
-            if !meta_scope.is_empty() {
+            if !meta_content_scope.is_empty() {
                 let rule_meta_ctx_name = format!("{}|meta", rule.name);
 
                 if self.contexts.get(&rule_meta_ctx_name).is_none() {
                     self.contexts.insert(rule_meta_ctx_name.clone(), sublime_syntax::Context {
-                        meta_scope,
-                        meta_content_scope: sublime_syntax::Scope::empty(),
+                        meta_scope: sublime_syntax::Scope::empty(),
+                        meta_content_scope,
                         meta_include_prototype: true,
                         clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                         matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match{
