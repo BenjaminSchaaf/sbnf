@@ -1,17 +1,24 @@
 extensions: sbnf
 
-prototype = comment ;
+prototype = ( ~comment )* ;
 
 comment = '(#+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
 
-main = header # comments work too
-     | rule
+main = ( header # comments work too
+       | rule
+       )*
      ;
 
 header = '[[:alnum:]_\-\.]+'{entity.name.tag}
-         '(:)(.*)\n?'{string.unquoted} ;
+         '(:)(.*)\n?'{string.unquoted}
+       ;
 
-rule = '[[:alnum:]_\-\.]+'{entity.name.function} arguments? '='{keyword.operator} pattern ';'{keyword.operator} ;
+rule = '[[:alnum:]_\-\.]+'{entity.name.function}
+       arguments?
+       '='{keyword.operator}
+       pattern
+       ';'{keyword.operator}
+     ;
 
 pattern = pattern-element ('\|'{keyword.operator}? pattern)? ;
 
