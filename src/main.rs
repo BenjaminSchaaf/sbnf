@@ -32,7 +32,7 @@ fn try_main() -> Result<(), String> {
         (@arg quiet: -q "Do not display warnings")
         (@arg debug: -g "Compile with debug scopes")
         (@arg INPUT: +required "The SBNF file to compile")
-        (@arg OUTPUT: "The file to write the compiled sublime-syntax to.
+        (@arg OUTPUT: "The file to write the compiled sublime-syntax to. \
                        Leaving this out will instead write to stdout")
     ).get_matches();
 
