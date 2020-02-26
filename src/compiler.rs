@@ -176,6 +176,8 @@ struct Rule<'a> {
     pattern: &'a Node<'a>,
     used: bool,
 
+    capture: bool,
+
     inner_context_count: usize,
     branch_point_count: usize,
     scope: sublime_syntax::Scope,
@@ -327,14 +329,19 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // TODO: Make this configurable?
+        let capture = name == "main" || name == "prototype";
+
         self.rules.insert(name, Rule {
             rule_node: node,
             pattern: pattern,
             used: false,
 
+            capture,
+
             inner_context_count: 0,
             branch_point_count: 0,
-            scope: scope,
+            scope,
             include_prototype: include_prototype.unwrap_or(true),
         });
 
@@ -696,31 +703,35 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            if let Some(pattern) = self.compile_end_match(context, is_last) {
-                patterns.push(pattern);
-            }
-
+            let meta_content_scope: sublime_syntax::Scope;
+            let meta_include_prototype: bool;
+            let capture: bool;
             {
                 // Branch points have an "invalid" rule at the top of the stack
                 let r = self.rules.get(rule.name).unwrap();
 
-                let meta_content_scope = if !rule.transparent {
+                meta_content_scope = if !rule.transparent {
                         r.scope.clone()
                     } else {
                         sublime_syntax::Scope::empty()
                     };
 
-                let meta_include_prototype = r.include_prototype;
-
-                assert!(self.contexts.get(name).is_none());
-                self.contexts.insert(name.clone(), sublime_syntax::Context {
-                    meta_scope: sublime_syntax::Scope::empty(),
-                    meta_content_scope,
-                    meta_include_prototype,
-                    clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                    matches: patterns,
-                });
+                meta_include_prototype = r.include_prototype;
+                capture = r.capture && !rule.transparent;
             }
+
+            if let Some(pattern) = self.compile_end_match(context, is_last, capture) {
+                patterns.push(pattern);
+            }
+
+            assert!(self.contexts.get(name).is_none());
+            self.contexts.insert(name.clone(), sublime_syntax::Context {
+                meta_scope: sublime_syntax::Scope::empty(),
+                meta_content_scope,
+                meta_include_prototype,
+                clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                matches: patterns,
+            });
         }
 
         if !next_contexts.is_empty() {
@@ -818,10 +829,10 @@ impl<'a> Compiler<'a> {
         }))
     }
 
-    fn compile_end_match(&mut self, context: &Context<'a>, is_last: bool) -> Option<sublime_syntax::ContextPattern> {
+    fn compile_end_match(&mut self, context: &Context<'a>, is_last: bool, capture: bool) -> Option<sublime_syntax::ContextPattern> {
         match context.match_end {
             ContextEnd::Match => Some(
-                if context.allow_empty {
+                if context.allow_empty && !capture {
                     sublime_syntax::Match {
                         pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
                         scope: sublime_syntax::Scope::empty(),
@@ -836,11 +847,17 @@ impl<'a> Compiler<'a> {
                         change_context: sublime_syntax::ContextChange::Fail(context.branch_point.as_ref().unwrap().clone()),
                     }
                 } else {
+                    let exit = if capture {
+                            sublime_syntax::ContextChange::None
+                        } else {
+                            sublime_syntax::ContextChange::Pop(1)
+                        };
+
                     sublime_syntax::Match {
                         pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
                         scope: self.parse_scope("invalid.illegal"),
                         captures: HashMap::new(),
-                        change_context: sublime_syntax::ContextChange::Pop(1),
+                        change_context: exit,
                     }
                 }),
             ContextEnd::None => None,
@@ -912,8 +929,7 @@ impl<'a> Compiler<'a> {
                     self.compile_simple_match_impl(rule, child_match)?,
             };
 
-        println!("{} {:?} {:?} {:?} {:?}", rule.name, _match.remaining.is_empty(), !rule.transparent, !_match.is_repetition(), !contexts.is_empty());
-        if _match.remaining.is_empty() && !rule.transparent && !_match.is_repetition() {
+        if _match.remaining.is_empty() && !rule.transparent && !_match.is_repetition() && !contexts.is_empty() {
             // If a match has no remaining nodes it can generally be ignored,
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
@@ -1578,9 +1594,9 @@ mod tests {
 
         assert!(output.warnings.is_empty());
 
-        let mut buf = String::new();
-        output.syntax.serialize(&mut buf).unwrap();
-        println!("{}", buf);
+        // let mut buf = String::new();
+        // output.syntax.serialize(&mut buf).unwrap();
+        // println!("{}", buf);
 
         output.syntax.contexts
     }
@@ -1598,10 +1614,10 @@ mod tests {
                 change_context: sublime_syntax::ContextChange::Push(vec!("main|0".to_string())),
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str("(?=\\S)"),
-                scope: sublime_syntax::Scope::empty(),
+                pattern: sublime_syntax::Pattern::from_str("\\S"),
+                scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
             }),
         ]);
         let main0 = contexts.get("main|0").unwrap();
@@ -1614,9 +1630,9 @@ mod tests {
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
-                scope: sublime_syntax::Scope::from_str(&["invalid.illegal"]),
+                scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
             }),
         ]);
     }
@@ -1634,10 +1650,10 @@ mod tests {
                 change_context: sublime_syntax::ContextChange::Branch("main@0".to_string(), vec!("a|0|main@0".to_string(), "b|0|main@0".to_string())),
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str("(?=\\S)"),
-                scope: sublime_syntax::Scope::empty(),
+                pattern: sublime_syntax::Pattern::from_str("\\S"),
+                scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
             }),
         ]);
         // First branch
@@ -1645,7 +1661,7 @@ mod tests {
         assert_eq!(a0main0.matches, [
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("c"),
-                scope: sublime_syntax::Scope::from_str(&["ac.test"]),
+                scope: sublime_syntax::Scope::from_str(&["a.test", "ac.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Push(vec!("pop-2".to_string(), "a|1|main@0".to_string())),
             }),
@@ -1654,7 +1670,7 @@ mod tests {
         assert_eq!(a1main0.matches, [
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("a"),
-                scope: sublime_syntax::Scope::empty(),
+                scope: sublime_syntax::Scope::from_str(&["a.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Pop(1),
             }),
@@ -1670,7 +1686,7 @@ mod tests {
         assert_eq!(b0main0.matches, [
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("c"),
-                scope: sublime_syntax::Scope::from_str(&["bc.test"]),
+                scope: sublime_syntax::Scope::from_str(&["b.test", "bc.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Push(vec!("pop-2".to_string(), "b|1|main@0".to_string())),
             }),
@@ -1679,13 +1695,13 @@ mod tests {
         assert_eq!(b1main0.matches, [
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("b"),
-                scope: sublime_syntax::Scope::empty(),
+                scope: sublime_syntax::Scope::from_str(&["b.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Pop(1),
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
-                scope: sublime_syntax::Scope::from_str(&["invalid.illegal"]),
+                scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Pop(1),
             }),
