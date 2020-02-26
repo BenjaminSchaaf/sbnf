@@ -14,6 +14,212 @@ SBNF attempts do the following:
 * Compile quickly for fast iteration
 * Compile to an efficient syntax, comparable to hand-made ones
 
+## Example
+
+The following is a sbnf grammar for a cut-down version of C. It only allows
+global/local variable declarations, function definitions and simple function
+calls. Even this cut down version is extremely difficult to parse correctly with
+the required `meta.function` and `meta.function-call` scopes, as both function
+definitions and function calls require branch points.
+
+```sbnf
+name: simplec
+
+main = ( variable-declaration | function-definition )* ;
+
+function-definition{meta.function} = type
+                                     '\b[A-Za-z_]+\b'{entity.name.function}
+                                     `(`
+                                     `)`
+                                     block
+                                   ;
+
+block{meta.block} = '{' statement* '}' ;
+
+statement = variable-declaration
+          | value ';'
+          | block
+          ;
+
+variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
+
+type = '\b[A-Za-z_]+\b'{storage.type} ;
+
+value{value} = '[0-9]+'{constant.numeric}
+             | function-call
+             ;
+
+# Function calls don't have arguments :)
+function-call{meta.function-call}
+      = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+```
+
+The above grammar compiles to the following:
+
+```yaml
+%YAML 1.2
+---
+# http://www.sublimetext.com/docs/3/syntax.html
+name: simplec
+scope: source.simplec
+contexts:
+  block|0:
+    - meta_content_scope: meta.block.simplec
+    - match: '(?=\b[A-Za-z_]+\b)'
+      branch_point: block@1
+      branch:
+        - type|4|block@1
+        - function-call|2|block@1
+    - match: '[0-9]+'
+      scope: constant.numeric.simplec
+      push: statement|0
+    - match: '{'
+      push: block|0
+    - match: '}'
+      pop: true
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-call|0:
+    - meta_content_scope: meta.function-call.simplec
+    - match: '\('
+      set: function-call|1
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-call|1:
+    - meta_content_scope: meta.function-call.simplec
+    - match: '\)'
+      pop: true
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-call|2|block@1:
+    - meta_include_prototype: false
+    - match: '\b[A-Za-z_]+\b'
+      scope: value.simplec meta.function-call.simplec variable.function.simplec meta.path.simplec
+      push: [pop-2, function-call|3|block@1]
+  function-call|3|block@1:
+    - match: '\('
+      scope: value.simplec meta.function-call.simplec
+      set: [statement|0, value|meta, function-call|1]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-definition|0|main@0:
+    - match: '\('
+      scope: meta.function.simplec
+      set: function-definition|1
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-definition|1:
+    - meta_content_scope: meta.function.simplec
+    - match: '\)'
+      set: function-definition|2
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-definition|2:
+    - meta_content_scope: meta.function.simplec
+    - match: '{'
+      set: [function-definition|meta, block|0]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  function-definition|meta:
+    - meta_content_scope: meta.function.simplec
+    - match: ''
+      pop: true
+  main:
+    - match: '(?=\b[A-Za-z_]+\b)'
+      branch_point: main@0
+      branch:
+        - type|0|main@0
+        - type|2|main@0
+    - match: '\S'
+      scope: invalid.illegal.simplec
+  pop-2:
+    - meta_include_prototype: false
+    - match: ''
+      pop: 2
+  statement|0:
+    - match: ';'
+      pop: true
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  type|0|main@0:
+    - meta_include_prototype: false
+    - match: '\b[A-Za-z_]+\b'
+      scope: storage.type.simplec
+      push: [pop-2, type|1|main@0]
+  type|1|main@0:
+    - match: '\b[A-Za-z_]+\b'
+      scope: variable.simplec
+      set: variable-declaration|0|main@0
+    - match: '\S'
+      fail: main@0
+  type|2|main@0:
+    - meta_include_prototype: false
+    - match: '\b[A-Za-z_]+\b'
+      scope: meta.function.simplec storage.type.simplec
+      push: [pop-2, type|3|main@0]
+  type|3|main@0:
+    - match: '\b[A-Za-z_]+\b'
+      scope: meta.function.simplec entity.name.function.simplec
+      set: function-definition|0|main@0
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  type|4|block@1:
+    - meta_include_prototype: false
+    - match: '\b[A-Za-z_]+\b'
+      scope: storage.type.simplec
+      push: [pop-2, type|5|block@1]
+  type|5|block@1:
+    - match: '\b[A-Za-z_]+\b'
+      scope: variable.simplec
+      set: variable-declaration|3
+    - match: '\S'
+      fail: block@1
+  value|meta:
+    - meta_content_scope: value.simplec
+    - match: ''
+      pop: true
+  variable-declaration|0|main@0:
+    - match: '='
+      set: variable-declaration|1
+    - match: ';'
+      pop: true
+    - match: '\S'
+      fail: main@0
+  variable-declaration|1:
+    - match: '[0-9]+'
+      scope: constant.numeric.simplec
+      set: variable-declaration|2
+    - match: '\b[A-Za-z_]+\b'
+      scope: variable.function.simplec meta.path.simplec
+      set: [variable-declaration|2, value|meta, function-call|0]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  variable-declaration|2:
+    - match: ';'
+      pop: true
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  variable-declaration|3:
+    - match: '='
+      set: variable-declaration|1
+    - match: ';'
+      pop: true
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+```
+
 ## Usage
 
 A SBNF file contains two types of elements: headers and rules. Headers provide
@@ -94,6 +300,27 @@ Literal and regex terminals are allowed the following arguments:
 * `<scope>`: The scope of the terminal.
 * `<capture>: <scope>`: The scope for a regex capture group. `<capture>` must be
   an integer.
+
+### Command Line
+
+```bash
+$ sbnf --help
+SBNF compiler 0.1.0
+
+USAGE:
+    sbnf [FLAGS] <INPUT> [OUTPUT]
+
+FLAGS:
+    -g               Compile with debug scopes
+    -h, --help       Prints help information
+    -q               Do not display warnings
+    -V, --version    Prints version information
+
+ARGS:
+    <INPUT>     The SBNF file to compile
+    <OUTPUT>    The file to write the compiled sublime-syntax to. Leaving
+                this out will instead write to stdout
+```
 
 ## Limitations
 

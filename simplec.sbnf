@@ -1,0 +1,29 @@
+name: simplec
+
+main = ( variable-declaration | function-definition )* ;
+
+function-definition{meta.function} = type
+                                     '\b[A-Za-z_]+\b'{entity.name.function}
+                                     `(`
+                                     `)`
+                                     block
+                                   ;
+
+block{meta.block} = '{' statement* '}' ;
+
+statement = variable-declaration
+          | value ';'
+          | block
+          ;
+
+variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
+
+type = '\b[A-Za-z_]+\b'{storage.type} ;
+
+value{value} = '[0-9]+'{constant.numeric}
+             | function-call
+             ;
+
+# Function calls don't have arguments :)
+function-call{meta.function-call}
+      = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
