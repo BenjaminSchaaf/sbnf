@@ -829,7 +829,7 @@ fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, Parse
 }
 
 fn literal_to_regex(literal: &str) -> String {
-    const ESCAPE_CHARACTERS: &str = "^$\\.*+?()[]{}|";
+    const ESCAPE_CHARACTERS: &str = "^$\\'.*+?()[]{}|";
 
     let mut result = String::new();
     for chr in literal.chars() {
