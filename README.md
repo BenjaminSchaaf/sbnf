@@ -27,6 +27,10 @@ definitions and function calls require branch points.
 ```sbnf
 name: simplec
 
+prototype = ( ~comment )* ;
+
+comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+
 main = ( variable-declaration | function-definition )* ;
 
 function-definition{meta.function} = type
@@ -130,7 +134,7 @@ contexts:
       scope: invalid.illegal.simplec
       pop: true
   function-definition|meta:
-    - meta_content_scope: meta.function.simplec
+    - meta_scope: meta.function.simplec
     - match: ''
       pop: true
   main:
@@ -145,6 +149,11 @@ contexts:
     - meta_include_prototype: false
     - match: ''
       pop: 2
+  prototype:
+    - match: '(//+).*\n?'
+      scope: comment.line.simplec
+      captures:
+        1: punctuation.definition.comment.simplec
   statement|0:
     - match: ';'
       pop: true
@@ -186,7 +195,7 @@ contexts:
     - match: '\S'
       fail: block@1
   value|meta:
-    - meta_content_scope: value.simplec
+    - meta_scope: value.simplec
     - match: ''
       pop: true
   variable-declaration|0|main@0:
