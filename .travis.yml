@@ -5,3 +5,6 @@ cache: cargo
 before_cache:
   - rm -rf "$TRAVIS_HOME/.cargo/registry/src"
   - rm -rf target/test
+before_install:
+  - sudo apt-get -y install libgl1-mesa-glx
+  - sudo apt-get -y install libglu1-mesa
