@@ -1632,7 +1632,7 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::None,
+                change_context: sublime_syntax::ContextChange::Pop(1),
             }),
         ]);
     }
