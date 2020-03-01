@@ -1,5 +1,9 @@
 name: simplec
 
+prototype = ( ~comment )* ;
+
+comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+
 main = ( variable-declaration | function-definition )* ;
 
 function-definition{meta.function} = type
