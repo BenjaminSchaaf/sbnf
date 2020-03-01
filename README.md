@@ -1,5 +1,7 @@
 # SBNF
 
+[![Build Status](https://travis-ci.org/BenjaminSchaaf/sbnf.svg?branch=master)](https://travis-ci.org/BenjaminSchaaf/sbnf)
+
 A BNF-style language for writing sublime-syntax files.
 
 ## Motivation & Goals
