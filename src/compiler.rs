@@ -934,15 +934,15 @@ impl<'a> Compiler<'a> {
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
-            let meta_content_scope = self.rules.get(rule.name).unwrap().scope.clone();
+            let meta_scope = self.rules.get(rule.name).unwrap().scope.clone();
 
-            if !meta_content_scope.is_empty() {
+            if !meta_scope.is_empty() {
                 let rule_meta_ctx_name = format!("{}|meta", rule.name);
 
                 if self.contexts.get(&rule_meta_ctx_name).is_none() {
                     self.contexts.insert(rule_meta_ctx_name.clone(), sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope,
+                        meta_scope,
+                        meta_content_scope: sublime_syntax::Scope::empty(),
                         meta_include_prototype: true,
                         clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                         matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match{

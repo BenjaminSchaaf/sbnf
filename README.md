@@ -357,3 +357,4 @@ understand any regexes.
   providing an implementation.
 * Additional tests for compilation
 * Add warnings for when branches are used in non-popping loops.
+* Fix infinite loop/recursion when rule refers to itself
