@@ -15,22 +15,22 @@ header = '[[:alnum:]_\-\.]+'{entity.name.tag}
 
 rule = '[[:alnum:]_\-\.]+'{entity.name.function}
        arguments?
-       '='{keyword.operator}
+       `=`{keyword.operator}
        pattern
-       ';'{keyword.operator}
+       `;`{keyword.operator}
      ;
 
-pattern = pattern-element ('\|'{keyword.operator}? pattern)? ;
+pattern = pattern-element (`|`{keyword.operator}? pattern)? ;
 
 pattern-element = '~|!'? pattern-item '\*|\?'? ;
 
 pattern-item = literal arguments?
              | regex arguments?
-             | '\(' pattern '\)'
+             | `(` pattern `)`
              | '[[:alnum:]_\-\.]+'{variable.function}
              ;
 
 literal{string.quoted, include-prototype: false} = '`' ~'`' ;
-regex{string.quoted, include-prototype: false} = '\'' (~'\\\'')* ~'\'' ;
+regex{string.quoted, include-prototype: false} = `'` (~`\'`)* ~`'` ;
 
 arguments = '{[^}]*}' ;
