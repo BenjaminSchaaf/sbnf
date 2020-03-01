@@ -1,0 +1,7 @@
+language: rust
+rust:
+  - stable
+cache: cargo
+before_cache:
+  - rm -rf "$TRAVIS_HOME/.cargo/registry/src"
+  - rm -rf target/test
