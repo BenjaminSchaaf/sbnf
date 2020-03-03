@@ -51,9 +51,9 @@ variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
 
 type = '\b[A-Za-z_]+\b'{storage.type} ;
 
-value{value} = '[0-9]+'{constant.numeric}
-             | function-call
-             ;
+value = '[0-9]+'{constant.numeric}
+      | function-call
+      ;
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
@@ -80,8 +80,10 @@ contexts:
       scope: constant.numeric.simplec
       push: statement|0
     - match: '{'
+      scope: meta.block.simplec
       push: block|0
     - match: '}'
+      scope: meta.block.simplec
       pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
@@ -96,6 +98,7 @@ contexts:
   function-call|1:
     - meta_content_scope: meta.function-call.simplec
     - match: '\)'
+      scope: meta.function-call.simplec
       pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
@@ -103,12 +106,12 @@ contexts:
   function-call|2|block@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
-      scope: value.simplec meta.function-call.simplec variable.function.simplec meta.path.simplec
+      scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
       push: [pop-2, function-call|3|block@1]
   function-call|3|block@1:
     - match: '\('
-      scope: value.simplec meta.function-call.simplec
-      set: [statement|0, value|meta, function-call|1]
+      scope: meta.function-call.simplec
+      set: [statement|0, function-call|1]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -129,12 +132,13 @@ contexts:
   function-definition|2:
     - meta_content_scope: meta.function.simplec
     - match: '{'
+      scope: meta.block.simplec
       set: [function-definition|meta, block|0]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
   function-definition|meta:
-    - meta_scope: meta.function.simplec
+    - meta_content_scope: meta.function.simplec
     - match: ''
       pop: true
   main:
@@ -194,10 +198,6 @@ contexts:
       set: variable-declaration|3
     - match: '\S'
       fail: block@1
-  value|meta:
-    - meta_scope: value.simplec
-    - match: ''
-      pop: true
   variable-declaration|0|main@0:
     - match: '='
       set: variable-declaration|1
@@ -210,8 +210,8 @@ contexts:
       scope: constant.numeric.simplec
       set: variable-declaration|2
     - match: '\b[A-Za-z_]+\b'
-      scope: variable.function.simplec meta.path.simplec
-      set: [variable-declaration|2, value|meta, function-call|0]
+      scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
+      set: [variable-declaration|2, function-call|0]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -366,6 +366,5 @@ understand any regexes.
 
 * Fix known edge cases in compiler. In a couple places we panic!() instead of
   providing an implementation.
-* Additional tests for compilation
 * Add warnings for when branches are used in non-popping loops.
 * Fix infinite loop/recursion when rule refers to itself

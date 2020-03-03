@@ -604,11 +604,14 @@ impl<'a> Compiler<'a> {
 
                         patterns.push(self.compile_terminal(scope, m.terminal(), exit)?);
                     } else {
-                        // End points of branch points need to use
+                        // End points of branch points need to use the current
+                        // rule as a scope.
                         let scope = if branch_point.is_some() {
                                 self.scope_for_match_stack(rule, m)
                             } else {
-                                sublime_syntax::Scope::empty()
+                                let r = ContextRule { name: rule.name, transparent: true };
+
+                                self.scope_for_match_stack(r, m)
                             };
 
                         patterns.push(self.compile_simple_match(scope, rule, context, m)?);
@@ -718,6 +721,22 @@ impl<'a> Compiler<'a> {
 
                 meta_include_prototype = r.include_prototype;
                 capture = r.capture && !rule.transparent;
+            }
+
+            // Need to add the meta_content_scope to all patterns that pop. This
+            // matches expected behaviour in that the rule scope applies to all
+            // matches in this context.
+            for p in &mut patterns {
+                match p {
+                    sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                        scope,
+                        change_context: sublime_syntax::ContextChange::Pop(_),
+                        ..
+                    }) => {
+                        scope.scopes = meta_content_scope.scopes.iter().chain(scope.scopes.iter()).cloned().collect::<Vec<_>>();
+                    },
+                    _ => {},
+                }
             }
 
             if let Some(pattern) = self.compile_end_match(context, is_last, capture) {
@@ -934,15 +953,15 @@ impl<'a> Compiler<'a> {
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
-            let meta_scope = self.rules.get(rule.name).unwrap().scope.clone();
+            let meta_content_scope = self.rules.get(rule.name).unwrap().scope.clone();
 
-            if !meta_scope.is_empty() {
+            if !meta_content_scope.is_empty() {
                 let rule_meta_ctx_name = format!("{}|meta", rule.name);
 
                 if self.contexts.get(&rule_meta_ctx_name).is_none() {
                     self.contexts.insert(rule_meta_ctx_name.clone(), sublime_syntax::Context {
-                        meta_scope,
-                        meta_content_scope: sublime_syntax::Scope::empty(),
+                        meta_scope: sublime_syntax::Scope::empty(),
+                        meta_content_scope,
                         meta_include_prototype: true,
                         clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                         matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match{

@@ -24,9 +24,9 @@ variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
 
 type = '\b[A-Za-z_]+\b'{storage.type} ;
 
-value{value} = '[0-9]+'{constant.numeric}
-             | function-call
-             ;
+value = '[0-9]+'{constant.numeric}
+      | function-call
+      ;
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
