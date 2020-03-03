@@ -4,6 +4,9 @@
 
 A BNF-style language for writing sublime-syntax files.
 
+SBNF is currently used for
+[SWI-Prolog](https://github.com/BenjaminSchaaf/swi-prolog-sublime-syntax).
+
 ## Motivation & Goals
 
 Writing syntax definitions is error prone and the result is hard to maintain.
