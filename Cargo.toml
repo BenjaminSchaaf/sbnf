@@ -3,10 +3,12 @@ name = "sbnf"
 version = "0.1.0"
 license-file = "LICENSE"
 repository = "https://github.com/BenjaminSchaaf/sbnf"
+description = "A BNF-style language for writing sublime-syntax files"
 authors = ["Benjamin Schaaf <ben.schaaf@gmail.com>"]
 edition = "2018"
 include = [
     "/src/**",
+    "/tests/**",
     "/Cargo.toml",
     "/LICENSE",
 ]
