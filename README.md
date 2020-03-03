@@ -16,6 +16,23 @@ SBNF attempts do the following:
 * Compile quickly for fast iteration
 * Compile to an efficient syntax, comparable to hand-made ones
 
+## Installation
+
+Currently you'll need to [install rust](https://www.rust-lang.org/tools/install)
+to use SBNF. With rust installed you can download, build and install the latest
+released version of SBNF using:
+
+```bash
+$ cargo install sbnf
+```
+
+Or if you want the latest features, clone this repository, then build and
+install using:
+
+```bash
+$ cargo install --path .
+```
+
 ## Example
 
 The following is a sbnf grammar for a cut-down version of C. It only allows
