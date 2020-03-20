@@ -2,7 +2,7 @@ extensions: sbnf
 
 prototype = ( ~comment )* ;
 
-comment = '(#+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+comment{comment.line.number-sign} = '#+'{punctuation.definition.comment} ~'$\n?';
 
 main = ( header # comments work too
        | rule
@@ -15,22 +15,31 @@ header = '[[:alnum:]_\-\.]+'{entity.name.tag}
 
 rule = '[[:alnum:]_\-\.]+'{entity.name.function}
        arguments?
-       `=`{keyword.operator}
+       `=`{keyword.operator.assignment}
        pattern
-       `;`{keyword.operator}
+       `;`{punctuation.terminator.rule}
      ;
 
 pattern = pattern-element (`|`{keyword.operator}? pattern)? ;
 
-pattern-element = '~|!'? pattern-item '\*|\?'? ;
+pattern-element = '~|!'{keyword.operator}?
+                  pattern-item
+                  '\*|\?'{keyword.control}?
+                ;
 
 pattern-item = literal arguments?
              | regex arguments?
-             | `(` pattern `)`
+             | group
              | '[[:alnum:]_\-\.]+'{variable.function}
              ;
 
-literal{string.quoted, include-prototype: false} = '`' ~'`' ;
-regex{string.quoted, include-prototype: false} = `'` (~`\'`)* ~`'` ;
+group{meta.group} = `(`{punctuation.section.group.begin} pattern `)`{punctuation.section.group.end};
+
+literal{string.quoted, include-prototype: false} = '`'{punctuation.definition.string.begin} ~'`'{punctuation.definition.string.begin} ;
+
+regex{string.quoted, include-prototype: false} = `'`{punctuation.definition.string.begin}
+                                                 ( ~`\'`{constant.character.escape} )*
+                                                 ~`'`{punctuation.definition.string.end}
+                                               ;
 
 arguments = '{[^}]*}' ;
