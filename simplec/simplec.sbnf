@@ -30,4 +30,4 @@ value = '[0-9]+'{constant.numeric}
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
-      = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+    = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
