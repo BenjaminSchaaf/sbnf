@@ -367,6 +367,7 @@ pub struct Embed {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct IncludeEmbed {
     pub path: String,
+    pub use_push: bool,
     pub with_prototype: Vec<ContextPattern>,
 }
 
@@ -530,6 +531,7 @@ variables:
                                         change_context: ContextChange::IncludeEmbed(
                                                 IncludeEmbed {
                                             path: "D.sublime-syntax".to_string(),
+                                            use_push: true,
                                             with_prototype: vec!(
                                                 ContextPattern::Match(Match {
                                                     pattern: Pattern::from_str("c"),

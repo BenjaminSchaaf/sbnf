@@ -309,7 +309,7 @@ impl<'a> Compiler<'a> {
             } else if argument.data == NodeData::PositionalArgument {
                 return Err(Error::from_str(
                     "Rules may only have one positional argument specifying the meta scope", Some(argument)));
-            } else if let NodeData::KeyworkArgument(value_node) = &argument.data {
+            } else if let NodeData::KeywordArgument(value_node) = &argument.data {
                 if trim_ascii(argument.text) == "include-prototype" {
                     if include_prototype.is_none() {
                         if let Ok(v) = trim_ascii(value_node.text).parse::<bool>() {
@@ -686,14 +686,14 @@ impl<'a> Compiler<'a> {
                                 sublime_syntax::ContextChange::Pop(2)
                             };
 
+                        let match_ = self.compile_terminal(scope, branch_match.terminal(), exit)?;
+
                         self.contexts.insert(ctx_name, sublime_syntax::Context {
                             meta_scope: sublime_syntax::Scope::empty(),
                             meta_content_scope: sublime_syntax::Scope::empty(),
                             meta_include_prototype: false,
                             clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                            matches: vec!(
-                                self.compile_terminal(scope, branch_match.terminal(), exit)?,
-                            ),
+                            matches: vec!(match_),
                         });
                     }
 
@@ -810,33 +810,93 @@ impl<'a> Compiler<'a> {
         sublime_syntax::Scope::new(scopes)
     }
 
-    fn compile_terminal(&self, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+    fn compile_terminal(&mut self, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, mut exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
         let arguments = node.get_arguments();
 
         let mut captures: HashMap<u16, sublime_syntax::Scope> = HashMap::new();
-        for (i, argument) in arguments.iter().enumerate() {
-            if i == 0 && argument.data == NodeData::PositionalArgument {
-                let mut parsed_scope = self.parse_scope(argument.text);
-                scope.scopes.append(&mut parsed_scope.scopes);
-            } else if argument.data == NodeData::PositionalArgument {
-                return Err(Error::from_str(
-                    "Positional argument for terminal scope may only be the first argument", Some(&argument)));
-            } else if let NodeData::KeyworkArgument(value) = &argument.data {
-                let key = trim_ascii(argument.text).parse::<u16>().ok().ok_or(
-                    Error::from_str(
-                        "Expected integer key for regex capture scope",
-                        Some(argument)))?;
+        let mut embed: Option<&'a str> = None;
+        let mut prototype: Option<&'a str> = None;
 
-                assert!(value.data == NodeData::KeywordArgumentValue);
-                if captures.contains_key(&key) {
-                    return Err(Error::from_str(
-                        "Duplicate keyword argument", Some(argument)));
-                } else {
-                    captures.insert(key, self.parse_scope(value.text));
+        for (i, argument) in arguments.iter().enumerate() {
+            match &argument.data {
+                NodeData::PositionalArgument => {
+                    // A positional argument may only appear at the start to
+                    // determine the scope
+                    if i == 0 {
+                        let mut parsed_scope = self.parse_scope(argument.text);
+                        scope.scopes.append(&mut parsed_scope.scopes);
+                    } else {
+                        return Err(Error::from_str(
+                            "Positional argument for terminal scope may only be the first argument", Some(&argument)));
+                    }
+                },
+                NodeData::KeywordArgument(value_node) => {
+                    let key = trim_ascii(argument.text);
+
+                    assert!(value_node.data == NodeData::KeywordArgumentValue);
+                    let value = trim_ascii(value_node.text);
+
+                    if embed.is_none() {
+                        // The first set of keyword arguments determine captures
+                        if let Some(group) = key.parse::<u16>().ok() {
+                            if captures.contains_key(&group) {
+                                return Err(Error::from_str(
+                                    "Duplicate capture group argument", Some(argument)));
+                            } else {
+                                captures.insert(group, self.parse_scope(value));
+                            }
+                        } else if key == "embed" {
+                            embed = Some(value);
+                        } else {
+                            return Err(Error::from_str(
+                                "Expected either capture group number or 'embed' for keyword argument", Some(&argument)));
+                        }
+                    } else if prototype.is_none() {
+                        if key == "prototype" {
+                            prototype = Some(value);
+                        } else {
+                            return Err(Error::from_str(
+                                "Expected either 'prototype' keyword argument after 'embed' or nothing", Some(&argument)));
+                        }
+                    } else {
+                        return Err(Error::from_str("Unexpected keyword argument", Some(&argument)));
+                    }
+                },
+                _ => panic!()
+            }
+        }
+
+        if let Some(embed) = embed {
+            if let Some(prototype) = prototype {
+                if self.rules.get(prototype).is_none() {
+                    return Err(Error::from_str("'prototype' keyword argument references rule that has not been defined", Some(node)));
                 }
+
+                // Normal compile the prototype rule
+                self.compile_rule(prototype)?;
+            }
+
+            // If the exit is pop: 1, we don't need to create an embed context.
+            // Otherwise we do.
+            if exit == sublime_syntax::ContextChange::Pop(1) || exit == sublime_syntax::ContextChange::None {
+                let use_push = exit == sublime_syntax::ContextChange::None;
+
+                let with_prototype =
+                    if let Some(prototype) = prototype {
+                        vec!(sublime_syntax::ContextPattern::Include(prototype.to_string()))
+                    } else {
+                        vec!()
+                    };
+
+                exit = sublime_syntax::ContextChange::IncludeEmbed(
+                    sublime_syntax::IncludeEmbed {
+                        path: embed.to_string(),
+                        use_push,
+                        with_prototype,
+                    });
             } else {
-                panic!();
+                panic!("Not Implemented");
             }
         }
 
@@ -1020,8 +1080,7 @@ impl<'a> Compiler<'a> {
     fn collect_context_nodes(&mut self, rule: ContextRule<'a>, node: &'a Node<'a>) -> Result<Context<'a>, Error<'a>> {
         Ok(match &node.data {
             NodeData::RegexTerminal { .. }
-            | NodeData::LiteralTerminal { .. }
-            | NodeData::Embed { .. } => {
+            | NodeData::LiteralTerminal { .. } => {
                 Context {
                     rule,
                     matches: vec!(
@@ -1254,7 +1313,6 @@ mod tests {
         Variable(&'static str),
         RegexTerminal(&'static str),
         LiteralTerminal(&'static str),
-        Embed,
         Passive(Box<TestNode>),
         Repetition(Box<TestNode>),
         Optional(Box<TestNode>),
@@ -1275,10 +1333,6 @@ mod tests {
                 },
                 NodeData::LiteralTerminal { .. } => match other {
                     TestNode::LiteralTerminal(s) => &self.text == s,
-                    _ => false,
-                },
-                NodeData::Embed { .. } => match other {
-                    TestNode::Embed => true,
                     _ => false,
                 },
                 NodeData::Passive(node) => match other {
@@ -1309,7 +1363,6 @@ mod tests {
     fn variable(s: &'static str) -> TestNode { TestNode::Variable(s) }
     fn regex(s: &'static str) -> TestNode { TestNode::RegexTerminal(s) }
     fn literal(s: &'static str) -> TestNode { TestNode::LiteralTerminal(s) }
-    fn embed() -> TestNode { TestNode::Embed }
     fn passive(n: TestNode) -> TestNode {
         TestNode::Passive(Box::new(n))
     }

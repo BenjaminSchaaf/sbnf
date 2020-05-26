@@ -3,7 +3,12 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4052;
 
-const LANGUAGES: [&str; 2] = ["sbnf", "simplec"];
+const LANGUAGES: [&str; 4] = [
+    "sbnf",
+    "simplec",
+    "tests/extend_with_embed",
+    "tests/simple_embed",
+];
 
 fn main() -> std::io::Result<()> {
     std::fs::remove_dir("target/test/Data/Packages").ok();

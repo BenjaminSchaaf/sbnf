@@ -331,6 +331,10 @@ Literal and regex terminals are allowed the following arguments:
 * `<scope>`: The scope of the terminal.
 * `<capture>: <scope>`: The scope for a regex capture group. `<capture>` must be
   an integer.
+* `embed: <syntax>`: Embed/Include another contex/syntax. May be immediately
+  followed by `prototype: <rule>` to use a rule for escaping out of the embedded
+  syntax. When compiled this may use either the `push`/`with_prototype` or
+  `embed`/`escape` pattern.
 
 ### Command Line
 

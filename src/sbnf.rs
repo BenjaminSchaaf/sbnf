@@ -89,19 +89,6 @@ impl<'a> Node<'a> {
                 }
                 Ok(())
             },
-            NodeData::Embed { arguments } => {
-                write!(f, "%")?;
-                if !arguments.is_empty() {
-                    write!(f, "{{")?;
-                    arguments[0].fmt_inner(f)?;
-                    for arg in &arguments[1..] {
-                        write!(f, ", ")?;
-                        arg.fmt_inner(f)?;
-                    }
-                    write!(f, "}}")?;
-                }
-                Ok(())
-            },
             NodeData::Passive(node) => {
                 write!(f, "~(")?;
                 node.fmt_inner(f)?;
@@ -135,7 +122,7 @@ impl<'a> Node<'a> {
                 }
                 write!(f, ")")
             },
-            NodeData::KeyworkArgument(node) => {
+            NodeData::KeywordArgument(node) => {
                 write!(f, "{}: ", self.text)?;
                 node.fmt_inner(f)
             },
@@ -175,10 +162,6 @@ pub enum NodeData<'a> {
         regex: String,
         arguments: Vec<Node<'a>>,
     },
-    // %{args}
-    Embed {
-        arguments: Vec<Node<'a>>,
-    },
     // ~a
     Passive(Box<Node<'a>>),
     // a*
@@ -194,7 +177,7 @@ pub enum NodeData<'a> {
     // {positional-argument}
     PositionalArgument,
     // {keyword: argument}
-    KeyworkArgument(Box<Node<'a>>),
+    KeywordArgument(Box<Node<'a>>),
     KeywordArgumentValue,
 
 }
@@ -505,7 +488,7 @@ fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 return Ok(Node::new(
                     &parser.source[start..end],
                     loc,
-                    NodeData::KeyworkArgument(Box::new(parse_kwarg_value(parser)?))));
+                    NodeData::KeywordArgument(Box::new(parse_kwarg_value(parser)?))));
             },
             Some(_) => {},
             None => {
@@ -704,15 +687,6 @@ fn parse_rule_element_contents<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, 
             element = parse_regex_terminal(parser)?;
         } else if first_char == '`' {
             element = parse_literal_terminal(parser)?;
-        } else if first_char == '%' {
-            let location = parser.location.clone();
-
-            parser.next();
-
-            element = Node::new(
-                "",
-                location,
-                NodeData::Embed { arguments: parse_arguments(parser)? });
         } else if is_identifier_char(first_char) {
             let (location, ident) = parse_identifier(parser)?;
 
@@ -749,19 +723,17 @@ fn parse_rule_element_contents<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, 
     })
 }
 
-fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+fn parse_regex<'a>(parser: &mut Parser<'a>) -> Result<&'a str, ParseError> {
     // Assume we've parsed the first character
     let (first_pos, first) = parser.next().unwrap();
     assert!(first == '\'');
 
-    // The node should contain only terminal contents
     let start = first_pos + 1;
-    let location = parser.location.clone();
 
     let mut has_escape = false;
     loop {
         let chr = parser.peek_char().ok_or(parser.char_error(
-            "Expected the end of the terminal '\"' but got EOF instead".to_string()))?;
+            "Expected the end of the regex `\'` but got EOF instead".to_string()))?;
 
         if has_escape {
             has_escape = false;
@@ -779,6 +751,13 @@ fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseEr
     let (end, end_chr) = parser.next().unwrap();
     assert!(end_chr == '\''); // sanity
 
+    Ok(&parser.source[start..end])
+}
+
+fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let location = parser.location.clone();
+    let regex = parse_regex(parser)?;
+
     skip_whitespace(parser);
 
     let arguments =
@@ -788,18 +767,17 @@ fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseEr
             vec!()
         };
 
-    Ok(Node::new(&parser.source[start..end], location,
+    Ok(Node::new(regex, location,
                  NodeData::RegexTerminal { arguments: arguments }))
 }
 
-fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+fn parse_literal<'a>(parser: &mut Parser<'a>) -> Result<String, ParseError> {
     // Assume we've parsed the first character
     let (first_pos, first) = parser.next().unwrap();
     assert!(first == '`');
 
     // The node should contain only terminal contents
     let start = first_pos + 1;
-    let location = parser.location.clone();
 
     while parser.peek_char().unwrap_or('`') != '`' {
         parser.next();
@@ -810,6 +788,15 @@ fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, Parse
             "Expected the end of the terminal '`', but got EOF instead".to_string()))?;
     assert!(end_chr == '`'); // sanity
 
+    // Convert the literal to a regex now. This makes further compilation much
+    // simpler.
+    Ok(literal_to_regex(&parser.source[start..end]))
+}
+
+fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let location = parser.location.clone();
+    let regex = parse_literal(parser)?;
+
     skip_whitespace(parser);
 
     let arguments =
@@ -819,12 +806,7 @@ fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, Parse
             vec!()
         };
 
-    let literal = &parser.source[start..end];
-    // Convert the literal to a regex now. This makes further compilation much
-    // simpler.
-    let regex = literal_to_regex(literal);
-
-    Ok(Node::new(literal, location,
+    Ok(Node::new("", location,
                  NodeData::LiteralTerminal { regex, arguments }))
 }
 
@@ -894,8 +876,8 @@ mod tests {
         Node::new(name, TextLocation::from_tuple(loc), NodeData::Variable)
     }
 
-    fn literal<'a>(contents: &'a str, loc: (u32, u32), regex: &str, arguments: Vec<Node<'a>>) -> Node<'a> {
-        Node::new(contents, TextLocation::from_tuple(loc),
+    fn literal<'a>(loc: (u32, u32), regex: &str, arguments: Vec<Node<'a>>) -> Node<'a> {
+        Node::new("", TextLocation::from_tuple(loc),
                   NodeData::LiteralTerminal { regex: regex.to_string(), arguments: arguments })
     }
 
@@ -925,7 +907,7 @@ mod tests {
     }
 
     fn keyarg<'a>(key: &'a str, key_loc: (u32, u32), value: &'a str, value_loc: (u32, u32)) -> Node<'a> {
-        Node::new(key, TextLocation::from_tuple(key_loc), NodeData::KeyworkArgument(Box::new(
+        Node::new(key, TextLocation::from_tuple(key_loc), NodeData::KeywordArgument(Box::new(
             Node::new(value, TextLocation::from_tuple(value_loc), NodeData::KeywordArgumentValue))))
     }
 
@@ -951,7 +933,7 @@ mod tests {
                 )),
                 var("d", (0, 8)),
             ))),
-            rule("b", (0, 11), vec!(), literal("a", (0, 14), "a", vec!())),
+            rule("b", (0, 11), vec!(), literal((0, 13), "a", vec!())),
         ));
         assert!(parse("a=~(b c)? (d|(e)|f) !g*;").unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(), concat((0, 2), vec!(
@@ -981,15 +963,15 @@ mod tests {
         assert!(parse("a=`;").is_err());
         assert!(parse("a=\';").is_err());
         assert!(parse("a=`\\`;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), literal("\\", (0, 3), "\\\\", vec!()))
+            rule("a", (0, 0), vec!(), literal((0, 2), "\\\\", vec!()))
         ));
         assert!(parse(r#"a='\';"#).is_err());
         assert!(parse(r#"a='\'';"#).unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), regex("\\'", (0, 3), vec!()))
+            rule("a", (0, 0), vec!(), regex("\\'", (0, 2), vec!()))
         ));
         assert!(parse(r#"a='b(c)'{d, 1 :d e}?;"#).unwrap().nodes == vec!(
             rule("a", (0, 0), vec!(),
-                optional((0, 19), regex("b(c)", (0, 3), vec!(
+                optional((0, 19), regex("b(c)", (0, 2), vec!(
                     arg("d", (0, 9)),
                     keyarg(" 1 ", (0, 11), "d e", (0, 15)),
                 )))

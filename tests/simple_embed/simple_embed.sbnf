@@ -1,0 +1,7 @@
+scope: text.html
+
+main = ( ~'<sbnf>'{tag.begin, embed: Packages/sbnf/sbnf.sublime-syntax, prototype: js-exit}
+       )*
+     ;
+
+js-exit = ( ~'</sbnf>'{tag.end} )* ;
