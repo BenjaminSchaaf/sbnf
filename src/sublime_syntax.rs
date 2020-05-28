@@ -293,7 +293,12 @@ impl Match {
                     write_captures(state, "escape_captures", &embed.escape_captures)?;
                 },
                 ContextChange::IncludeEmbed(embed) => {
-                    serializeln!(state, "push: {}", embed.path)?;
+                    if embed.use_push {
+                        serializeln!(state, "push: {}", embed.path)?;
+                    } else {
+                        serializeln!(state, "set: {}", embed.path)?;
+                    }
+
                     if embed.with_prototype.len() > 0 {
                         serializeln!(state, "with_prototype:")?;
                         indent!(state, {

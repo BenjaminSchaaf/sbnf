@@ -1,0 +1,7 @@
+scope: source.regexp
+
+main{meta.literal.regexp} = ( ~literal )* ;
+
+literal = `.`{keyword.other.any}
+        | `)`{invalid.illegal.unmatched-brace}
+        ;

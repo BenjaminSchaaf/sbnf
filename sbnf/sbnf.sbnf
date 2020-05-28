@@ -46,9 +46,11 @@ literal{string.quoted, include-prototype: false}
     ;
 
 regex{string.quoted, include-prototype: false}
-    = `'`{punctuation.definition.string.begin}
-      ( ~`\'`{constant.character.escape} )*
-      ~`'`{punctuation.definition.string.end}
+    = `'`{punctuation.definition.string.begin, embed: scope:source.regexp, prototype: regex-escape}
     ;
+
+regex-escape = ( ~`\'`{constant.character.escape} )*
+               ~`'`{punctuation.definition.string.end}
+             ;
 
 arguments = '{[^}]*}' ;

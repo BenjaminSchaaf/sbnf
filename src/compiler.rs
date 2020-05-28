@@ -579,6 +579,8 @@ impl<'a> Compiler<'a> {
                 if matches.len() == 1 {
                     let m = matches[0];
 
+                    let rule_name = m.rule(rule.name);
+
                     // Continue branch
                     if continue_branch {
                         let scope = self.scope_for_match_stack(rule, m);
@@ -590,7 +592,6 @@ impl<'a> Compiler<'a> {
                                 if let Some(name) = self.context_cache.get(&ctx) {
                                     sublime_syntax::ContextChange::Set(vec!(name.clone()))
                                 } else {
-                                    let rule_name = m.rule(rule.name);
                                     let name = self.gen_context_name(rule_name, &branch_point);
                                     self.context_cache.insert(ctx.clone(), name.clone());
 
@@ -602,7 +603,7 @@ impl<'a> Compiler<'a> {
                                 sublime_syntax::ContextChange::Pop(1)
                             };
 
-                        patterns.push(self.compile_terminal(scope, m.terminal(), exit)?);
+                        patterns.push(self.compile_terminal(rule_name, &branch_point, scope, m.terminal(), exit)?);
                     } else {
                         // End points of branch points need to use the current
                         // rule as a scope.
@@ -686,7 +687,7 @@ impl<'a> Compiler<'a> {
                                 sublime_syntax::ContextChange::Pop(2)
                             };
 
-                        let match_ = self.compile_terminal(scope, branch_match.terminal(), exit)?;
+                        let match_ = self.compile_terminal(rule_name, &branch_point, scope, branch_match.terminal(), exit)?;
 
                         self.contexts.insert(ctx_name, sublime_syntax::Context {
                             meta_scope: sublime_syntax::Scope::empty(),
@@ -810,7 +811,7 @@ impl<'a> Compiler<'a> {
         sublime_syntax::Scope::new(scopes)
     }
 
-    fn compile_terminal(&mut self, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, mut exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
+    fn compile_terminal(&mut self, rule_name: &str, branch_point: &Option<String>, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, mut exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
         let arguments = node.get_arguments();
 
@@ -874,20 +875,22 @@ impl<'a> Compiler<'a> {
                 }
 
                 // Normal compile the prototype rule
-                self.compile_rule(prototype)?;
+                if self.contexts.get(prototype).is_none() {
+                    self.compile_rule(prototype)?;
+                }
             }
+
+            let with_prototype =
+                if let Some(prototype) = prototype {
+                    vec!(sublime_syntax::ContextPattern::Include(prototype.to_string()))
+                } else {
+                    vec!()
+                };
 
             // If the exit is pop: 1, we don't need to create an embed context.
             // Otherwise we do.
             if exit == sublime_syntax::ContextChange::Pop(1) || exit == sublime_syntax::ContextChange::None {
                 let use_push = exit == sublime_syntax::ContextChange::None;
-
-                let with_prototype =
-                    if let Some(prototype) = prototype {
-                        vec!(sublime_syntax::ContextPattern::Include(prototype.to_string()))
-                    } else {
-                        vec!()
-                    };
 
                 exit = sublime_syntax::ContextChange::IncludeEmbed(
                     sublime_syntax::IncludeEmbed {
@@ -896,7 +899,40 @@ impl<'a> Compiler<'a> {
                         with_prototype,
                     });
             } else {
-                panic!("Not Implemented");
+                match &mut exit {
+                    sublime_syntax::ContextChange::Pop(pop_amount) => {
+                        // Create a pop and embed context, and set them both
+                        panic!("TODO");
+                    },
+                    sublime_syntax::ContextChange::Push(ref mut contexts)
+                    | sublime_syntax::ContextChange::Set(ref mut contexts) => {
+                        // Create an embed context that does the actual embedding in
+                        // a set, then add that to the contexts.
+                        let embed_context = self.gen_context_name(rule_name, branch_point);
+
+                        self.contexts.insert(embed_context.clone(), sublime_syntax::Context {
+                            meta_scope: sublime_syntax::Scope::empty(),
+                            meta_content_scope: sublime_syntax::Scope::empty(),
+                            meta_include_prototype: false,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                                pattern: sublime_syntax::Pattern::from_str(""),
+                                scope: sublime_syntax::Scope::empty(),
+                                captures: HashMap::new(),
+                                change_context: sublime_syntax::ContextChange::IncludeEmbed(
+                                    sublime_syntax::IncludeEmbed {
+                                        path: embed.to_string(),
+                                        use_push: false,
+                                        with_prototype,
+                                    }
+                                ),
+                            })),
+                        });
+
+                        contexts.push(embed_context);
+                    },
+                    _ => panic!(),
+                }
             }
         }
 
@@ -968,7 +1004,7 @@ impl<'a> Compiler<'a> {
                         sublime_syntax::ContextChange::Push(contexts)
                     };
 
-                return self.compile_terminal(scope, _match.terminal(), exit);
+                return self.compile_terminal(rule.name, &None, scope, _match.terminal(), exit);
             } else {
                 // Otherwise we have a complex repetition, which behaves the
                 // same way as a regular match.
@@ -996,7 +1032,7 @@ impl<'a> Compiler<'a> {
                 sublime_syntax::ContextChange::Set(contexts)
             };
 
-        self.compile_terminal(scope, _match.terminal(), exit)
+        self.compile_terminal(rule.name, &None, scope, _match.terminal(), exit)
     }
 
     fn compile_simple_match_impl(&mut self, rule: ContextRule<'a>, _match: &ContextMatch<'a>) -> Result<Vec<String>, Error<'a>> {
