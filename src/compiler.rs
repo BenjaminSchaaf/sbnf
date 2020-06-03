@@ -292,8 +292,8 @@ impl<'a> Compiler<'a> {
 
         let arguments: &'a Vec<Node<'a>>;
         let pattern: &'a Node<'a>;
-        if let NodeData::Rule { arguments: a, node: n } = &node.data {
-            arguments = &a;
+        if let NodeData::Rule { parameters: _params, meta_parameters: meta_params, node: n } = &node.data {
+            arguments = &meta_params;
             pattern = &n;
         } else {
             panic!();
@@ -813,13 +813,13 @@ impl<'a> Compiler<'a> {
 
     fn compile_terminal(&mut self, rule_name: &str, branch_point: &Option<String>, mut scope: sublime_syntax::Scope, node: &'a Node<'a>, mut exit: sublime_syntax::ContextChange) -> Result<sublime_syntax::ContextPattern, Error<'a>> {
         let regex = node.get_regex();
-        let arguments = node.get_arguments();
+        let meta_parameters = node.get_meta_parameters();
 
         let mut captures: HashMap<u16, sublime_syntax::Scope> = HashMap::new();
         let mut embed: Option<&'a str> = None;
         let mut prototype: Option<&'a str> = None;
 
-        for (i, argument) in arguments.iter().enumerate() {
+        for (i, argument) in meta_parameters.iter().enumerate() {
             match &argument.data {
                 NodeData::PositionalArgument => {
                     // A positional argument may only appear at the start to
@@ -900,7 +900,7 @@ impl<'a> Compiler<'a> {
                     });
             } else {
                 match &mut exit {
-                    sublime_syntax::ContextChange::Pop(pop_amount) => {
+                    sublime_syntax::ContextChange::Pop(_pop_amount) => {
                         // Create a pop and embed context, and set them both
                         panic!("TODO");
                     },
@@ -1130,7 +1130,7 @@ impl<'a> Compiler<'a> {
                     branch_point: None,
                 }
             },
-            NodeData::Variable => {
+            NodeData::Variable { parameters: _parameters } => {
                 let pattern = self.rules.get(node.text)
                                         .map(|r| r.pattern)
                                         .ok_or_else(||
@@ -1359,7 +1359,7 @@ mod tests {
     impl<'a> PartialEq<TestNode> for Node<'a> {
         fn eq(&self, other: &TestNode) -> bool {
             match &self.data {
-                NodeData::Variable => match other {
+                NodeData::Variable { parameters: _parameters } => match other {
                     TestNode::Variable(name) => &self.text == name,
                     _ => false,
                 },

@@ -28,12 +28,25 @@ impl<'a> Node<'a> {
         }
     }
 
-    pub fn get_arguments(&'a self) -> &'a Vec<Node<'a>> {
+    pub fn get_meta_parameters(&'a self) -> &'a Vec<Node<'a>> {
         match &self.data {
-            NodeData::RegexTerminal { arguments }
-            | NodeData::LiteralTerminal { arguments, .. } => arguments,
+            NodeData::RegexTerminal { meta_parameters }
+            | NodeData::LiteralTerminal { meta_parameters, .. } => meta_parameters,
             _ => panic!(),
         }
+    }
+
+    fn fmt_inner_parameters(&self, f: &mut std::fmt::Formatter, params: &Vec<Node<'a>>, start: &str, end: &str) -> std::fmt::Result {
+        if !params.is_empty() {
+            write!(f, "{}", start)?;
+            params[0].fmt_inner(f)?;
+            for arg in &params[1..] {
+                write!(f, ", ")?;
+                arg.fmt_inner(f)?;
+            }
+            write!(f, "{}", end)?;
+        }
+        Ok(())
     }
 
     fn fmt_inner(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -43,51 +56,30 @@ impl<'a> Node<'a> {
                 value.fmt_inner(f)
             },
             NodeData::HeaderValue
-            | NodeData::Variable
             | NodeData::PositionalArgument
             | NodeData::KeywordArgumentValue => {
                 write!(f, "{}", self.text)
             },
-            NodeData::Rule { arguments, node } => {
+            NodeData::Variable { parameters } => {
                 write!(f, "{}", self.text)?;
-                if !arguments.is_empty() {
-                    write!(f, "{{")?;
-                    arguments[0].fmt_inner(f)?;
-                    for arg in &arguments[1..] {
-                        write!(f, ", ")?;
-                        arg.fmt_inner(f)?;
-                    }
-                    write!(f, "}}")?;
-                }
-                write!(f, " ")?;
+
+                self.fmt_inner_parameters(f, &parameters, "[", "]")
+            },
+            NodeData::Rule { parameters, meta_parameters, node } => {
+                write!(f, "{}", self.text)?;
+                self.fmt_inner_parameters(f, &parameters, "[", "]")?;
+                self.fmt_inner_parameters(f, &meta_parameters, "{", "}")?;
+                write!(f, " = ")?;
                 node.fmt_inner(f)?;
                 write!(f, " ;")
             },
-            NodeData::RegexTerminal { arguments } => {
+            NodeData::RegexTerminal { meta_parameters } => {
                 write!(f, "'{}'", self.text)?;
-                if !arguments.is_empty() {
-                    write!(f, "{{")?;
-                    arguments[0].fmt_inner(f)?;
-                    for arg in &arguments[1..] {
-                        write!(f, ", ")?;
-                        arg.fmt_inner(f)?;
-                    }
-                    write!(f, "}}")?;
-                }
-                Ok(())
+                self.fmt_inner_parameters(f, &meta_parameters, "{", "}")
             },
-            NodeData::LiteralTerminal { arguments, .. } => {
+            NodeData::LiteralTerminal { meta_parameters, .. } => {
                 write!(f, "`{}`", self.text)?;
-                if !arguments.is_empty() {
-                    write!(f, "{{")?;
-                    arguments[0].fmt_inner(f)?;
-                    for arg in &arguments[1..] {
-                        write!(f, ", ")?;
-                        arg.fmt_inner(f)?;
-                    }
-                    write!(f, "}}")?;
-                }
-                Ok(())
+                self.fmt_inner_parameters(f, &meta_parameters, "{", "}")
             },
             NodeData::Passive(node) => {
                 write!(f, "~(")?;
@@ -146,21 +138,24 @@ pub enum NodeData<'a> {
     // Header: Value
     Header(Box<Node<'a>>),
     HeaderValue,
-    // Rule{arguments} = node
+    // Rule[parameters]{meta_parameters} = node
     Rule {
-        arguments: Vec<Node<'a>>,
+        parameters: Vec<Node<'a>>,
+        meta_parameters: Vec<Node<'a>>,
         node: Box<Node<'a>>,
     },
-    // variable
-    Variable,
+    // variable[parameters]
+    Variable {
+        parameters: Vec<Node<'a>>,
+    },
     // "\r\e\g\e\x"
     RegexTerminal {
-        arguments: Vec<Node<'a>>,
+        meta_parameters: Vec<Node<'a>>,
     },
     // `literal`
     LiteralTerminal {
         regex: String,
-        arguments: Vec<Node<'a>>,
+        meta_parameters: Vec<Node<'a>>,
     },
     // ~a
     Passive(Box<Node<'a>>),
@@ -328,7 +323,10 @@ fn skip_whitespace(parser: &mut Parser) {
 }
 
 fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
-    let (location, ident) = parse_identifier(parser)?;
+    skip_whitespace(parser);
+    let location = parser.location.clone();
+
+    let ident = parse_identifier(parser)?;
 
     skip_whitespace(parser);
 
@@ -339,38 +337,42 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
                 NodeData::Header(parse_header_value(parser)?)
             },
-            Some('{') => {
-                let arguments = parse_arguments(parser)?;
+            Some(_) => {
+                let parameters =
+                    if parser.peek_char() == Some('[') {
+                        let params = parse_parameters(parser)?;
 
-                skip_whitespace(parser);
+                        skip_whitespace(parser);
 
-                if let Some(chr) = parser.peek_char() {
-                    if chr != '=' {
-                        return Err(parser.char_error(format!(
-                            "Expecting the start of a rule '=', got {:?} instead", chr)));
-                    }
-                } else {
-                    return Err(parser.char_error(
-                        "Expecting the start of a rule '=', got EOF instead".to_string()));
+                        params
+                    } else {
+                        vec!()
+                    };
+
+                let meta_parameters =
+                    if parser.peek_char() == Some('{') {
+                        let params = parse_meta_parameters(parser)?;
+
+                        skip_whitespace(parser);
+
+                        params
+                    } else {
+                        vec!()
+                    };
+
+                match parser.next() {
+                    Some((_, '=')) => {},
+                    Some((_, chr)) => return Err(parser.char_error(format!(
+                        "Expected the start of a rule '=', got {:?} instead", chr))),
+                    None => return Err(parser.char_error(
+                        "Expecting the start of a rule '=', got EOF instead".to_string()))
                 }
-                parser.next();
 
                 NodeData::Rule {
-                    arguments: arguments,
+                    parameters,
+                    meta_parameters,
                     node: parse_rule(parser)?
                 }
-            },
-            Some('=') => {
-                parser.next();
-
-                NodeData::Rule {
-                    arguments: vec!(),
-                    node: parse_rule(parser)?
-                }
-            },
-            Some(rchr) => {
-                return Err(parser.char_error(format!(
-                    "Expecting the start of a rule or header, got {:?} instead", rchr)));
             },
             None => {
                 return Err(parser.char_error(format!(
@@ -381,9 +383,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     Ok(Node::new(ident, location, data))
 }
 
-fn parse_identifier<'a>(parser: &mut Parser<'a>) -> Result<(TextLocation, &'a str), ParseError> {
-    skip_whitespace(parser);
-
+fn parse_identifier<'a>(parser: &mut Parser<'a>) -> Result<&'a str, ParseError> {
     let start: usize;
     if let Some((loc, chr)) = parser.peek() {
         if is_identifier_char(chr) {
@@ -397,17 +397,15 @@ fn parse_identifier<'a>(parser: &mut Parser<'a>) -> Result<(TextLocation, &'a st
             "Expected an identifier, got EOF instead".to_string()))
     }
 
-    let location = parser.location.clone();
-
     while let Some((end, chr)) = parser.peek() {
         if is_identifier_char(chr) {
             parser.next();
         } else {
-            return Ok((location, &parser.source[start..end]));
+            return Ok(&parser.source[start..end]);
         }
     }
 
-    Ok((location, &parser.source[start..]))
+    Ok(&parser.source[start..])
 }
 
 fn parse_header_value<'a>(parser: &mut Parser<'a>) -> Result<Box<Node<'a>>, ParseError> {
@@ -435,10 +433,68 @@ fn parse_header_value<'a>(parser: &mut Parser<'a>) -> Result<Box<Node<'a>>, Pars
     Ok(Box::new(Node::new(&parser.source[start..end], location, NodeData::HeaderValue)))
 }
 
-fn parse_arguments<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseError> {
+fn parse_parameters<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseError> {
+    if parser.peek_char() != Some('[') {
+        return Err(parser.char_error(
+            "Expected a '[' to start parameters".to_string()))
+    }
+
+    parser.next();
+
+    let mut parameters = vec!();
+
+    loop {
+        skip_whitespace(parser);
+
+        let location = parser.location.clone();
+
+        match parser.peek_char() {
+            Some('\'') => {
+                let regex = parse_regex(parser)?;
+
+                parameters.push(Node::new(regex, location,
+                                          NodeData::RegexTerminal { meta_parameters: vec!() }));
+            },
+            Some('`') => {
+                let (literal, regex) = parse_literal(parser)?;
+
+                parameters.push(Node::new(literal, location,
+                                          NodeData::LiteralTerminal { regex, meta_parameters: vec!() }));
+            },
+            Some(_) => {
+                let variable = parse_identifier(parser)?;
+
+                parameters.push(Node::new(variable, location, NodeData::Variable { parameters: vec!() }));
+            },
+            None => {
+                return Err(parser.char_error(
+                    "Expected an argument like a string or variable. Got EOF instead".to_string()));
+            },
+        }
+
+        skip_whitespace(parser);
+
+        match parser.next() {
+            Some((_, ',')) => continue,
+            Some((_, ']')) => break,
+            Some((_, chr)) => {
+                return Err(parser.char_error(
+                    format!("Expected end of arguments ']' or continuation ',', but got {:?} instead", chr)));
+            },
+            None => {
+                return Err(parser.char_error(
+                    "Expected either ',' or ']' for the end of parameters. Got EOF instead".to_string()));
+            },
+        }
+    }
+
+    Ok(parameters)
+}
+
+fn parse_meta_parameters<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseError> {
     if parser.peek_char() != Some('{') {
         return Err(parser.char_error(
-            "Expected a '{' to start arguments".to_string()));
+            "Expected a '{' to start meta-parameters".to_string()));
     }
 
     parser.next();
@@ -446,13 +502,11 @@ fn parse_arguments<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseEr
     let mut arguments = vec!(parse_argument(parser)?);
 
     loop {
-        match parser.peek_char() {
-            Some('}') => {
-                parser.next();
+        match parser.next() {
+            Some((_, '}')) => {
                 break;
             },
-            Some(',') => {
-                parser.next();
+            Some((_, ',')) => {
                 arguments.push(parse_argument(parser)?);
             },
             None => {
@@ -688,9 +742,19 @@ fn parse_rule_element_contents<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, 
         } else if first_char == '`' {
             element = parse_literal_terminal(parser)?;
         } else if is_identifier_char(first_char) {
-            let (location, ident) = parse_identifier(parser)?;
+            let location = parser.location.clone();
+            let ident = parse_identifier(parser)?;
 
-            element = Node::new(ident, location, NodeData::Variable);
+            skip_whitespace(parser);
+
+            let parameters =
+                if parser.peek_char() == Some('[') {
+                    parse_parameters(parser)?
+                } else {
+                    vec!()
+                };
+
+            element = Node::new(ident, location, NodeData::Variable { parameters });
         } else {
             return Err(parser.char_error(format!(
                 "Expected a terminal, variable or group, got {:?} instead", first_char)));
@@ -760,18 +824,17 @@ fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseEr
 
     skip_whitespace(parser);
 
-    let arguments =
+    let meta_parameters =
         if parser.peek_char() == Some('{') {
-            parse_arguments(parser)?
+            parse_meta_parameters(parser)?
         } else {
             vec!()
         };
 
-    Ok(Node::new(regex, location,
-                 NodeData::RegexTerminal { arguments: arguments }))
+    Ok(Node::new(regex, location, NodeData::RegexTerminal { meta_parameters }))
 }
 
-fn parse_literal<'a>(parser: &mut Parser<'a>) -> Result<String, ParseError> {
+fn parse_literal<'a>(parser: &mut Parser<'a>) -> Result<(&'a str, String), ParseError> {
     // Assume we've parsed the first character
     let (first_pos, first) = parser.next().unwrap();
     assert!(first == '`');
@@ -790,24 +853,25 @@ fn parse_literal<'a>(parser: &mut Parser<'a>) -> Result<String, ParseError> {
 
     // Convert the literal to a regex now. This makes further compilation much
     // simpler.
-    Ok(literal_to_regex(&parser.source[start..end]))
+    let text = &parser.source[start..end];
+    Ok((text, literal_to_regex(text)))
 }
 
 fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     let location = parser.location.clone();
-    let regex = parse_literal(parser)?;
+    let (text, regex) = parse_literal(parser)?;
 
     skip_whitespace(parser);
 
-    let arguments =
+    let meta_parameters =
         if parser.peek_char() == Some('{') {
-            parse_arguments(parser)?
+            parse_meta_parameters(parser)?
         } else {
             vec!()
         };
 
-    Ok(Node::new("", location,
-                 NodeData::LiteralTerminal { regex, arguments }))
+    Ok(Node::new(text, location,
+                 NodeData::LiteralTerminal { regex, meta_parameters }))
 }
 
 fn literal_to_regex(literal: &str) -> String {
@@ -857,9 +921,9 @@ mod tests {
         ));
     }
 
-    fn rule<'a>(name: &'a str, loc: (u32, u32), arguments: Vec<Node<'a>>, node: Node<'a>) -> Node<'a> {
+    fn rule<'a>(name: &'a str, loc: (u32, u32), parameters: Vec<Node<'a>>, meta_parameters: Vec<Node<'a>>, node: Node<'a>) -> Node<'a> {
         Node::new(name, TextLocation::from_tuple(loc),
-                  NodeData::Rule { arguments: arguments, node: Box::new(node) })
+                  NodeData::Rule { parameters, meta_parameters, node: Box::new(node) })
     }
 
     fn concat<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
@@ -872,18 +936,18 @@ mod tests {
             "", TextLocation::from_tuple(loc), NodeData::Alternation(nodes))
     }
 
-    fn var<'a>(name: &'a str, loc: (u32, u32)) -> Node<'a> {
-        Node::new(name, TextLocation::from_tuple(loc), NodeData::Variable)
+    fn var<'a>(name: &'a str, loc: (u32, u32), parameters: Vec<Node<'a>>) -> Node<'a> {
+        Node::new(name, TextLocation::from_tuple(loc), NodeData::Variable { parameters })
     }
 
-    fn literal<'a>(loc: (u32, u32), regex: &str, arguments: Vec<Node<'a>>) -> Node<'a> {
-        Node::new("", TextLocation::from_tuple(loc),
-                  NodeData::LiteralTerminal { regex: regex.to_string(), arguments: arguments })
+    fn literal<'a>(literal: &'a str, loc: (u32, u32), regex: &str, meta_parameters: Vec<Node<'a>>) -> Node<'a> {
+        Node::new(literal, TextLocation::from_tuple(loc),
+                  NodeData::LiteralTerminal { regex: regex.to_string(), meta_parameters })
     }
 
-    fn regex<'a>(contents: &'a str, loc: (u32, u32), arguments: Vec<Node<'a>>) -> Node<'a> {
+    fn regex<'a>(contents: &'a str, loc: (u32, u32), meta_parameters: Vec<Node<'a>>) -> Node<'a> {
         Node::new(contents, TextLocation::from_tuple(loc),
-                  NodeData::RegexTerminal { arguments: arguments })
+                  NodeData::RegexTerminal { meta_parameters })
     }
 
     fn passive<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
@@ -923,38 +987,48 @@ mod tests {
         assert!(parse("a=(a").is_err());
         assert!(parse("a=(a;").is_err());
         assert!(parse("a=b;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), var("b", (0, 2))),
+            rule("a", (0, 0), vec!(), vec!(), var("b", (0, 2), vec!())),
         ));
         assert!(parse("a =b c |d ;b=`a`;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), alt((0, 3), vec!(
+            rule("a", (0, 0), vec!(), vec!(), alt((0, 3), vec!(
                 concat((0, 3), vec!(
-                    var("b", (0, 3)),
-                    var("c", (0, 5)),
+                    var("b", (0, 3), vec!()),
+                    var("c", (0, 5), vec!()),
                 )),
-                var("d", (0, 8)),
+                var("d", (0, 8), vec!()),
             ))),
-            rule("b", (0, 11), vec!(), literal((0, 13), "a", vec!())),
+            rule("b", (0, 11), vec!(), vec!(), literal("a", (0, 13), "a", vec!())),
         ));
         assert!(parse("a=~(b c)? (d|(e)|f) !g*;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), concat((0, 2), vec!(
+            rule("a", (0, 0), vec!(), vec!(), concat((0, 2), vec!(
                 passive((0, 2), optional((0, 8), concat((0, 4), vec!(
-                    var("b", (0, 4)),
-                    var("c", (0, 6)),
+                    var("b", (0, 4), vec!()),
+                    var("c", (0, 6), vec!()),
                 )))),
                 alt((0, 11), vec!(
-                    var("d", (0, 11)),
-                    var("e", (0, 14)),
-                    var("f", (0, 17)),
+                    var("d", (0, 11), vec!()),
+                    var("e", (0, 14), vec!()),
+                    var("f", (0, 17), vec!()),
                 )),
-                capture((0, 20), repetition((0, 22), var("g", (0, 21)))),
+                capture((0, 20), repetition((0, 22), var("g", (0, 21), vec!()))),
             ))),
         ));
         assert!(parse("a{b c, 2:d, e}=a;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(
+            rule("a", (0, 0), vec!(), vec!(
                     arg("b c", (0, 2)),
                     keyarg(" 2", (0, 6), "d", (0, 9)),
                     arg(" e", (0, 11)),
-                ), var("a", (0, 15)))
+                ), var("a", (0, 15), vec!()))
+        ));
+        assert!(parse("a[`b`]=a['c'] b[c, d];").unwrap().nodes == vec!(
+            rule("a", (0, 0), vec!(
+                    literal("b", (0, 2), "b", vec!()),
+                ), vec!(), concat((0, 7), vec!(
+                    var("a", (0, 7), vec!(regex("c", (0, 9), vec!()))),
+                    var("b", (0, 14), vec!(
+                        var("c", (0, 16), vec!()),
+                        var("d", (0, 19), vec!()))),
+                )))
         ));
     }
 
@@ -963,14 +1037,14 @@ mod tests {
         assert!(parse("a=`;").is_err());
         assert!(parse("a=\';").is_err());
         assert!(parse("a=`\\`;").unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), literal((0, 2), "\\\\", vec!()))
+            rule("a", (0, 0), vec!(), vec!(), literal("\\", (0, 2), "\\\\", vec!()))
         ));
         assert!(parse(r#"a='\';"#).is_err());
         assert!(parse(r#"a='\'';"#).unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(), regex("\\'", (0, 2), vec!()))
+            rule("a", (0, 0), vec!(), vec!(), regex("\\'", (0, 2), vec!()))
         ));
         assert!(parse(r#"a='b(c)'{d, 1 :d e}?;"#).unwrap().nodes == vec!(
-            rule("a", (0, 0), vec!(),
+            rule("a", (0, 0), vec!(), vec!(),
                 optional((0, 19), regex("b(c)", (0, 2), vec!(
                     arg("d", (0, 9)),
                     keyarg(" 1 ", (0, 11), "d e", (0, 15)),
