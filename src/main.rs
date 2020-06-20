@@ -8,6 +8,7 @@ pub mod compiler;
 
 #[macro_use]
 extern crate clap;
+extern crate base64;
 
 fn main() {
     std::process::exit(
@@ -33,8 +34,8 @@ fn try_main() -> Result<(), String> {
         (@arg debug: -g "Compile with debug scopes")
         (@arg INPUT: +required "The SBNF file to compile")
         (@arg OUTPUT: "The file to write the compiled sublime-syntax to. \
-                       Leaving this out will instead write to stdout")
-    ).get_matches();
+         Leaving this out will instead write to stdout")
+        ).get_matches();
 
     let input = matches.value_of("INPUT").unwrap();
     let output = matches.value_of("OUTPUT");
@@ -50,31 +51,50 @@ fn try_main() -> Result<(), String> {
     // Use the base name of the input as a name hint
     let name_hint = Path::new(&input).file_stem().unwrap().to_str().unwrap();
 
-    let options = compiler::CompilerOptions {
+    let options = compiler::CompileOptions {
+        name_hint: Some(name_hint),
         debug_contexts: matches.is_present("debug"),
+        arguments: vec!(),
+        entry_points: vec!("main", "prototype"),
     };
 
-    let result = compiler::compile(Some(name_hint), &options, &grammar).map_err(
-        |e| e.fmt("Compiler Error", &input, &contents))?;
+    let result = compiler::compile(options, &grammar);
 
-    if !matches.is_present("quiet") {
-        for warning in result.warnings {
-            eprintln!("{}", warning.fmt("Warning", &input, &contents));
-        }
-    }
+    match &result.result {
+        Err(errors) => {
+            for error in errors {
+                eprintln!("{}", error.fmt("Error", &input, &contents));
+            }
 
-    let mut output_buffer = String::new();
-    result.syntax.serialize(&mut output_buffer).map_err(|e| format!("{}", e))?;
+            if !matches.is_present("quiet") {
+                for warning in result.warnings {
+                    eprintln!("{}", warning.fmt("Warning", &input, &contents));
+                }
+            }
 
-    match output {
-        Some(output) => {
-            let mut file = fmt_io_err(File::create(output))?;
-            fmt_io_err(file.write_fmt(format_args!("{}", output_buffer)))?;
+            Err("Compilation Failed".to_string())
         },
-        None => {
-            print!("{}", output_buffer);
+        Ok(syntax) => {
+            if !matches.is_present("quiet") {
+                for warning in result.warnings {
+                    eprintln!("{}", warning.fmt("Warning", &input, &contents));
+                }
+            }
+
+            let mut output_buffer = String::new();
+            syntax.serialize(&mut output_buffer).map_err(|e| format!("{}", e))?;
+
+            match output {
+                Some(output) => {
+                    let mut file = fmt_io_err(File::create(output))?;
+                    fmt_io_err(file.write_fmt(format_args!("{}", output_buffer)))?;
+                },
+                None => {
+                    print!("{}", output_buffer);
+                },
+            }
+
+            Ok(())
         },
     }
-
-    Ok(())
 }
