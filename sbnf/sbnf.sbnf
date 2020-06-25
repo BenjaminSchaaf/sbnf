@@ -16,7 +16,8 @@ header = '[[:alnum:]_\-\.]+'{entity.name.tag}
        ;
 
 rule = '[[:alnum:]_\-\.]+'{entity.name.function}
-       arguments?
+       parameters?
+       options?
        `=`{keyword.operator.assignment}
        pattern
        `;`{punctuation.terminator.rule}
@@ -29,10 +30,10 @@ pattern-element = '~|!'{keyword.operator}?
                   '\*|\?'{keyword.control}?
                 ;
 
-pattern-item = literal arguments?
-             | regex arguments?
+pattern-item = literal options?
+             | regex options?
              | group
-             | '[[:alnum:]_\-\.]+'{variable.function}
+             | '[[:alnum:]_\-\.]+'{variable.function} parameters?
              ;
 
 group{meta.group} = `(`{punctuation.section.group.begin}
@@ -42,15 +43,25 @@ group{meta.group} = `(`{punctuation.section.group.begin}
 
 literal{string.quoted, include-prototype: false}
     = '`'{punctuation.definition.string.begin}
-      ~'`'{punctuation.definition.string.begin}
+      ~'`'{punctuation.definition.string.end}
     ;
 
 regex{string.quoted, include-prototype: false}
-    = `'`{punctuation.definition.string.begin, embed: scope:source.regexp, prototype: regex-escape}
+    = `'`{punctuation.definition.string.begin}
+      ( ~( `\'`{constant.character.escape}
+         | interpolation
+         )
+      )*
+      ~`'`{punctuation.definition.string.end}
     ;
 
-regex-escape = ( ~`\'`{constant.character.escape} )*
-               ~`'`{punctuation.definition.string.end}
-             ;
+options = '{[^}]*}' ;
 
-arguments = '{[^}]*}' ;
+interpolation = `#[`{punctuation.definition.placeholder.begin}
+                parameter
+                `]`{punctuation.definition.placeholder.end}
+              ;
+
+parameters = `[` parameter ( `,` parameter )* `]` ;
+
+parameter = literal | regex | '[[:alnum:]_\-\.]+'{variable.parameter} ;
