@@ -37,8 +37,8 @@ struct State<'a> {
     context_cache: HashMap<ContextKey<'a>, ContextCacheEntry>,
     contexts: HashMap<String, sublime_syntax::Context>,
 
-    errors: Vec<Error<'a>>,
-    warnings: Vec<Error<'a>>,
+    _errors: Vec<Error<'a>>,
+    _warnings: Vec<Error<'a>>,
 }
 
 pub fn codegen<'a>(_options: &CompileOptions<'a>, interpreted: Interpreted<'a>) -> CompileResult<'a, sublime_syntax::Syntax> {
@@ -47,8 +47,8 @@ pub fn codegen<'a>(_options: &CompileOptions<'a>, interpreted: Interpreted<'a>) 
         context_cache: HashMap::new(),
         contexts: HashMap::new(),
 
-        errors: vec!(),
-        warnings: vec!(),
+        _errors: vec!(),
+        _warnings: vec!(),
     };
 
     for rule_key in &interpreted.entry_points {
