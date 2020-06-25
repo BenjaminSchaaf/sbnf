@@ -1,0 +1,10 @@
+# SYNTAX TEST "Packages/tests/simple_interpreter/simple_interpreter.sublime-syntax"
+
+ aac
+#^^^ interp.a
+
+ abc
+#^^^ interp.b
+
+ acc
+#^^^ interp.c

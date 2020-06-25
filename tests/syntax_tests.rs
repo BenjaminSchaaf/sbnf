@@ -3,12 +3,13 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4052;
 
-const LANGUAGES: [&str; 5] = [
+const LANGUAGES: [&str; 6] = [
     "sbnf",
     "simplec",
     "regexp",
     "tests/extend_with_embed",
     "tests/simple_embed",
+    "tests/simple_interpreter",
 ];
 
 fn main() -> std::io::Result<()> {
