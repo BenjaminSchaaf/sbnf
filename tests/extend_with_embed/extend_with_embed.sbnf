@@ -1,5 +1,0 @@
-main = ''{embed: Packages/sbnf/sbnf.sublime-syntax, prototype: comments} ;
-
-comments = ( ~multi-line-comment )* ;
-
-multi-line-comment{punctuation.definition.comment} = `{#`{punctuation.definition.comment.begin} ~`#}`{punctuation.definition.comment.end} ;

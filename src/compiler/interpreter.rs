@@ -39,11 +39,9 @@ pub struct Rule<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct TerminalOptions<'a> {
+pub struct TerminalOptions {
     pub scope: sublime_syntax::Scope,
     pub captures: HashMap<u16, sublime_syntax::Scope>,
-    pub embed: Option<String>,
-    pub prototype: Option<RuleKey<'a>>,
 }
 
 pub enum Expression<'a> {
@@ -53,7 +51,7 @@ pub enum Expression<'a> {
     },
     Terminal {
         regex: String,
-        options: TerminalOptions<'a>,
+        options: TerminalOptions,
         node: &'a Node<'a>,
     },
     Passive {
@@ -548,12 +546,10 @@ fn interpret_expression<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
     }
 }
 
-fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis: &Analysis<'a>, node_options: &'a Vec<Node<'a>>) -> TerminalOptions<'a> {
+fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis: &Analysis<'a>, node_options: &'a Vec<Node<'a>>) -> TerminalOptions {
     let mut options = TerminalOptions {
         scope: sublime_syntax::Scope::empty(),
         captures: HashMap::new(),
-        embed: None,
-        prototype: None,
     };
 
     for (i, option) in node_options.iter().enumerate() {
@@ -579,50 +575,23 @@ fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analy
                 let value_text = trim_ascii(value_node.text);
                 let value = interpolate_string(state, var_map, value_node, value_text);
 
-                if options.embed.is_none() {
-                    // The first set of keyword arguments determine captures
-                    if let Some(group) = key.parse::<u16>().ok() {
-                        if options.captures.contains_key(&group) {
-                            // TODO: Improve error message
-                            state.errors.push(state.stack.error_from_str(
-                                "Duplicate capture group argument",
-                                option,
-                                vec!()));
-                        } else {
-                            options.captures.insert(group, parse_scope(&analysis.metadata, &value));
-                        }
-                    } else if key == "embed" {
-                        options.embed = Some(value);
-                    } else {
-                        state.errors.push(state.stack.error_from_str(
-                            "Expected either capture group number or 'embed' for keyword argument",
-                            option,
-                            vec!(
-                                (option, format!("Got '{}' instead", option.text)),
-                            )));
-                    }
-                } else if options.prototype.is_none() {
-                    if key == "prototype" {
-                        // TODO: Arguments?
-                        let key = RuleKey { name: value_text, arguments: vec!() };
-
-                        interpret_rule(state, analysis, Some(value_node), &key);
-                        options.prototype = Some(key);
-                    } else {
+                // The first set of keyword arguments determine captures
+                if let Some(group) = key.parse::<u16>().ok() {
+                    if options.captures.contains_key(&group) {
                         // TODO: Improve error message
                         state.errors.push(state.stack.error_from_str(
-                            "Expected either 'prototype' keyword argument after 'embed' or nothing",
+                            "Duplicate capture group argument",
                             option,
-                            vec!(
-                                (option, format!("Got '{}' instead", option.text)),
-                            )));
+                            vec!()));
+                    } else {
+                        options.captures.insert(group, parse_scope(&analysis.metadata, &value));
                     }
                 } else {
                     state.errors.push(state.stack.error_from_str(
                         "Unexpected keyword argument",
                         option,
                         vec!(
-                            (option, "There should be no arguments after 'prototype'".to_string()),
+                            (option, "There should be no arguments after capture groups".to_string()),
                         )));
                 }
             },

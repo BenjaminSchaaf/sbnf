@@ -303,9 +303,6 @@ The following arguments are allowed for rules:
 
 * `<meta-scope>`: The meta-scope of the rule. Equivalent to `meta_scope` or
   `meta_content_scope` in sublime-syntax.
-* `include-prototype: <bool>`: Whether to include the `prototype` rule in this
-  rule. Equivalent to `meta_include_prototype` in sublime-syntax. `<bool>` must
-  be either `true` or `false`. Defaults to `true`.
 
 Expressions may take any of the following forms:
 
@@ -331,10 +328,6 @@ Literal and regex terminals are allowed the following arguments:
 * `<scope>`: The scope of the terminal.
 * `<capture>: <scope>`: The scope for a regex capture group. `<capture>` must be
   an integer.
-* `embed: <syntax>`: Embed/Include another contex/syntax. May be immediately
-  followed by `prototype: <rule>` to use a rule for escaping out of the embedded
-  syntax. When compiled this may use either the `push`/`with_prototype` or
-  `embed`/`escape` pattern.
 
 ### Command Line
 
