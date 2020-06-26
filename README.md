@@ -4,6 +4,8 @@
 
 A BNF-style language for writing sublime-syntax files.
 
+Try it out now on the [Live Playground!](https://benjaminschaaf.github.io/sbnf/playground.html)
+
 SBNF is currently used for
 [SWI-Prolog](https://github.com/BenjaminSchaaf/swi-prolog-sublime-syntax).
 
