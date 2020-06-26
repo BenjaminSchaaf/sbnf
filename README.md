@@ -94,19 +94,36 @@ contexts:
     - match: '(?=\b[A-Za-z_]+\b)'
       branch_point: block@1
       branch:
-        - type|4|block@1
+        - type|2|block@1
         - function-call|2|block@1
     - match: '[0-9]+'
       scope: constant.numeric.simplec
       push: statement|0
     - match: '{'
       scope: meta.block.simplec
-      push: block|0
+      push: [block|meta, block|0]
     - match: '}'
       scope: meta.block.simplec
       pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
+      pop: true
+  block|1|block@1:
+    - match: '\b[A-Za-z_]+\b'
+      scope: meta.block.simplec variable.simplec
+      set: variable-declaration|2
+    - match: '\S'
+      fail: block@1
+  block|2|block@1:
+    - match: '\('
+      scope: meta.block.simplec meta.function-call.simplec
+      set: [statement|0, function-call|meta, function-call|1]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  block|meta:
+    - meta_content_scope: meta.block.simplec
+    - match: ''
       pop: true
   function-call|0:
     - meta_content_scope: meta.function-call.simplec
@@ -127,33 +144,23 @@ contexts:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
-      push: [pop-2, function-call|3|block@1]
-  function-call|3|block@1:
-    - match: '\('
-      scope: meta.function-call.simplec
-      set: [statement|0, function-call|1]
-    - match: '\S'
-      scope: invalid.illegal.simplec
+      push: [pop-2, block|2|block@1]
+  function-call|meta:
+    - meta_content_scope: meta.function-call.simplec
+    - match: ''
       pop: true
-  function-definition|0|main@0:
-    - match: '\('
-      scope: meta.function.simplec
+  function-definition|0:
+    - meta_content_scope: meta.function.simplec
+    - match: '\)'
       set: function-definition|1
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
   function-definition|1:
     - meta_content_scope: meta.function.simplec
-    - match: '\)'
-      set: function-definition|2
-    - match: '\S'
-      scope: invalid.illegal.simplec
-      pop: true
-  function-definition|2:
-    - meta_content_scope: meta.function.simplec
     - match: '{'
       scope: meta.block.simplec
-      set: [function-definition|meta, block|0]
+      set: [block|meta, block|0]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -163,12 +170,39 @@ contexts:
       pop: true
   main:
     - match: '(?=\b[A-Za-z_]+\b)'
-      branch_point: main@0
+      branch_point: main@1
       branch:
-        - type|0|main@0
-        - type|2|main@0
+        - type|0|main@1
+        - type|1|main@1
     - match: '\S'
       scope: invalid.illegal.simplec
+  main|0|main@1:
+    - match: '\b[A-Za-z_]+\b'
+      scope: variable.simplec
+      set: main|2|main@1
+    - match: '\S'
+      fail: main@1
+  main|1|main@1:
+    - match: '\b[A-Za-z_]+\b'
+      scope: meta.function.simplec entity.name.function.simplec
+      set: main|3|main@1
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  main|2|main@1:
+    - match: '='
+      set: variable-declaration|0
+    - match: ';'
+      pop: true
+    - match: '\S'
+      fail: main@1
+  main|3|main@1:
+    - match: '\('
+      scope: meta.function.simplec
+      set: [function-definition|meta, function-definition|0]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
   pop-2:
     - meta_include_prototype: false
     - match: ''
@@ -184,66 +218,40 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
-  type|0|main@0:
+  type|0|main@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: storage.type.simplec
-      push: [pop-2, type|1|main@0]
-  type|1|main@0:
-    - match: '\b[A-Za-z_]+\b'
-      scope: variable.simplec
-      set: variable-declaration|0|main@0
-    - match: '\S'
-      fail: main@0
-  type|2|main@0:
+      push: [pop-2, main|0|main@1]
+  type|1|main@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function.simplec storage.type.simplec
-      push: [pop-2, type|3|main@0]
-  type|3|main@0:
-    - match: '\b[A-Za-z_]+\b'
-      scope: meta.function.simplec entity.name.function.simplec
-      set: function-definition|0|main@0
-    - match: '\S'
-      scope: invalid.illegal.simplec
-      pop: true
-  type|4|block@1:
+      push: [pop-2, main|1|main@1]
+  type|2|block@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: storage.type.simplec
-      push: [pop-2, type|5|block@1]
-  type|5|block@1:
-    - match: '\b[A-Za-z_]+\b'
-      scope: variable.simplec
-      set: variable-declaration|3
-    - match: '\S'
-      fail: block@1
-  variable-declaration|0|main@0:
-    - match: '='
-      set: variable-declaration|1
-    - match: ';'
-      pop: true
-    - match: '\S'
-      fail: main@0
-  variable-declaration|1:
+      push: [pop-2, block|1|block@1]
+  variable-declaration|0:
     - match: '[0-9]+'
       scope: constant.numeric.simplec
-      set: variable-declaration|2
+      set: variable-declaration|1
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
-      set: [variable-declaration|2, function-call|0]
+      set: [variable-declaration|1, function-call|meta, function-call|0]
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  variable-declaration|1:
+    - match: ';'
+      pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
   variable-declaration|2:
-    - match: ';'
-      pop: true
-    - match: '\S'
-      scope: invalid.illegal.simplec
-      pop: true
-  variable-declaration|3:
     - match: '='
-      set: variable-declaration|1
+      set: variable-declaration|0
     - match: ';'
       pop: true
     - match: '\S'
@@ -257,14 +265,17 @@ A SBNF file contains two types of elements: headers and rules. Headers provide
 meta-data for the syntax, such as it's name, while rules are the bnf-style rules
 that define the parsing and scoping of the grammar.
 
+Comments in SBNF start with a `#` and end at the next newline.
+
 See `sbnf.sbnf` for a full example grammar.
 
 ### Headers
 
 Headers are in the form `<head>: <value>`, ending at the end of the line. The
-following values are allowed:
+following headers are allowed:
 
-* `name`: The name of the syntax. This defaults to the name of the sbnf file.
+* `name`: The name of the syntax. This defaults to the base-name of the sbnf
+  file.
 * `extensions`: A space-separated list of file extensions. Equivalent to
   `file_extensions` in sublime-syntax.
 * `first-line`: A regex for matching the first line of a file. Equivalent to
@@ -272,8 +283,8 @@ following values are allowed:
 * `scope`: The default scope for the grammar. This defaults to `source.`
   followed by the name lowercased.
 * `scope-postfix`: A postfix appended to all scopes in the grammar (excluding
-  the `scope` header). This defaults to the name lowercased. Leave empty to
-  leave out the postfix.
+  the `scope` header). This defaults to the name lowercased. Can be left empty
+  to leave out the postfix.
 * `hidden`: Whether the syntax will be shown in the menu in Sublime Text.
 
 Example:
@@ -287,28 +298,33 @@ extensions: sbnf
 
 ### Rules
 
-Rules are in the form `<identifier> <arguments> = <expression> ;`.
+Rules are in the form `<identifier> <arguments> <options> = <expression> ;`.
 Identifiers may contain any alphanumeric character as well as `-`, `_` and `.`.
 
 Like sublime-syntax files, SBNF grammars have two entry points: `main`,
 `prototype`. They behave identically to those in sublime-syntax files. Only
 rules used directly or indirectly from an entry point are compiled.
 
-Arguments come in the following form: `{<arg>, <key>: <value>}`. `<arg>`,
-`<key>` or `<value>` may contain any text except `,`, `:` or `}`. There may be
-any number of arguments given, as allowed by whatever the arguments are for.
-When there are no arguments the `{}` are optional.
+Rules have two sets of optional parameters: arguments and options. Arguments are
+used for meta-programming and options are used for sublime-syntax specific
+options.
 
-The following arguments are allowed for rules:
+Examples:
 
-* `<meta-scope>`: The meta-scope of the rule. Equivalent to `meta_scope` or
-  `meta_content_scope` in sublime-syntax.
+```sbnf
+a = 'a' ;
+b{source.b} = 'b' ;
+c[S] = 'c'{#[S]} ;
+d[S]{text.d} = a b c[S] ;
+```
+
+#### Expressions
 
 Expressions may take any of the following forms:
 
-* `` `<literal>` ``: A terminal matching text literally.
-* `'<regex>'`: A terminal matching text according to a regex.
-* `<identifier>`: A non-terminal matching another rule.
+* `` `<literal>` <options>``: A terminal matching text literally.
+* `'<regex>' <options>`: A terminal matching text according to a regex.
+* `<identifier> <arguments>`: A non-terminal matching another rule.
 * `<expr> | <expr>`: An alternation of expressions. The grammar matches either
   the left or right expression. This can be used as a list, eg:
   `'a' | 'b' | 'c'`.
@@ -323,11 +339,64 @@ Expressions may take any of the following forms:
 * `~<expr>`: A passive expression. The grammar matches *any text* until the
   expression matches.
 
+#### Options
+
+Options come in the following form: `{<param>, <key>: <value>}`. `<param>`,
+`<key>` or `<value>` may contain any text except `,`, `:` or `}`. There may be
+any number of options given, as allowed by whatever the options are for.
+When there are no options the `{}` are optional.
+
+The following options are allowed for rules:
+
+* `<meta-scope>`: The meta-scope of the rule. Equivalent to `meta_scope` or
+  `meta_content_scope` in sublime-syntax.
+
 Literal and regex terminals are allowed the following arguments:
 
 * `<scope>`: The scope of the terminal.
 * `<capture>: <scope>`: The scope for a regex capture group. `<capture>` must be
   an integer.
+
+#### Arguments
+
+Arguments for rules and non-terminals take the form: `[<value>, <value>]`.
+`<value>` may be either a regex terminal, a literal terminal or an identifier.
+The same name may be used for rules with different sets of arguments, though the
+number of arguments must be the same.
+
+A rule with arguments is instantiated when it is used as a non-terminal with
+matching arguments. Argument matching is based on the type and value of the
+argument. Terminal arguments are matched based on regex equivalence, while rule
+arguments are matched on same-name. Terminals and rules never match.
+
+An identifier that does not reference a rule is a free variable unique to the
+rule's scope. It matches any argument and may be passed on and or interpolated.
+
+A variable may be interpolated using the following syntax: `#[]`. This can be
+done inside any terminal or inside options.
+
+Examples:
+
+```sbnf
+main
+= a['a'] # instantiates rule 1
+| a[a]   # instantiates rule 2
+| a['b'] # instantiates rule 3
+| b['b'] # error: Ambiguous instantiation
+;
+
+# Rule 1.
+a['a'] = 'a' ;
+
+# Rule 2.
+a[a] = 'a' ;
+
+# Rule 3.
+a[A] = 'a' ;
+
+b[A] = 'a' ;
+b[B] = 'b' ;
+```
 
 ### Command Line
 
