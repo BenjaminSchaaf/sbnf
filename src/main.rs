@@ -34,11 +34,13 @@ fn try_main() -> Result<(), String> {
         (@arg debug: -g "Compile with debug scopes")
         (@arg INPUT: +required "The SBNF file to compile")
         (@arg OUTPUT: "The file to write the compiled sublime-syntax to. \
-         Leaving this out will instead write to stdout")
+         Leaving this out or set to - will instead write to stdout")
+        (@arg ARGS: ... "Arguments to pass to main and prototype")
         ).get_matches();
 
     let input = matches.value_of("INPUT").unwrap();
     let output = matches.value_of("OUTPUT");
+    let args = matches.values_of("ARGS");
 
     let mut contents = String::new();
     {
@@ -54,7 +56,7 @@ fn try_main() -> Result<(), String> {
     let options = compiler::CompileOptions {
         name_hint: Some(name_hint),
         debug_contexts: matches.is_present("debug"),
-        arguments: vec!(),
+        arguments: args.map(|a| a.collect::<Vec<_>>()).unwrap_or(vec!()),
         entry_points: vec!("main", "prototype"),
     };
 
@@ -85,12 +87,12 @@ fn try_main() -> Result<(), String> {
             syntax.serialize(&mut output_buffer).map_err(|e| format!("{}", e))?;
 
             match output {
+                None | Some("-") => {
+                    print!("{}", output_buffer);
+                },
                 Some(output) => {
                     let mut file = fmt_io_err(File::create(output))?;
                     fmt_io_err(file.write_fmt(format_args!("{}", output_buffer)))?;
-                },
-                None => {
-                    print!("{}", output_buffer);
                 },
             }
 
