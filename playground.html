@@ -1,0 +1,144 @@
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <script type="module">
+      import init, { compile } from './pkg/sbnf_wasm.js';
+
+      init();
+
+      document.addEventListener("DOMContentLoaded", async() => {
+        await init();
+
+        const name_input = document.getElementById('input-name');
+        const arguments_input = document.getElementById('input-arguments');
+        const quiet_input = document.getElementById('input-quiet');
+        const debug_input = document.getElementById('input-debug');
+        const code_input = document.getElementById('input-code');
+
+        const syntax_elem = document.getElementById('syntax');
+        const syntax_tab_elem = document.getElementById('syntax-tab');
+        const syntax_content_elem = document.getElementById('syntax-content');
+
+        const messages_elem = document.getElementById('messages');
+        const messages_tab_elem = document.getElementById('messages-tab');
+        const messages_content_elem = document.getElementById('messages-content');
+
+        // Implement tabs
+        function activate_syntax_tab() {
+          syntax_elem.classList.remove('d-none');
+          syntax_tab_elem.classList.add('active');
+
+          messages_elem.classList.add('d-none');
+          messages_tab_elem.classList.remove('active');
+        }
+        syntax_tab_elem.addEventListener('click', activate_syntax_tab);
+
+        function activate_messages_tab() {
+          syntax_elem.classList.add('d-none');
+          syntax_tab_elem.classList.remove('active');
+
+          messages_elem.classList.remove('d-none');
+          messages_tab_elem.classList.add('active');
+        }
+        messages_tab_elem.addEventListener('click', activate_messages_tab);
+
+        function do_compile() {
+          const name = name_input.value;
+          const code = code_input.value;
+          const args = arguments_input.value;
+          const quiet = quiet_input.checked;
+          const debug = debug_input.checked;
+
+          const result = compile(name, code, args, quiet, debug);
+
+          const syntax = result.syntax();
+          const messages = result.messages();
+
+          syntax_content_elem.textContent = syntax;
+          messages_content_elem.textContent = messages;
+
+          if (syntax === "") {
+            activate_messages_tab();
+          } else {
+            activate_syntax_tab();
+          }
+        }
+
+        do_compile();
+
+        // Compile immediately after these are changed
+        quiet_input.addEventListener('change', do_compile);
+        debug_input.addEventListener('change', do_compile);
+
+        let compile_timer;
+        function trigger_delayed_compile() {
+          if (compile_timer)
+            clearTimeout(compile_timer);
+
+          compile_timer = setTimeout(do_compile, 300);
+        }
+
+        // Compile with a delay after these are changed
+        name_input.addEventListener('input', trigger_delayed_compile);
+        arguments_input.addEventListener('input', trigger_delayed_compile);
+        code_input.addEventListener('input', trigger_delayed_compile);
+      });
+    </script>
+    <link rel="stylesheet" href="https://unpkg.com/spectre.css/dist/spectre.min.css">
+  </head>
+  <body style="padding: 10px 15px">
+    <div class="container">
+      <header class="navbar">
+        <section class="navbar-section">
+          <span class="text-large">SBNF Playground</span>
+        </section>
+        <section class="navbar-section">
+          <a href="https://github.com/BenjaminSchaaf/sbnf" class="btn btn-link">GitHub</a>
+        </section>
+      </header>
+
+      <form>
+        <div class="form-inline">
+          <div class="form-group form-inline">
+            <input class="form-input" id="input-name" type="text" placeholder="name">
+          </div>
+          <div class="form-group form-inline">
+            <input class="form-input" id="input-arguments" type="text" placeholder="args">
+          </div>
+          <label class="form-checkbox form-inline">
+            <input type="checkbox" id="input-quiet">
+            <i class="form-icon"></i> Quiet
+          </label>
+          <label class="form-checkbox form-inline">
+            <input type="checkbox" id="input-debug" checked>
+            <i class="form-icon"></i> Debug
+          </label>
+        </div>
+        <div class="form-group">
+          <textarea class="form-input" id="input-code" placeholder="Textarea" rows="15" style="font-family: monospace;">
+main = ( ~( foo
+          | bar
+       )  )*
+     ;
+
+foo = 'foo'{foo} ;
+
+bar = 'bar'{bar} ;
+</textarea>
+        </div>
+      </form>
+
+      <ul class="tab tab-block">
+        <li class="tab-item">
+          <a href="#" class="active" id="syntax-tab">Sublime Syntax</a>
+        </li>
+        <li class="tab-item">
+          <a href="#" id="messages-tab">Errors & Warnings</a>
+        </li>
+      </ul>
+
+      <pre class="code" id="syntax"><code id="syntax-content"></code></pre>
+      <pre class="code d-none" id="messages"><code id="messages-content"></code></pre>
+    </div>
+  </body>
+</html>
