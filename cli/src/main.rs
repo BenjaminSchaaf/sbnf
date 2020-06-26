@@ -2,13 +2,9 @@ use std::fs::File;
 use std::path::Path;
 use std::io::prelude::*;
 
-pub mod sublime_syntax;
-pub mod sbnf;
-pub mod compiler;
-
 #[macro_use]
 extern crate clap;
-extern crate base64;
+extern crate sbnf;
 
 fn main() {
     std::process::exit(
@@ -48,19 +44,19 @@ fn try_main() -> Result<(), String> {
         fmt_io_err(file.read_to_string(&mut contents))?;
     }
 
-    let grammar = sbnf::parse(&contents).map_err(|e| e.fmt(&input, &contents))?;
+    let grammar = sbnf::sbnf::parse(&contents).map_err(|e| e.fmt(&input, &contents))?;
 
     // Use the base name of the input as a name hint
     let name_hint = Path::new(&input).file_stem().unwrap().to_str().unwrap();
 
-    let options = compiler::CompileOptions {
+    let options = sbnf::compiler::CompileOptions {
         name_hint: Some(name_hint),
         debug_contexts: matches.is_present("debug"),
         arguments: args.map(|a| a.collect::<Vec<_>>()).unwrap_or(vec!()),
         entry_points: vec!("main", "prototype"),
     };
 
-    let result = compiler::compile(options, &grammar);
+    let result = sbnf::compiler::compile(options, &grammar);
 
     match &result.result {
         Err(errors) => {

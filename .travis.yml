@@ -8,3 +8,5 @@ before_cache:
   - rm -rf target/test
 before_install:
   - sudo apt-get -y install libglu1-mesa libgl1-mesa-glx libgtk-3-0
+script:
+  cargo test --verbose -p sbnf

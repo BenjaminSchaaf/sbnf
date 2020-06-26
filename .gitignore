@@ -4,3 +4,5 @@ sbnf/sbnf.sublime-syntax
 simplec/simplec.sublime-syntax
 *.sublime-project
 *.sublime-workspace
+/wasm/pkg
+/gh-pages
