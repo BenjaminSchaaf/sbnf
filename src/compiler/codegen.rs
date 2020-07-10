@@ -35,6 +35,7 @@ struct Rule {
 struct State<'a> {
     rules: HashMap<&'a RuleKey<'a>, Rule>,
     context_cache: HashMap<ContextKey<'a>, ContextCacheEntry>,
+    include_context_cache: HashMap<ContextKey<'a>, String>,
     contexts: HashMap<String, sublime_syntax::Context>,
 
     _errors: Vec<Error<'a>>,
@@ -45,6 +46,7 @@ pub fn codegen<'a>(_options: &CompileOptions<'a>, interpreted: Interpreted<'a>) 
     let mut state = State {
         rules: HashMap::new(),
         context_cache: HashMap::new(),
+        include_context_cache: HashMap::new(),
         contexts: HashMap::new(),
 
         _errors: vec!(),
@@ -187,11 +189,35 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                     patterns.push(gen_simple_match(state, interpreted, name, context_key, scope, match_));
                 }
             } else {
-                // TOOD: Handle continue_branch?
+                // Start a branch point or use an existing one
+                let branch_point: Option<String>;
+                let include_context_name: String;
+                {
+                    // TODO: No need for context.end, context.maybe_empty or
+                    // branch_point in this struct.
+                    let key = ContextKey {
+                        rule_key,
+                        context: Context {
+                            matches: matches.iter().map(|m| (**m).clone()).collect::<Vec<_>>(),
+                            end: ContextEnd::None,
+                            maybe_empty: true,
+                        },
+                        branch_point: None,
+                    };
 
-                // Start new branch
-                let bp_name = create_branch_point(state, rule_key);
-                let branch_point = Some(bp_name.clone());
+                    if let Some(include_context_name) = state.include_context_cache.get(&key) {
+                        patterns.push(sublime_syntax::ContextPattern::Include(include_context_name.clone()));
+                        continue;
+                    } else {
+                        // Start new branch
+                        branch_point = Some(create_branch_point(state, rule_key));
+
+                        include_context_name = create_branch_point_include_context_name(branch_point.as_ref().unwrap());
+                        assert!(!state.contexts.contains_key(&include_context_name));
+
+                        state.include_context_cache.insert(key, include_context_name.clone());
+                    }
+                }
 
                 let lookahead = format!("(?={})", regex);
 
@@ -266,13 +292,23 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                     });
                 }
 
-                patterns.push(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                    pattern: sublime_syntax::Pattern::new(lookahead),
-                    scope: sublime_syntax::Scope::empty(),
-                    captures: HashMap::new(),
-                    change_context: sublime_syntax::ContextChange::Branch(bp_name, branches),
-                    pop: 0,
-                }));
+                state.contexts.insert(include_context_name.clone(), sublime_syntax::Context {
+                    meta_scope: sublime_syntax::Scope::empty(),
+                    meta_content_scope: sublime_syntax::Scope::empty(),
+                    meta_include_prototype: true,
+                    clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                    matches: vec!(
+                        sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                            pattern: sublime_syntax::Pattern::new(lookahead),
+                            scope: sublime_syntax::Scope::empty(),
+                            captures: HashMap::new(),
+                            change_context: sublime_syntax::ContextChange::Branch(branch_point.unwrap(), branches),
+                            pop: 0,
+                        }),
+                    ),
+                });
+
+                patterns.push(sublime_syntax::ContextPattern::Include(include_context_name));
             }
         }
 
@@ -599,6 +635,10 @@ fn create_branch_point<'a>(state: &mut State<'a>, key: &'a RuleKey<'a>) -> Strin
         };
 
     format!("{}@{}", key.name, index)
+}
+
+fn create_branch_point_include_context_name(branch_point: &str) -> String {
+    format!("include!{}", branch_point)
 }
 
 fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {

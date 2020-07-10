@@ -117,21 +117,25 @@ mod tests {
     #[test]
     fn compile_simple_branch() {
         let contexts = compile_matches("main = (a | b)*; a{a} = 'c'{ac} 'a'; b{b} = 'c'{bc} 'b';", vec!());
-        assert_eq!(contexts.len(), 5);
+        assert_eq!(contexts.len(), 6);
         let main = contexts.get("main").unwrap();
         assert_eq!(main.matches, [
-            sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str("(?=c)"),
-                scope: sublime_syntax::Scope::empty(),
-                captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Branch("main@1".to_string(), vec!("a|0|main@1".to_string(), "b|0|main@1".to_string())),
-                pop: 0,
-            }),
+            sublime_syntax::ContextPattern::Include("include!main@1".to_string()),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::None,
+                pop: 0,
+            }),
+        ]);
+        let branch_include = contexts.get("include!main@1").unwrap();
+        assert_eq!(branch_include.matches, [
+            sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str("(?=c)"),
+                scope: sublime_syntax::Scope::empty(),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::Branch("main@1".to_string(), vec!("a|0|main@1".to_string(), "b|0|main@1".to_string())),
                 pop: 0,
             }),
         ]);

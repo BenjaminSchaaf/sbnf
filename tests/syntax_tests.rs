@@ -3,15 +3,16 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4076;
 
-const LANGUAGES: [&str; 4] = [
+const LANGUAGES: [&str; 5] = [
     "sbnf",
     "simplec",
     "regexp",
+    "tests/issue_6",
     "tests/simple_interpreter",
 ];
 
 fn main() -> std::io::Result<()> {
-    std::fs::remove_dir("target/test/Data/Packages").ok();
+    std::fs::remove_dir_all("target/test/Data/Packages").ok();
     std::fs::create_dir_all("target/test/Data/Packages").unwrap();
 
     // Download syntax_tests executable
