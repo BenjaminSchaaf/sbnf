@@ -53,6 +53,7 @@ impl Syntax {
         serializeln!(state, "%YAML 1.2")?;
         serializeln!(state, "---")?;
         serializeln!(state, "# http://www.sublimetext.com/docs/3/syntax.html")?;
+        serializeln!(state, "version: 2")?;
         serializeln!(state, "name: {}", self.name)?;
 
         if self.file_extensions.len() > 0 {
@@ -417,6 +418,7 @@ mod tests {
 %YAML 1.2
 ---
 # http://www.sublimetext.com/docs/3/syntax.html
+version: 2
 name: Empty Lang
 file_extensions:
   - tes
@@ -447,6 +449,7 @@ hidden: true\n");
 %YAML 1.2
 ---
 # http://www.sublimetext.com/docs/3/syntax.html
+version: 2
 name: Vars
 scope: source.vars text.vars
 variables:
@@ -561,6 +564,7 @@ variables:
         assert_eq!(buf, r#"%YAML 1.2
 ---
 # http://www.sublimetext.com/docs/3/syntax.html
+version: 2
 name: Ctx
 file_extensions:
   - ctx
