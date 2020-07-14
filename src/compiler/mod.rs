@@ -85,12 +85,14 @@ mod tests {
                 scope: sublime_syntax::Scope::from_str(&["a.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Push(vec!("main|0".to_string())),
+                pop: 0,
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::None,
+                pop: 0,
             }),
         ]);
         let main0 = contexts.get("main|0").unwrap();
@@ -99,13 +101,15 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("b"),
                 scope: sublime_syntax::Scope::from_str(&["b.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
             }),
         ]);
     }
@@ -113,7 +117,7 @@ mod tests {
     #[test]
     fn compile_simple_branch() {
         let contexts = compile_matches("main = (a | b)*; a{a} = 'c'{ac} 'a'; b{b} = 'c'{bc} 'b';", vec!());
-        assert_eq!(contexts.len(), 6);
+        assert_eq!(contexts.len(), 5);
         let main = contexts.get("main").unwrap();
         assert_eq!(main.matches, [
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
@@ -121,12 +125,14 @@ mod tests {
                 scope: sublime_syntax::Scope::empty(),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Branch("main@1".to_string(), vec!("a|0|main@1".to_string(), "b|0|main@1".to_string())),
+                pop: 0,
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::None,
+                pop: 0,
             }),
         ]);
         // First branch
@@ -136,7 +142,8 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("c"),
                 scope: sublime_syntax::Scope::from_str(&["a.test", "ac.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Push(vec!("pop-2".to_string(), "main|0|main@1".to_string())),
+                change_context: sublime_syntax::ContextChange::Push(vec!("main|0|main@1".to_string())),
+                pop: 1,
             }),
         ]);
         let a1main0 = contexts.get("main|0|main@1").unwrap();
@@ -145,13 +152,15 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("a"),
                 scope: sublime_syntax::Scope::from_str(&["a.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::empty(),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Fail("main@1".to_string()),
+                pop: 0,
             }),
         ]);
         // Second branch
@@ -161,7 +170,8 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("c"),
                 scope: sublime_syntax::Scope::from_str(&["b.test", "bc.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Push(vec!("pop-2".to_string(), "main|1|main@1".to_string())),
+                change_context: sublime_syntax::ContextChange::Push(vec!("main|1|main@1".to_string())),
+                pop: 1,
             }),
         ]);
         let b1main0 = contexts.get("main|1|main@1").unwrap();
@@ -170,13 +180,15 @@ mod tests {
                 pattern: sublime_syntax::Pattern::from_str("b"),
                 scope: sublime_syntax::Scope::from_str(&["b.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
             }),
             sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from_str("\\S"),
                 scope: sublime_syntax::Scope::from_str(&["invalid.illegal.test"]),
                 captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(1),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
             }),
         ]);
     }

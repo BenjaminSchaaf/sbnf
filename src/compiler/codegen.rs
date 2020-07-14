@@ -169,12 +169,12 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                                     next_contexts.push((name.clone(), next_key));
                                     name
                                 };
-                            sublime_syntax::ContextChange::Set(vec!(name))
+                            sublime_syntax::ContextChange::Push(vec!(name))
                         } else {
-                            sublime_syntax::ContextChange::Pop(1)
+                            sublime_syntax::ContextChange::None
                         };
 
-                    patterns.push(gen_terminal(state, name, context_key, scope, match_[0].expression, exit));
+                    patterns.push(gen_terminal(state, name, context_key, scope, match_[0].expression, exit, true));
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
@@ -245,22 +245,17 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
 
                     let scope = scope_for_match_stack(interpreted, None, branch_match);
 
-                    let exit = if let Some(name) = next_name {
-                            let push =
-                                if context_key.context.end == ContextEnd::None || match_stack_is_repetition(match_) {
-                                    vec!(gen_pop(state, 2), name)
-                                } else {
-                                    vec!(gen_pop(state, 3), name)
-                                };
+                    let (exit, pop) = if let Some(name) = next_name {
+                            let pop = context_key.context.end == ContextEnd::None || match_stack_is_repetition(match_);
 
                             // Using set in branch_point is broken, so we
                             // have to use push.
-                            sublime_syntax::ContextChange::Push(push)
+                            (sublime_syntax::ContextChange::Push(vec!(name)), pop)
                         } else {
-                            sublime_syntax::ContextChange::Pop(2)
+                            (sublime_syntax::ContextChange::None, true)
                         };
 
-                    let terminal_match = gen_terminal(state, &ctx_name, &branch_key, scope, branch_match[0].expression, exit);
+                    let terminal_match = gen_terminal(state, &ctx_name, &branch_key, scope, branch_match[0].expression, exit, pop);
 
                     state.contexts.insert(ctx_name, sublime_syntax::Context {
                         meta_scope: sublime_syntax::Scope::empty(),
@@ -276,6 +271,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
                     change_context: sublime_syntax::ContextChange::Branch(bp_name, branches),
+                    pop: 0,
                 }));
             }
         }
@@ -300,18 +296,18 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
         // Need to add the meta_content_scope to all patterns that pop. This
         // matches expected behaviour in that the rule scope applies to all
         // matches in this context.
-        for p in &mut patterns {
-            match p {
-                sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                    scope,
-                    change_context: sublime_syntax::ContextChange::Pop(_),
-                    ..
-                }) => {
-                    scope.scopes = meta_content_scope.scopes.iter().chain(scope.scopes.iter()).cloned().collect::<Vec<_>>();
-                },
-                _ => {},
-            }
-        }
+        // for p in &mut patterns {
+        //     match p {
+        //         sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+        //             scope,
+        //             change_context: sublime_syntax::ContextChange::Pop(_),
+        //             ..
+        //         }) => {
+        //             scope.scopes = meta_content_scope.scopes.iter().chain(scope.scopes.iter()).cloned().collect::<Vec<_>>();
+        //         },
+        //         _ => {},
+        //     }
+        // }
 
         if let Some(pattern) = gen_end_match(interpreted, context_key, is_last, capture) {
             patterns.push(pattern);
@@ -332,31 +328,6 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
     }
 }
 
-fn gen_pop<'a>(state: &mut State<'a>, amount: u16) -> String {
-    let name = format!("pop-{}", amount);
-
-    if state.contexts.get(&name).is_some() {
-        return name;
-    }
-
-    state.contexts.insert(name.clone(), sublime_syntax::Context {
-        meta_scope: sublime_syntax::Scope::empty(),
-        meta_content_scope: sublime_syntax::Scope::empty(),
-        meta_include_prototype: false,
-        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-        matches: vec!(
-            sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str(""),
-                scope: sublime_syntax::Scope::empty(),
-                captures: HashMap::new(),
-                change_context: sublime_syntax::ContextChange::Pop(amount),
-            }),
-        ),
-    });
-
-    name
-}
-
 fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<'a>, is_last: bool, capture: bool) -> Option<sublime_syntax::ContextPattern> {
     match context_key.context.end {
         ContextEnd::Illegal => Some(
@@ -365,7 +336,8 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
                     pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
-                    change_context: sublime_syntax::ContextChange::Pop(1),
+                    change_context: sublime_syntax::ContextChange::None,
+                    pop: 1,
                 }
             } else if context_key.branch_point.is_some() && !is_last {
                 sublime_syntax::Match {
@@ -373,19 +345,15 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
                     change_context: sublime_syntax::ContextChange::Fail(context_key.branch_point.as_ref().unwrap().clone()),
+                    pop: 0,
                 }
             } else {
-                let exit = if capture {
-                        sublime_syntax::ContextChange::None
-                    } else {
-                        sublime_syntax::ContextChange::Pop(1)
-                    };
-
                 sublime_syntax::Match {
                     pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
                     scope: parse_scope(&interpreted.metadata, "invalid.illegal"),
                     captures: HashMap::new(),
-                    change_context: exit,
+                    change_context: sublime_syntax::ContextChange::None,
+                    pop: if capture { 0 } else { 1 },
                 }
             }),
         ContextEnd::None => None,
@@ -393,7 +361,7 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
     }.map(&sublime_syntax::ContextPattern::Match)
 }
 
-fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange) -> sublime_syntax::ContextPattern {
+fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, pop: bool) -> sublime_syntax::ContextPattern {
     let (regex, options) =
         match terminal {
             Expression::Terminal { regex: r, options: o, .. } => (r, o),
@@ -456,12 +424,12 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
 
     // Translate Set into Push/Pop if we're setting back to the same context
     match &exit {
-        sublime_syntax::ContextChange::Set(sets) => {
-            if sets[0] == context_name {
-                if sets.len() > 1 {
-                    exit = sublime_syntax::ContextChange::Push(sets[1..].to_vec());
+        sublime_syntax::ContextChange::Push(contexts) => {
+            if pop && contexts[0] == context_name {
+                if contexts.len() > 1 {
+                    exit = sublime_syntax::ContextChange::Push(contexts[1..].to_vec());
                 } else {
-                    exit = sublime_syntax::ContextChange::Pop(1);
+                    exit = sublime_syntax::ContextChange::None;
                 }
             }
         },
@@ -473,6 +441,7 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
         scope: scope,
         captures: options.captures.clone(),
         change_context: exit,
+        pop: if pop { 1 } else { 0 }
     })
 }
 
@@ -496,7 +465,7 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
                         sublime_syntax::ContextChange::Push(contexts)
                     };
 
-                return gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit);
+                return gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit, false);
             } else {
                 // Otherwise we have a complex repetition, which behaves the
                 // same way as a regular match.
@@ -521,14 +490,14 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
             gen_simple_match_contexts(state, interpreted, context_key.rule_key, match_stack)
         };
 
-    let exit =
+    let (exit, pop) =
         if contexts.is_empty() {
-            sublime_syntax::ContextChange::Pop(1)
+            (sublime_syntax::ContextChange::None, true)
         } else {
-            sublime_syntax::ContextChange::Set(contexts)
+            (sublime_syntax::ContextChange::Set(contexts), false)
         };
 
-    gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit)
+    gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit, pop)
 }
 
 fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, mut rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> Vec<String> {
@@ -566,7 +535,8 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
                             pattern: sublime_syntax::Pattern::from_str(""),
                             scope: sublime_syntax::Scope::empty(),
                             captures: HashMap::new(),
-                            change_context: sublime_syntax::ContextChange::Pop(1),
+                            change_context: sublime_syntax::ContextChange::None,
+                            pop: 1,
                         })),
                     });
                 }

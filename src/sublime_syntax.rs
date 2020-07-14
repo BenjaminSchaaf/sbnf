@@ -246,6 +246,7 @@ pub struct Match {
     pub scope: Scope,
     pub captures: HashMap<u16, Scope>,
     pub change_context: ContextChange,
+    pub pop: u16,
 }
 
 impl Match {
@@ -309,13 +310,6 @@ impl Match {
                         });
                     }
                 },
-                ContextChange::Pop(amount) => {
-                    if *amount == 1 {
-                        serializeln!(state, "pop: true")?;
-                    } else {
-                        serializeln!(state, "pop: {}", amount)?;
-                    }
-                },
                 ContextChange::Branch(branch_point, branches) => {
                     serializeln!(state, "branch_point: {}", branch_point)?;
                     serializeln!(state, "branch:")?;
@@ -327,6 +321,12 @@ impl Match {
                 ContextChange::Fail(branch_point) => {
                     serializeln!(state, "fail: {}", branch_point)?;
                 },
+            }
+
+            if self.pop == 1 {
+                serializeln!(state, "pop: true")?;
+            } else if self.pop > 0 {
+                serializeln!(state, "pop: {}", self.pop)?;
             }
         });
 
@@ -386,7 +386,6 @@ pub enum ContextChange {
     SetEmbed(Context),
     Embed(Embed),
     IncludeEmbed(IncludeEmbed),
-    Pop(u16),
     Branch(String, Vec<String>),
     Fail(String),
 }
@@ -480,6 +479,7 @@ variables:
                             scope: Scope::empty(),
                             captures: hashmap!{ 1 => Scope::from_str(&["b"]) },
                             change_context: ContextChange::None,
+                            pop: 0,
                         }),
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("(?=\\()"),
@@ -487,6 +487,7 @@ variables:
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
                                 vec!("foo".to_string())),
+                            pop: 0,
                         }),
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("(?={)"),
@@ -494,12 +495,14 @@ variables:
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
                                 vec!("foo".to_string(), "bar".to_string())),
+                            pop: 0,
                         }),
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str(""),
                             scope: Scope::empty(),
                             captures: HashMap::new(),
-                            change_context: ContextChange::Pop(1),
+                            change_context: ContextChange::None,
+                            pop: 1,
                         }),
                     ),
                 },
@@ -531,6 +534,7 @@ variables:
                                                 2 => Scope::from_str(&["c"]),
                                             },
                                         }),
+                                        pop: 0,
                                     }),
                                     ContextPattern::Match(Match {
                                         pattern: Pattern::from_str("b"),
@@ -546,14 +550,17 @@ variables:
                                                     scope: Scope::from_str(&["c"]),
                                                     captures: HashMap::new(),
                                                     change_context:
-                                                        ContextChange::Pop(3),
+                                                        ContextChange::None,
+                                                    pop: 3,
                                                 }),
                                             ),
                                         }),
+                                        pop: 0,
                                     }),
                                 ),
                             }),
-                        })
+                            pop: 2,
+                        }),
                     ),
                 },
             },
@@ -588,6 +595,7 @@ contexts:
             - match: 'c'
               scope: c
               pop: 3
+      pop: 2
   foo:
     - meta_content_scope: a b
     - clear_scopes: true
