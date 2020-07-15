@@ -30,7 +30,7 @@ impl<'a> Node<'a> {
 
     pub fn get_options(&'a self) -> &'a Vec<Node<'a>> {
         match &self.data {
-            NodeData::RegexTerminal { options }
+            NodeData::RegexTerminal { options, .. }
             | NodeData::LiteralTerminal { options, .. } => options,
             _ => panic!(),
         }
@@ -73,9 +73,14 @@ impl<'a> Node<'a> {
                 node.fmt_inner(f)?;
                 write!(f, " ;")
             },
-            NodeData::RegexTerminal { options } => {
+            NodeData::RegexTerminal { options, embed } => {
                 write!(f, "'{}'", self.text)?;
-                self.fmt_inner_parameters(f, &options, "{", "}")
+                self.fmt_inner_parameters(f, &options, "{", "}")?;
+                if let Some(embed) = embed {
+                    write!(f, " ")?;
+                    embed.fmt_inner(f)?;
+                }
+                Ok(())
             },
             NodeData::LiteralTerminal { options, .. } => {
                 write!(f, "`{}`", self.text)?;
@@ -151,11 +156,13 @@ pub enum NodeData<'a> {
     // "\r\e\g\e\x"
     RegexTerminal {
         options: Vec<Node<'a>>,
+        embed: Option<Box<Node<'a>>>,
     },
     // `literal`
     LiteralTerminal {
         regex: String,
         options: Vec<Node<'a>>,
+        embed: Option<Box<Node<'a>>>,
     },
     // ~a
     Passive(Box<Node<'a>>),
@@ -174,6 +181,11 @@ pub enum NodeData<'a> {
     // {keyword: argument}
     KeywordArgument(Box<Node<'a>>),
     KeywordArgumentValue,
+    // %embed[]{}
+    Embed {
+        parameters: Vec<Node<'a>>,
+        options: Vec<Node<'a>>,
+    },
 
 }
 
@@ -453,13 +465,13 @@ fn parse_parameters<'a>(parser: &mut Parser<'a>) -> Result<Vec<Node<'a>>, ParseE
                 let regex = parse_regex(parser)?;
 
                 parameters.push(Node::new(regex, location,
-                                          NodeData::RegexTerminal { options: vec!() }));
+                                          NodeData::RegexTerminal { options: vec!(), embed: None }));
             },
             Some('`') => {
                 let (literal, regex) = parse_literal(parser)?;
 
                 parameters.push(Node::new(literal, location,
-                                          NodeData::LiteralTerminal { regex, options: vec!() }));
+                                          NodeData::LiteralTerminal { regex, options: vec!(), embed: None }));
             },
             Some(_) => {
                 let variable = parse_identifier(parser)?;
@@ -787,6 +799,22 @@ fn parse_rule_element_contents<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, 
     })
 }
 
+fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let (_, first) = parser.next().unwrap();
+    assert!(first == '%');
+
+    skip_whitespace(parser);
+
+    let location = parser.location.clone();
+    let word = parse_identifier(parser)?;
+
+    let parameters = parse_parameters(parser)?;
+
+    let options = parse_options(parser)?;
+
+    Ok(Node::new(word, location, NodeData::Embed { parameters, options }))
+}
+
 fn parse_regex<'a>(parser: &mut Parser<'a>) -> Result<&'a str, ParseError> {
     // Assume we've parsed the first character
     let (first_pos, first) = parser.next().unwrap();
@@ -831,7 +859,16 @@ fn parse_regex_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseEr
             vec!()
         };
 
-    Ok(Node::new(regex, location, NodeData::RegexTerminal { options }))
+    skip_whitespace(parser);
+
+    let embed =
+        if parser.peek_char() == Some('%') {
+            Some(Box::new(parse_embed(parser)?))
+        } else {
+            None
+        };
+
+    Ok(Node::new(regex, location, NodeData::RegexTerminal { options, embed }))
 }
 
 fn parse_literal<'a>(parser: &mut Parser<'a>) -> Result<(&'a str, String), ParseError> {
@@ -870,8 +907,17 @@ fn parse_literal_terminal<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, Parse
             vec!()
         };
 
+    skip_whitespace(parser);
+
+    let embed =
+        if parser.peek_char() == Some('%') {
+            Some(Box::new(parse_embed(parser)?))
+        } else {
+            None
+        };
+
     Ok(Node::new(text, location,
-                 NodeData::LiteralTerminal { regex, options }))
+                 NodeData::LiteralTerminal { regex, options, embed }))
 }
 
 fn literal_to_regex(literal: &str) -> String {

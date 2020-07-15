@@ -39,9 +39,25 @@ pub struct Rule<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct TerminalOptions {
+pub struct TerminalOptions<'a> {
     pub scope: sublime_syntax::Scope,
     pub captures: HashMap<u16, sublime_syntax::Scope>,
+    pub embed: TerminalEmbed<'a>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TerminalEmbed<'a> {
+    Embed {
+        context: String,
+        escape: String,
+        escape_scope: sublime_syntax::Scope,
+        escape_captures: HashMap<u16, sublime_syntax::Scope>,
+    },
+    Include {
+        context: String,
+        prototype: RuleKey<'a>,
+    },
+    None,
 }
 
 pub enum Expression<'a> {
@@ -51,7 +67,7 @@ pub enum Expression<'a> {
     },
     Terminal {
         regex: String,
-        options: TerminalOptions,
+        options: TerminalOptions<'a>,
         node: &'a Node<'a>,
     },
     Passive {
@@ -342,12 +358,14 @@ fn match_rule<'a, 'b>(analysis: &'b Analysis<'a>, rule: &'b analysis::Rule<'a>, 
 
 fn interpret_value<'a>(node: &'a Node<'a>) -> Value<'a> {
     match &node.data {
-        NodeData::RegexTerminal { options } => {
+        NodeData::RegexTerminal { options, embed } => {
             assert!(options.is_empty());
+            assert!(embed.is_none());
             Value::String { regex: node.text, literal: node.text, node: Some(node) }
         },
-        NodeData::LiteralTerminal { regex, options } => {
+        NodeData::LiteralTerminal { regex, options, embed } => {
             assert!(options.is_empty());
+            assert!(embed.is_none());
             Value::String { regex: &regex, literal: node.text, node: Some(node) }
         },
         NodeData::Variable { parameters } => {
@@ -480,14 +498,14 @@ fn interpret_expression<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
             interpret_rule(state, analysis, Some(node), &key);
             Some(Expression::Variable { key, node })
         },
-        NodeData::RegexTerminal { options: node_options } => {
+        NodeData::RegexTerminal { options: node_options, embed } => {
             let regex = interpolate_string(state, var_map, node, node.text);
-            let options = parse_terminal_options(state, var_map, analysis, node_options);
+            let options = parse_terminal_options(state, var_map, analysis, node_options, embed);
 
             Some(Expression::Terminal { regex, options, node })
         },
-        NodeData::LiteralTerminal { regex, options: node_options } => {
-            let options = parse_terminal_options(state, var_map, analysis, node_options);
+        NodeData::LiteralTerminal { regex, options: node_options, embed } => {
+            let options = parse_terminal_options(state, var_map, analysis, node_options, embed);
             Some(Expression::Terminal { regex: regex.clone(), options, node })
         },
         NodeData::Passive(child) => {
@@ -546,10 +564,11 @@ fn interpret_expression<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
     }
 }
 
-fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis: &Analysis<'a>, node_options: &'a Vec<Node<'a>>) -> TerminalOptions {
+fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis: &Analysis<'a>, node_options: &'a Vec<Node<'a>>, node_embed: &'a Option<Box<Node<'a>>>) -> TerminalOptions<'a> {
     let mut options = TerminalOptions {
         scope: sublime_syntax::Scope::empty(),
         captures: HashMap::new(),
+        embed: parse_terminal_embed(state, analysis, node_embed),
     };
 
     for (i, option) in node_options.iter().enumerate() {
@@ -600,4 +619,152 @@ fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analy
     }
 
     options
+}
+
+fn parse_terminal_embed<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, node_embed: &'a Option<Box<Node<'a>>>) -> TerminalEmbed<'a> {
+    if let Some(node_embed) = node_embed.as_ref() {
+        let (parameters, options) = if let NodeData::Embed { parameters, options } = &node_embed.data {
+                (parameters, options)
+            } else {
+                panic!();
+            };
+
+        if node_embed.text == "embed" {
+            if parameters.len() != 1 {
+                state.errors.push(state.stack.error_from_str(
+                    "Expected a single parameter to %embed",
+                    node_embed,
+                    vec!(
+                        (node_embed, format!("Got {} parameters instead", parameters.len())),
+                    )));
+                return TerminalEmbed::None;
+            }
+
+            let escape =
+                if let NodeData::RegexTerminal { .. } = parameters[0].data {
+                    parameters[0].text.to_string()
+                } else if let NodeData::LiteralTerminal { regex, .. } = &parameters[0].data {
+                    regex.to_string()
+                } else {
+                    state.errors.push(state.stack.error_from_str(
+                        "%embed can only take a string as an argument",
+                        node_embed,
+                        vec!(
+                            (node_embed, "Given a variable instead".to_string()),
+                        )));
+                    return TerminalEmbed::None;
+                };
+
+            if options.len() < 1 {
+                state.errors.push(state.stack.error_from_str(
+                    "Expected at least one option for %embed",
+                    node_embed,
+                    vec!(
+                        (node_embed, "Requires at least one option".to_string()),
+                    )));
+                return TerminalEmbed::None;
+            }
+
+            let context =
+                match &options[0].data {
+                    NodeData::PositionalArgument => {
+                        options[0].text.to_string()
+                    },
+                    NodeData::KeywordArgument(value_node) => {
+                        let key = options[0].text;
+
+                        assert!(value_node.data == NodeData::KeywordArgumentValue);
+                        let value_text = value_node.text;
+
+                        let mut result = String::new();
+                        result.push_str(key);
+                        result.push(':');
+                        result.push_str(value_text);
+                        result
+                    },
+                    _ => panic!(),
+                };
+            // TODO: Other options
+
+            TerminalEmbed::Embed {
+                context,
+                escape,
+                escape_scope: sublime_syntax::Scope::empty(),
+                escape_captures: HashMap::new(),
+            }
+        } else if node_embed.text == "include" {
+            if parameters.len() != 1 {
+                state.errors.push(state.stack.error_from_str(
+                    "Expected a single parameter to %include",
+                    node_embed,
+                    vec!(
+                        (node_embed, format!("Got {} parameters instead", parameters.len())),
+                    )));
+                return TerminalEmbed::None;
+            }
+
+            let prototype =
+                if let NodeData::Variable { .. } = parameters[0].data {
+                    let name = parameters[0].text;
+                    let key = RuleKey { name, arguments: vec!() };
+                    interpret_rule(state, analysis, Some(&parameters[0]), &key);
+                    key
+                } else {
+                    state.errors.push(state.stack.error_from_str(
+                        "%include can only take a variable as an argument",
+                        node_embed,
+                        vec!(
+                            (node_embed, "Given a variable instead".to_string()),
+                        )));
+                    return TerminalEmbed::None;
+                };
+
+            if options.len() != 1 {
+                state.errors.push(state.stack.error_from_str(
+                    "Expected a single option for %include",
+                    node_embed,
+                    vec!(
+                        (node_embed, "Requires one option".to_string()),
+                    )));
+                return TerminalEmbed::None;
+            }
+
+            let context =
+                match &options[0].data {
+                    NodeData::PositionalArgument => {
+                        options[0].text.to_string()
+                    },
+                    NodeData::KeywordArgument(value_node) => {
+                        let key = options[0].text;
+
+                        assert!(value_node.data == NodeData::KeywordArgumentValue);
+                        let value_text = value_node.text;
+
+                        let mut result = String::new();
+                        result.push_str(key);
+                        result.push(':');
+                        result.push_str(value_text);
+                        result
+                    },
+                    _ => panic!(),
+                };
+            // TODO: Other options
+
+            TerminalEmbed::Include {
+                context,
+                prototype,
+            }
+        } else {
+            state.errors.push(state.stack.error_from_str(
+                "Unknown keyword",
+                node_embed,
+                vec!(
+                    (node_embed, format!("Unknown keyword '{}'", node_embed.text)),
+                )));
+
+            TerminalEmbed::None
+        }
+    } else {
+        TerminalEmbed::None
+    }
 }

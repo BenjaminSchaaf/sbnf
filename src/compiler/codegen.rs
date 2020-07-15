@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use base64;
 
 use super::common::{Error, CompileOptions, CompileResult};
-use super::interpreter::{RuleKey, Interpreted, Expression};
+use super::interpreter::{RuleKey, Interpreted, Expression, TerminalEmbed};
 use super::analysis::{parse_scope};
 use crate::sublime_syntax;
 
@@ -368,59 +368,16 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
             _ => panic!(),
         };
 
-    // TODO: embed
-    /*if let Some(embed) = options.embed {
-        // if let Some(prototype_key) = options.prototype {
-        // }
+    match &options.embed {
+        TerminalEmbed::Embed { .. } => {
+            // TODO
+        },
+        TerminalEmbed::Include { .. } => {
+            // TODO
+        },
+        TerminalEmbed::None => {},
+    }
 
-        // If the exit is pop: 1, we don't need to create an embed context.
-        // Otherwise we do.
-        if exit == sublime_syntax::ContextChange::Pop(1) || exit == sublime_syntax::ContextChange::None {
-            let use_push = exit == sublime_syntax::ContextChange::None;
-
-            exit = sublime_syntax::ContextChange::IncludeEmbed(
-                sublime_syntax::IncludeEmbed {
-                    path: embed.to_string(),
-                    use_push,
-                    with_prototype: vec!(),
-                });
-        } else {
-            match &mut exit {
-                sublime_syntax::ContextChange::Pop(_pop_amount) => {
-                    // Create a pop and embed context, and set them both
-                    panic!("TODO");
-                },
-                sublime_syntax::ContextChange::Push(ref mut contexts)
-                | sublime_syntax::ContextChange::Set(ref mut contexts) => {
-                    // Create an embed context that does the actual embedding in
-                    // a set, then add that to the contexts.
-                    let embed_context = create_context_name(state, key);
-
-                    state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope: sublime_syntax::Scope::empty(),
-                        meta_include_prototype: false,
-                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                            pattern: sublime_syntax::Pattern::from_str(""),
-                            scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: sublime_syntax::ContextChange::IncludeEmbed(
-                                sublime_syntax::IncludeEmbed {
-                                    path: embed.to_string(),
-                                    use_push: false,
-                                    with_prototype: vec!(),
-                                }
-                            ),
-                        })),
-                    });
-
-                    contexts.push(embed_context);
-                },
-                _ => panic!(),
-            }
-        }
-    }*/
 
     // Translate Set into Push/Pop if we're setting back to the same context
     match &exit {
