@@ -988,12 +988,12 @@ mod tests {
 
     fn literal<'a>(literal: &'a str, loc: (u32, u32), regex: &str, options: Vec<Node<'a>>) -> Node<'a> {
         Node::new(literal, TextLocation::from_tuple(loc),
-                  NodeData::LiteralTerminal { regex: regex.to_string(), options })
+                  NodeData::LiteralTerminal { regex: regex.to_string(), options, embed: None })
     }
 
     fn regex<'a>(contents: &'a str, loc: (u32, u32), options: Vec<Node<'a>>) -> Node<'a> {
         Node::new(contents, TextLocation::from_tuple(loc),
-                  NodeData::RegexTerminal { options })
+                  NodeData::RegexTerminal { options, embed: None })
     }
 
     fn passive<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
