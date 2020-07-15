@@ -1,17 +1,12 @@
 use std::collections::HashMap;
 
-use super::common::{parse_top_level_scope, trim_ascii, Error, RuleOptions, CompileOptions, CompileResult};
+use super::common::{parse_top_level_scope, trim_ascii, Error, CompileOptions, CompileResult};
 use crate::sbnf::{Node, NodeData, Grammar};
 use crate::sublime_syntax;
 
 pub struct Analysis<'a> {
-    pub rules: HashMap<&'a str, Vec<Rule<'a>>>,
+    pub rules: HashMap<&'a str, Vec<&'a Node<'a>>>,
     pub metadata: Metadata,
-}
-
-pub struct Rule<'a> {
-    pub node: &'a Node<'a>,
-    pub options: RuleOptions,
 }
 
 pub struct Metadata {
@@ -33,7 +28,7 @@ pub fn analyze<'a>(options: &CompileOptions<'a>, grammar: &'a Grammar<'a>) -> Co
 
     let metadata = collect_metadata(options, grammar, &mut state);
 
-    let rules = collect_rules(grammar, &metadata, &mut state);
+    let rules = collect_rules(grammar, &mut state);
 
     CompileResult::new(
         if state.errors.is_empty() {
@@ -194,17 +189,17 @@ fn collect_metadata<'a>(options: &CompileOptions<'a>, grammar: &'a Grammar<'a>, 
     }
 }
 
-fn collect_rules<'a>(grammar: &'a Grammar<'a>, metadata: &Metadata, state: &mut State<'a>) -> HashMap<&'a str, Vec<Rule<'a>>> {
-    let mut rules: HashMap<&'a str, Vec<Rule<'a>>> = HashMap::new();
+fn collect_rules<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) -> HashMap<&'a str, Vec<&'a Node<'a>>> {
+    let mut rules: HashMap<&'a str, Vec<&'a Node<'a>>> = HashMap::new();
 
     for node in &grammar.nodes {
         match &node.data {
             NodeData::Header(_) => {},
-            NodeData::Rule { parameters, options, .. } => {
+            NodeData::Rule { parameters, .. } => {
                 let name = &node.text;
 
                 if let Some(overloads) = rules.get_mut(name) {
-                    let first_node = &overloads[0].node;
+                    let first_node = &overloads[0];
                     let overload_params =
                         if let NodeData::Rule { parameters, .. } = &first_node.data {
                             parameters
@@ -229,11 +224,10 @@ fn collect_rules<'a>(grammar: &'a Grammar<'a>, metadata: &Metadata, state: &mut 
                                 (node, format!("has {} parameters", parameters.len())),
                             )));
                     } else {
-                        overloads.push(Rule { node, options: parse_rule_options(node.text, metadata, &options, state) });
+                        overloads.push(node);
                     }
                 } else {
-                    rules.insert(name, vec!(
-                        Rule { node, options: parse_rule_options(node.text, metadata, &options, state) }));
+                    rules.insert(name, vec!(node));
                 }
             },
             _ => panic!(),
@@ -241,62 +235,6 @@ fn collect_rules<'a>(grammar: &'a Grammar<'a>, metadata: &Metadata, state: &mut 
     }
 
     rules
-}
-
-fn parse_rule_options<'a>(name: &'a str, metadata: &Metadata, options: &'a Vec<Node<'a>>, state: &mut State<'a>) -> RuleOptions {
-    let mut scope = sublime_syntax::Scope::empty();
-    let mut include_prototype: Option<(&'a Node<'a>, bool)> = None;
-
-    for (i, argument) in options.iter().enumerate() {
-        if i == 0 && argument.data == NodeData::PositionalArgument {
-            scope = parse_scope(metadata, argument.text);
-        } else if argument.data == NodeData::PositionalArgument {
-            state.errors.push(Error::from_str(
-                "Rules may only have one positional argument specifying the meta scope",
-                argument,
-                vec!(
-                    (argument, "this argument".to_string()),
-                    (&options[0], "should be used here".to_string()),
-                )));
-        } else if let NodeData::KeywordArgument(value_node) = &argument.data {
-            if trim_ascii(argument.text) == "include-prototype" {
-                if include_prototype.is_none() {
-                    if let Ok(v) = trim_ascii(value_node.text).parse::<bool>() {
-                        include_prototype = Some((argument, v));
-                    } else {
-                        state.errors.push(Error::new(
-                            format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
-                            value_node,
-                            vec!(
-                                (value_node, "expected either 'true' or 'false'".to_string()),
-                                (argument, "for this argument".to_string()),
-                            )));
-                    }
-                } else {
-                    state.errors.push(Error::from_str(
-                        "Duplicate 'include-prototype' argument",
-                        argument,
-                        vec!(
-                            (argument, "duplicate here".to_string()),
-                            (include_prototype.unwrap().0, "first used here".to_string()),
-                        )));
-                }
-            } else {
-                state.errors.push(Error::new(
-                    format!("Unknown argument '{}'", argument.text),
-                    argument,
-                    vec!(
-                        (argument, "expected 'include-prototype' here".to_string()),
-                    )));
-            }
-        }
-    }
-
-    RuleOptions {
-        scope,
-        include_prototype: include_prototype.map_or(true, |s| s.1),
-        capture: name == "main" || name == "prototype",
-    }
 }
 
 pub fn parse_scope(metadata: &Metadata, s: &str) -> sublime_syntax::Scope {

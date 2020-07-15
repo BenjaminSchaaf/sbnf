@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::analysis::{parse_scope, Analysis, Metadata};
-use super::analysis;
+// use super::analysis;
 use super::common::{trim_ascii, Value, CallStack, Error, RuleOptions, CompileOptions, CompileResult};
 use crate::sbnf::{is_identifier_char, Node, NodeData};
 use crate::sublime_syntax;
@@ -248,15 +248,15 @@ fn interpret_rule<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, variable: 
         // Check for conflicting match
         if let Some((dup_rule, _)) = matching_rules.next() {
             let mut comments = vec!(
-                (rule.node, "This rule matches the arguments".to_string()),
-                (dup_rule.node, "This rule also matches the arguments".to_string()),
+                (rule, "This rule matches the arguments".to_string()),
+                (dup_rule, "This rule also matches the arguments".to_string()),
             );
             if let Some(variable) = variable {
                 comments.push((variable, "Instantiated from here".to_string()));
             }
             state.errors.push(state.stack.error(
                 format!("Ambiguous rule instantiation for {}", key),
-                rule.node,
+                rule,
                 comments));
             return;
         }
@@ -265,13 +265,14 @@ fn interpret_rule<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, variable: 
         let is_new_key = state.rule_keys.insert(key.clone());
         assert!(is_new_key);
 
-        let node = if let NodeData::Rule { node, .. } = &rule.node.data {
-                node
+        let (expression_node, options_node) =
+            if let NodeData::Rule { node, options, .. } = &rule.data {
+                (node, options)
             } else {
                 panic!()
             };
 
-        state.stack.push(variable, node, key.arguments.clone());
+        state.stack.push(variable, expression_node, key.arguments.clone());
 
         // Limit the stack depth. Infinite loops can be constructed through
         // recursion.
@@ -284,11 +285,13 @@ fn interpret_rule<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, variable: 
             return;
         }
 
-        let expression = interpret_expression(state, &var_map, analysis, node);
+        let options = parse_rule_options(state, &var_map, analysis, key.name, options_node);
+
+        let expression = interpret_expression(state, &var_map, analysis, expression_node);
 
         if let Some(expression) = expression {
             let is_new_rule = state.rules.insert(key.clone(), Rule {
-                options: rule.options.clone(),
+                options,
                 expression,
             });
             assert!(is_new_rule.is_none());
@@ -296,23 +299,23 @@ fn interpret_rule<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, variable: 
 
         state.stack.pop();
     } else {
-        let mut comments = vec!();
+        let mut comments: Vec<(&'a Node<'a>, String)> = vec!();
         for rule in rules {
-            comments.push((rule.node, "Does not match".to_string()));
+            comments.push((rule, "Does not match".to_string()));
         }
-        if let Some(variable) = variable {
+        if let Some(variable) = &variable {
             comments.push((variable, "Instantiated from here".to_string()));
         }
         state.errors.push(state.stack.error(
             format!("No matching rule instantiation for {}", key),
-            variable.unwrap_or(rules[0].node),
+            variable.unwrap_or(rules[0]),
             comments));
     }
 }
 
-fn match_rule<'a, 'b>(analysis: &'b Analysis<'a>, rule: &'b analysis::Rule<'a>, arguments: &Vec<Value<'a>>) -> Option<(&'b analysis::Rule<'a>, VarMap<'a>)> {
+fn match_rule<'a, 'b>(analysis: &'b Analysis<'a>, rule: &'a Node<'a>, arguments: &Vec<Value<'a>>) -> Option<(&'a Node<'a>, VarMap<'a>)> {
     let parameters =
-        if let NodeData::Rule { parameters, .. } = &rule.node.data {
+        if let NodeData::Rule { parameters, .. } = &rule.data {
             parameters
         } else {
             panic!()
@@ -620,6 +623,69 @@ fn parse_terminal_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analy
 
     options
 }
+
+fn parse_rule_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis: &Analysis<'a>, name: &'a str, options: &'a Vec<Node<'a>>) -> RuleOptions {
+// fn parse_rule_options<'a>(name: &'a str, metadata: &Metadata, options: &'a Vec<Node<'a>>, state: &mut State<'a>) -> RuleOptions {
+    let mut scope = sublime_syntax::Scope::empty();
+    let mut include_prototype: Option<(&'a Node<'a>, bool)> = None;
+
+    for (i, argument) in options.iter().enumerate() {
+        if i == 0 && argument.data == NodeData::PositionalArgument {
+            let interpolated = interpolate_string(state, var_map, argument, argument.text);
+            scope = parse_scope(&analysis.metadata, &interpolated);
+        } else if argument.data == NodeData::PositionalArgument {
+            state.errors.push(Error::from_str(
+                "Rules may only have one positional argument specifying the meta scope",
+                argument,
+                vec!(
+                    (argument, "this argument".to_string()),
+                    (&options[0], "should be used here".to_string()),
+                )));
+        } else if let NodeData::KeywordArgument(value_node) = &argument.data {
+            assert!(value_node.data == NodeData::KeywordArgumentValue);
+            let value_text = trim_ascii(value_node.text);
+            let value = interpolate_string(state, var_map, value_node, value_text);
+
+            if trim_ascii(argument.text) == "include-prototype" {
+                if include_prototype.is_none() {
+                    if let Ok(v) = value.parse::<bool>() {
+                        include_prototype = Some((argument, v));
+                    } else {
+                        state.errors.push(Error::new(
+                            format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
+                            value_node,
+                            vec!(
+                                (value_node, "expected either 'true' or 'false'".to_string()),
+                                (argument, "for this argument".to_string()),
+                            )));
+                    }
+                } else {
+                    state.errors.push(Error::from_str(
+                        "Duplicate 'include-prototype' argument",
+                        argument,
+                        vec!(
+                            (argument, "duplicate here".to_string()),
+                            (include_prototype.unwrap().0, "first used here".to_string()),
+                        )));
+                }
+            } else {
+                state.errors.push(Error::new(
+                    format!("Unknown argument '{}'", argument.text),
+                    argument,
+                    vec!(
+                        (argument, "expected 'include-prototype' here".to_string()),
+                    )));
+            }
+        }
+    }
+
+    RuleOptions {
+        scope,
+        include_prototype: include_prototype.map_or(true, |s| s.1),
+        capture: name == "main" || name == "prototype",
+    }
+}
+
 
 fn parse_terminal_embed<'a>(state: &mut State<'a>, analysis: &Analysis<'a>, node_embed: &'a Option<Box<Node<'a>>>) -> TerminalEmbed<'a> {
     if let Some(node_embed) = node_embed.as_ref() {
