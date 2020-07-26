@@ -393,7 +393,7 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
                 }
             }),
         ContextEnd::None => None,
-        ContextEnd::Push(_) => panic!(),
+        ContextEnd::Push(_) => todo!(),
     }.map(&sublime_syntax::ContextPattern::Match)
 }
 
@@ -406,10 +406,10 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
 
     match &options.embed {
         TerminalEmbed::Embed { .. } => {
-            // TODO
+            todo!();
         },
         TerminalEmbed::Include { .. } => {
-            // TODO
+            todo!();
         },
         TerminalEmbed::None => {},
     }
@@ -862,8 +862,7 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
 
             match context.end {
                 ContextEnd::Illegal => {},
-                // TODO
-                _ => panic!(),
+                _ => todo!(),
             }
 
             Context {
@@ -885,7 +884,7 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
                 match context.end {
                     ContextEnd::Illegal => ContextEnd::Illegal,
                     ContextEnd::None => ContextEnd::None,
-                    _ => panic!(),
+                    _ => todo!(),
                 };
 
             Context {
@@ -977,7 +976,7 @@ fn collect_context_nodes_concatenation<'a>(interpreted: &'a Interpreted<'a>, exp
                             maybe_empty: next.maybe_empty,
                         }))
                     },
-                    _ => panic!(),
+                    _ => todo!(),
                 }
             },
             ContextEnd::None => {
@@ -990,10 +989,10 @@ fn collect_context_nodes_concatenation<'a>(interpreted: &'a Interpreted<'a>, exp
                         }))
                     },
                     ContextEnd::None => ContextEnd::None,
-                    _ => panic!(),
+                    _ => todo!(),
                 }
             },
-            _ => panic!(),
+            _ => todo!(),
         };
 
     context.matches.append(&mut next.matches);
