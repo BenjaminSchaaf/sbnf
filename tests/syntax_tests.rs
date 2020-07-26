@@ -3,11 +3,12 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4076;
 
-const LANGUAGES: [&str; 5] = [
+const LANGUAGES: [&str; 6] = [
     "sbnf",
     "simplec",
     "regexp",
     "tests/issue_6",
+    "tests/recursive_branch_points",
     "tests/simple_interpreter",
 ];
 

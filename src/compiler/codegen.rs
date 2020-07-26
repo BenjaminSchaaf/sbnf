@@ -176,7 +176,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             sublime_syntax::ContextChange::None
                         };
 
-                    patterns.push(gen_terminal(state, name, context_key, scope, match_[0].expression, exit, true));
+                    patterns.push(gen_terminal(state, name, context_key, scope, match_[0].get_expression(), exit, true));
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
@@ -281,7 +281,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             (sublime_syntax::ContextChange::None, true)
                         };
 
-                    let terminal_match = gen_terminal(state, &ctx_name, &branch_key, scope, branch_match[0].expression, exit, pop);
+                    let terminal_match = gen_terminal(state, &ctx_name, &branch_key, scope, branch_match[0].get_expression(), exit, pop);
 
                     state.contexts.insert(ctx_name, sublime_syntax::Context {
                         meta_scope: sublime_syntax::Scope::empty(),
@@ -458,7 +458,7 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
                         sublime_syntax::ContextChange::Push(contexts)
                     };
 
-                return gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit, false);
+                return gen_terminal(state, context_name, context_key, scope, match_stack[0].get_expression(), exit, false);
             } else {
                 // Otherwise we have a complex repetition, which behaves the
                 // same way as a regular match.
@@ -490,7 +490,7 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
             (sublime_syntax::ContextChange::Set(contexts), false)
         };
 
-    gen_terminal(state, context_name, context_key, scope, match_stack[0].expression, exit, pop)
+    gen_terminal(state, context_name, context_key, scope, match_stack[0].get_expression(), exit, pop)
 }
 
 fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, mut rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> Vec<String> {
@@ -509,7 +509,7 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
             let rule_key = match &match_.expression {
-                    Expression::Variable { key, .. } => key,
+                    Some(Expression::Variable { key, .. }) => key,
                     _ => panic!(),
                 };
 
@@ -556,7 +556,7 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
         }
 
         match &match_.expression {
-            Expression::Variable { key, .. } => {
+            Some(Expression::Variable { key, .. }) => {
                 rule_key = key;
             },
             _ => {},
@@ -643,14 +643,10 @@ fn create_branch_point_include_context_name(branch_point: &str) -> String {
 
 fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {
     for match_ in match_stack.iter().rev() {
-        match match_.expression {
-            Expression::Repetition { .. } => {
-                return true;
-            },
-            Expression::Variable { .. } => {
-                return false;
-            },
-            _ => {}
+        if match_.is_repetition() {
+            return true;
+        } else if match_.is_variable() {
+            return false;
         }
     }
 
@@ -660,7 +656,7 @@ fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {
 fn rule_for_match_stack<'a>(rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> &'a RuleKey<'a> {
     for match_ in match_stack {
         match match_.expression {
-            Expression::Variable { key, .. } => {
+            Some(Expression::Variable { key, .. }) => {
                 return &key;
             },
             _ => {},
@@ -679,15 +675,15 @@ fn scope_for_match_stack<'a>(interpreted: &'a Interpreted<'a>, rule_key: Option<
 
     for match_ in match_stack.iter().rev() {
         match &match_.expression {
-            Expression::Variable { key, .. } => {
+            Some(Expression::Variable { key, .. }) => {
                 let rule_options = &interpreted.rules[key].options;
 
                 scopes.extend(rule_options.scope.scopes.iter().cloned());
             },
-            Expression::Terminal { options, .. } => {
+            Some(Expression::Terminal { options, .. }) => {
                 scopes.extend(options.scope.scopes.iter().cloned());
             },
-            Expression::Repetition { .. } => {},
+            Some(Expression::Repetition { .. }) | None => {},
             _ => panic!()
         }
     }
@@ -708,7 +704,16 @@ fn advance_context_stack<'a>(interpreted: &'a Interpreted<'a>, match_stack: &[Ma
 
         let mut context = collect_context_nodes_concatenation(interpreted, &match_.remaining);
 
+
         for stack in &mut context.matches {
+            // Check for recursion and convert it to a repetition
+            let stack_len = stack.len();
+            if stack_len > 1 && stack_len - 1 <= remaining_stack.len() && &stack[1..] == &remaining_stack[0..stack.len() - 1] {
+                stack.insert(1, Match { expression: None, remaining: vec!() });
+                stack.extend(remaining_stack[0..stack_len - 1].iter().cloned());
+                continue;
+            }
+
             stack.extend(remaining_stack.iter().cloned());
         }
 
@@ -730,32 +735,40 @@ enum ContextEnd<'a> {
     Push(Box<Context<'a>>),
 }
 
+// The match stack consists of a terminal match at the front, followed by
+// repetitions and variables. A match with an empty expression is also a
+// repetition.
 type MatchStack<'a> = Vec<Match<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Match<'a> {
-    expression: &'a Expression<'a>,
+    expression: Option<&'a Expression<'a>>,
     remaining: Vec<&'a Expression<'a>>,
 }
 
 impl<'a> Match<'a> {
     fn get_regex(&self) -> &'a str {
         match &self.expression {
-            Expression::Terminal { regex, .. } => regex,
+            Some(Expression::Terminal { regex, .. }) => regex,
             _ => panic!()
         }
     }
 
+    fn get_expression(&self) -> &'a Expression<'a> {
+        self.expression.unwrap()
+    }
+
     fn is_variable(&self) -> bool {
         match &self.expression {
-            Expression::Variable { .. } => true,
+            Some(Expression::Variable { .. }) => true,
             _ => false,
         }
     }
 
     fn is_repetition(&self) -> bool {
         match &self.expression {
-            Expression::Repetition { .. } => true,
+            Some(Expression::Repetition { .. }) => true,
+            None => true,
             _ => false,
         }
     }
@@ -814,7 +827,7 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
             // Add the variable to the rule stack
             for match_stack in &mut context.matches {
                 match_stack.push(Match {
-                    expression,
+                    expression: Some(expression),
                     remaining: vec!(),
                 })
             }
@@ -835,7 +848,7 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
         // A terminal is simply a context that matches the terminal's regex
         Expression::Terminal { .. } => {
             let mut match_ = MatchStack::new();
-            match_.push(Match { expression, remaining: vec!() });
+            match_.push(Match { expression: Some(expression), remaining: vec!() });
 
             Context {
                 matches: vec!(match_),
@@ -865,7 +878,7 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
 
             // Add the repetition to the front of each match stack
             for match_ in &mut context.matches {
-                match_.push(Match { expression, remaining: vec!(expression) });
+                match_.push(Match { expression: Some(expression), remaining: vec!(expression) });
             }
 
             let end =
@@ -1081,7 +1094,13 @@ mod tests {
 
     impl<'a> PartialEq<TestMatch> for Match<'a> {
         fn eq(&self, other: &TestMatch) -> bool {
-            *self.expression == other.expression && self.remaining.iter().map(|e| *e).eq(other.remaining.iter())
+            (match self.expression {
+                Some(expression) => *expression == other.expression,
+                None => match &other.expression {
+                    TestExpression::Repetition(_) => true,
+                    _ => false,
+                },
+            }) && self.remaining.iter().map(|e| *e).eq(other.remaining.iter())
         }
     }
 

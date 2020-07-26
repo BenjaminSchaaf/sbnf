@@ -1,0 +1,7 @@
+# SYNTAX TEST "Packages/tests/recursive_branch_points/recursive_branch_points.sublime-syntax"
+
+ aa!
+#^^ scope_a
+
+ aa.
+#^^ scope_b
