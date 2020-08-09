@@ -48,9 +48,9 @@ pub struct TerminalOptions<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TerminalEmbed<'a> {
     Embed {
-        context: String,
+        embed: String,
+        embed_scope: sublime_syntax::Scope,
         escape: String,
-        escape_scope: sublime_syntax::Scope,
         escape_captures: HashMap<u16, sublime_syntax::Scope>,
     },
     Include {
@@ -738,7 +738,7 @@ fn parse_terminal_embed<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
             return TerminalEmbed::None;
         }
 
-        let context =
+        let embed =
             match &options[0].data {
                 NodeData::PositionalArgument => {
                     interpolate_string(state, var_map, &options[0], options[0].text)
@@ -758,7 +758,7 @@ fn parse_terminal_embed<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
                 _ => panic!(),
             };
 
-        let mut escape_scope = sublime_syntax::Scope::empty();
+        let mut embed_scope = sublime_syntax::Scope::empty();
         let mut escape_captures = HashMap::new();
 
         for (i, option) in options[1..].iter().enumerate() {
@@ -769,7 +769,7 @@ fn parse_terminal_embed<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
                     if i == 0 {
                         let interpolated = interpolate_string(state, var_map, option, option.text);
 
-                        escape_scope = parse_scope(&analysis.metadata, &interpolated);
+                        embed_scope = parse_scope(&analysis.metadata, &interpolated);
                     } else {
                         state.errors.push(state.stack.error_from_str(
                             "Positional argument for escape scope may only be the second argument",
@@ -809,9 +809,9 @@ fn parse_terminal_embed<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysi
         }
 
         TerminalEmbed::Embed {
-            context,
+            embed,
+            embed_scope,
             escape,
-            escape_scope,
             escape_captures,
         }
     } else if node_embed.text == "include" {

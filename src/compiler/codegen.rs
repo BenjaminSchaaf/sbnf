@@ -397,18 +397,55 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
     }.map(&sublime_syntax::ContextPattern::Match)
 }
 
-fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, pop: bool) -> sublime_syntax::ContextPattern {
+fn gen_terminal<'a>(state: &mut State<'a>, context_name: &str, context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, should_pop: bool) -> sublime_syntax::ContextPattern {
     let (regex, options) =
         match terminal {
             Expression::Terminal { regex: r, options: o, .. } => (r, o),
             _ => panic!(),
         };
 
+    let pop_amount = if should_pop { 1 } else { 0 };
+
     match &options.embed {
-        TerminalEmbed::Embed { .. } => {
-            todo!();
+        TerminalEmbed::Embed { embed, embed_scope, escape, escape_captures } => {
+            let embed_exit = sublime_syntax::ContextChange::Embed(sublime_syntax::Embed {
+                embed: embed.clone(),
+                embed_scope: embed_scope.clone(),
+                escape: Some(sublime_syntax::Pattern::new(escape.clone())),
+                escape_captures: escape_captures.clone(),
+            });
+
+            match &mut exit {
+                sublime_syntax::ContextChange::None => {
+                    exit = embed_exit;
+                },
+                sublime_syntax::ContextChange::Set(ref mut contexts)
+                | sublime_syntax::ContextChange::Push(ref mut contexts) => {
+                    let embed_context = create_uncached_context_name(state, context_key);
+
+                    state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
+                        meta_scope: sublime_syntax::Scope::empty(),
+                        meta_content_scope: sublime_syntax::Scope::empty(),
+                        meta_include_prototype: true,
+                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                            pattern: sublime_syntax::Pattern::from_str(""),
+                            scope: sublime_syntax::Scope::empty(),
+                            captures: HashMap::new(),
+                            change_context: embed_exit,
+                            pop: 1,
+                        })),
+                    });
+
+                    contexts.push(embed_context);
+                },
+                _ => panic!(),
+            }
         },
         TerminalEmbed::Include { .. } => {
+            // let include_exit = sublime_syntax::ContextChange::IncludeEmbed(sublime_syntax::IncludeEmbed {
+
+            // });
             todo!();
         },
         TerminalEmbed::None => {},
@@ -418,7 +455,7 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
     // Translate Set into Push/Pop if we're setting back to the same context
     match &exit {
         sublime_syntax::ContextChange::Push(contexts) => {
-            if pop && contexts[0] == context_name {
+            if pop_amount > 0 && contexts[0] == context_name {
                 if contexts.len() > 1 {
                     exit = sublime_syntax::ContextChange::Push(contexts[1..].to_vec());
                 } else {
@@ -434,7 +471,7 @@ fn gen_terminal<'a>(_state: &mut State<'a>, context_name: &str, _context_key: &C
         scope: scope,
         captures: options.captures.clone(),
         change_context: exit,
-        pop: if pop { 1 } else { 0 }
+        pop: pop_amount,
     })
 }
 
@@ -589,8 +626,8 @@ fn build_rule_key_name<'a>(rule_key: &RuleKey<'a>) -> String {
     result
 }
 
-// Generate a unique name for a context key
-fn create_context_name<'a>(state: &mut State<'a>, key: ContextKey<'a>) -> String {
+// Generate an uncached unique name for a context key
+fn create_uncached_context_name<'a>(state: &mut State<'a>, key: &ContextKey<'a>) -> String {
     let mut result = build_rule_key_name(key.rule_key);
 
     // Add inner context count to prevent context name collisions in inner contexts
@@ -614,10 +651,17 @@ fn create_context_name<'a>(state: &mut State<'a>, key: ContextKey<'a>) -> String
         result.push_str(&branch_point);
     }
 
-    let old_entry = state.context_cache.insert(key, ContextCacheEntry::new(result.clone()));
+    result
+}
+
+// Generate a unique name for a context key
+fn create_context_name<'a>(state: &mut State<'a>, key: ContextKey<'a>) -> String {
+    let name = create_uncached_context_name(state, &key);
+
+    let old_entry = state.context_cache.insert(key, ContextCacheEntry::new(name.clone()));
     assert!(old_entry.is_none());
 
-    result
+    name
 }
 
 // Generate a new branch point for a rule

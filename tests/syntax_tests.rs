@@ -3,10 +3,11 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4076;
 
-const LANGUAGES: [&str; 6] = [
+const LANGUAGES: [&str; 7] = [
     "sbnf",
     "simplec",
     "regexp",
+    "tests/html",
     "tests/issue_6",
     "tests/recursive_branch_points",
     "tests/simple_interpreter",
@@ -33,7 +34,7 @@ fn main() -> std::io::Result<()> {
 
     // Copy all the tests cleanly from the test languages
     for language in &LANGUAGES {
-        let mut sbnf: Option<PathBuf> = None;
+        let mut sbnfs: Vec<PathBuf> = vec!();
         let mut tests: Vec<PathBuf> = vec!();
 
         let dir = Path::new(language);
@@ -41,20 +42,22 @@ fn main() -> std::io::Result<()> {
             if entry.path().file_name().unwrap().to_str().unwrap().starts_with("syntax_test_") {
                 tests.push(entry.path());
             } else if entry.path().file_name().unwrap().to_str().unwrap().ends_with(".sbnf") {
-                sbnf = Some(entry.path());
+                sbnfs.push(entry.path());
             }
         })?;
 
-        if let Some(sbnf) = sbnf {
-            let target = PathBuf::from("target/test/Data/Packages").join(sbnf.with_extension("sublime-syntax"));
-            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        if !sbnfs.is_empty() {
+            for sbnf in sbnfs {
+                let target = PathBuf::from("target/test/Data/Packages").join(sbnf.with_extension("sublime-syntax"));
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
 
-            // Compile syntax to target
-            let status = Command::new("cargo")
-                .args(&["run", "--", sbnf.to_str().unwrap(), target.to_str().unwrap()])
-                .status()
-                .expect("Failed run exec cargo");
-            assert!(status.success(), "Failed to compile {:?}", sbnf);
+                // Compile syntax to target
+                let status = Command::new("cargo")
+                    .args(&["run", "--", sbnf.to_str().unwrap(), target.to_str().unwrap()])
+                    .status()
+                    .expect("Failed run exec cargo");
+                assert!(status.success(), "Failed to compile {:?}", sbnf);
+            }
 
             // Copy syntax tests
             for test in &tests {

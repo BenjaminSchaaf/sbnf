@@ -1,0 +1,25 @@
+# SYNTAX TEST "Packages/tests/html/html.sublime-syntax"
+
+ <p>Hi</p>
+#^^^ meta.tag.p.html
+#^ punctuation.definition.tag.begin.html
+# ^ entity.name.tag.begin.p.html
+#  ^ punctuation.definition.tag.end.html
+#   ^^ source.html
+#     ^^^^ meta.tag.p.html
+#     ^^ punctuation.definition.tag.begin.html
+#       ^ entity.name.tag.end.p.html
+#        ^ punctuation.definition.tag.end.html
+
+ <script>
+#^^^^^^^^ meta.tag.script.html
+#^ punctuation.definition.tag.begin.html
+# ^^^^^^ entity.name.tag.begin.script.html
+#       ^ punctuation.definition.tag.end.html
+  var
+# ^^^ source.embedded.js.html keyword.definition.variable.javascript
+ </script>
+#^^^^^^^^^ meta.tag.script.html
+#^^ punctuation.definition.tag.begin.html
+#  ^^^^^^ entity.name.tag.end.script.html
+#        ^ punctuation.definition.tag.end.html

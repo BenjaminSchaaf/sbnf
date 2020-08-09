@@ -1,0 +1,4 @@
+main = ( ~( 'var'{keyword.definition.variable}
+          )
+       )*
+     ;
