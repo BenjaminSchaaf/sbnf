@@ -30,8 +30,8 @@ pattern-element = '~|!'{keyword.operator}?
                   '\*|\?'{keyword.control}?
                 ;
 
-pattern-item = literal options?
-             | regex options?
+pattern-item = literal options? embed-include?
+             | regex options? embed-include?
              | group
              | '[[:alnum:]_\-\.]+'{variable.function} parameters?
              ;
@@ -60,7 +60,18 @@ regex-prototype{include-prototype: false}
   ~'(?=\')'
 ;
 
-options = '{[^}]*}' ;
+options{include-prototype: false}
+= '{'
+  ( ~interpolation )*
+  ~'}'
+;
+
+embed-include
+= '%'
+  'embed|include'{keyword}
+  parameters
+  options
+;
 
 interpolation{include-prototype: false}
 = `#[`{punctuation.definition.placeholder.begin}
