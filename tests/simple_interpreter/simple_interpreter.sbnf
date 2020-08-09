@@ -5,6 +5,7 @@ main
      | interpolation['b']
      | interpolation['c']
      )
-  )*;
+  )*
+;
 
 interpolation[M] = 'a#[M]c'{interp.#[M]} ;

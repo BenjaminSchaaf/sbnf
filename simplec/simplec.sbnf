@@ -6,12 +6,13 @@ comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
 
 main = ( variable-declaration | function-definition )* ;
 
-function-definition{meta.function} = type
-                                     '\b[A-Za-z_]+\b'{entity.name.function}
-                                     `(`
-                                     `)`
-                                     block
-                                   ;
+function-definition{meta.function}
+= type
+  '\b[A-Za-z_]+\b'{entity.name.function}
+  `(`
+  `)`
+  block
+;
 
 block{meta.block} = '{' statement* '}' ;
 
@@ -30,4 +31,4 @@ value = '[0-9]+'{constant.numeric}
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
-    = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+= '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;

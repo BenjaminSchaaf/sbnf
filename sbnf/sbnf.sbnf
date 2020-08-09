@@ -42,9 +42,9 @@ group{meta.group} = `(`{punctuation.section.group.begin}
                   ;
 
 literal{string.quoted, include-prototype: false}
-    = '`'{punctuation.definition.string.begin}
-      ~'`'{punctuation.definition.string.end}
-    ;
+= '`'{punctuation.definition.string.begin}
+  ~'`'{punctuation.definition.string.end}
+;
 
 regex{string.quoted, include-prototype: false}
 = `'`{punctuation.definition.string.begin}

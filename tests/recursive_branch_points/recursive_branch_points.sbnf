@@ -4,7 +4,8 @@ main
 = ( ~( recursive_a
      | recursive_b
      )
-  )*;
+  )*
+;
 
 recursive_a = 'a'{scope_a} recursive_a | '!' ;
 recursive_b = 'a'{scope_b} recursive_b | '.' ;
