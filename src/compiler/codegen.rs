@@ -176,7 +176,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             sublime_syntax::ContextChange::None
                         };
 
-                    patterns.push(gen_terminal(state, name, context_key, scope, match_[0].get_expression(), exit, true));
+                    patterns.push(gen_terminal(state, interpreted, name, context_key, scope, match_[0].get_expression(), exit, true));
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
@@ -281,7 +281,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             (sublime_syntax::ContextChange::None, true)
                         };
 
-                    let terminal_match = gen_terminal(state, &ctx_name, &branch_key, scope, branch_match[0].get_expression(), exit, pop);
+                    let terminal_match = gen_terminal(state, interpreted, &ctx_name, &branch_key, scope, branch_match[0].get_expression(), exit, pop);
 
                     state.contexts.insert(ctx_name, sublime_syntax::Context {
                         meta_scope: sublime_syntax::Scope::empty(),
@@ -397,7 +397,7 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
     }.map(&sublime_syntax::ContextPattern::Match)
 }
 
-fn gen_terminal<'a>(state: &mut State<'a>, context_name: &str, context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, should_pop: bool) -> sublime_syntax::ContextPattern {
+fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, context_name: &str, context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, should_pop: bool) -> sublime_syntax::ContextPattern {
     let (regex, options) =
         match terminal {
             Expression::Terminal { regex: r, options: o, .. } => (r, o),
@@ -421,6 +421,7 @@ fn gen_terminal<'a>(state: &mut State<'a>, context_name: &str, context_key: &Con
                 },
                 sublime_syntax::ContextChange::Set(ref mut contexts)
                 | sublime_syntax::ContextChange::Push(ref mut contexts) => {
+                    // TODO: This generates duplicate contexts
                     let embed_context = create_uncached_context_name(state, context_key);
 
                     state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
@@ -442,11 +443,62 @@ fn gen_terminal<'a>(state: &mut State<'a>, context_name: &str, context_key: &Con
                 _ => panic!(),
             }
         },
-        TerminalEmbed::Include { .. } => {
-            // let include_exit = sublime_syntax::ContextChange::IncludeEmbed(sublime_syntax::IncludeEmbed {
+        TerminalEmbed::Include { context: path, prototype } => {
+            // Generate the prototype context
+            let prototype_context = {
+                let rule = &interpreted.rules[prototype];
 
-            // });
-            todo!();
+                let context = collect_context_nodes(interpreted, &rule.expression);
+
+                let prototype_key = ContextKey {
+                    rule_key: prototype,
+                    context,
+                    branch_point: None,
+                };
+
+                if let Some(name) = state.context_cache.get(&prototype_key).map(|c| &c.name) {
+                    name.to_string()
+                } else {
+                    let name = create_context_name(state, prototype_key.clone());
+
+                    gen_contexts(state, interpreted, vec!((name.clone(), prototype_key)));
+                    name
+                }
+            };
+
+            let include_exit = sublime_syntax::ContextChange::IncludeEmbed(sublime_syntax::IncludeEmbed {
+                path: path.to_string(),
+                use_push: false,
+                with_prototype: vec!(sublime_syntax::ContextPattern::Include(prototype_context)),
+            });
+
+            match exit {
+                sublime_syntax::ContextChange::None => {
+                    exit = include_exit;
+                },
+                sublime_syntax::ContextChange::Set(ref mut contexts)
+                | sublime_syntax::ContextChange::Push(ref mut contexts) => {
+                    // TODO: This generates duplicate contexts
+                    let embed_context = create_uncached_context_name(state, context_key);
+
+                    state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
+                        meta_scope: sublime_syntax::Scope::empty(),
+                        meta_content_scope: sublime_syntax::Scope::empty(),
+                        meta_include_prototype: false,
+                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                            pattern: sublime_syntax::Pattern::from_str(""),
+                            scope: sublime_syntax::Scope::empty(),
+                            captures: HashMap::new(),
+                            change_context: include_exit,
+                            pop: 0,
+                        })),
+                    });
+
+                    contexts.push(embed_context);
+                },
+                _ => panic!(),
+            }
         },
         TerminalEmbed::None => {},
     }
@@ -495,7 +547,7 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
                         sublime_syntax::ContextChange::Push(contexts)
                     };
 
-                return gen_terminal(state, context_name, context_key, scope, match_stack[0].get_expression(), exit, false);
+                return gen_terminal(state, interpreted, context_name, context_key, scope, match_stack[0].get_expression(), exit, false);
             } else {
                 // Otherwise we have a complex repetition, which behaves the
                 // same way as a regular match.
@@ -527,7 +579,7 @@ fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>,
             (sublime_syntax::ContextChange::Set(contexts), false)
         };
 
-    gen_terminal(state, context_name, context_key, scope, match_stack[0].get_expression(), exit, pop)
+    gen_terminal(state, interpreted, context_name, context_key, scope, match_stack[0].get_expression(), exit, pop)
 }
 
 fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, mut rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> Vec<String> {

@@ -47,20 +47,26 @@ literal{string.quoted, include-prototype: false}
     ;
 
 regex{string.quoted, include-prototype: false}
-    = `'`{punctuation.definition.string.begin}
-      ( ~( `\'`{constant.character.escape}
-         | interpolation
-         )
-      )*
-      ~`'`{punctuation.definition.string.end}
-    ;
+= `'`{punctuation.definition.string.begin}
+  %include[regex-prototype]{scope:source.regexp}
+  `'`{punctuation.definition.string.end}
+;
+
+regex-prototype{include-prototype: false}
+= ( ~( `\'`{constant.character.escape}
+     | interpolation
+     )
+  )*
+  ~'(?=\')'
+;
 
 options = '{[^}]*}' ;
 
-interpolation = `#[`{punctuation.definition.placeholder.begin}
-                parameter
-                `]`{punctuation.definition.placeholder.end}
-              ;
+interpolation{include-prototype: false}
+= `#[`{punctuation.definition.placeholder.begin}
+  parameter
+  `]`{punctuation.definition.placeholder.end}
+;
 
 parameters = `[` parameter ( `,` parameter )* `]` ;
 
