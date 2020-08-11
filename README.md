@@ -38,6 +38,9 @@ install using:
 $ cargo install --path .
 ```
 
+Note that in order to use the generated syntax you'll need at minimum Sublime
+Text build 4077 with support for version 2 of Sublime Syntax.
+
 ## Example
 
 The following is a sbnf grammar for a cut-down version of C. It only allows
@@ -55,12 +58,13 @@ comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
 
 main = ( variable-declaration | function-definition )* ;
 
-function-definition{meta.function} = type
-                                     '\b[A-Za-z_]+\b'{entity.name.function}
-                                     `(`
-                                     `)`
-                                     block
-                                   ;
+function-definition{meta.function}
+= type
+  '\b[A-Za-z_]+\b'{entity.name.function}
+  `(`
+  `)`
+  block
+;
 
 block{meta.block} = '{' statement* '}' ;
 
@@ -79,7 +83,7 @@ value = '[0-9]+'{constant.numeric}
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
-      = '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+= '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
 ```
 
 The above grammar compiles to the following:
@@ -88,21 +92,18 @@ The above grammar compiles to the following:
 %YAML 1.2
 ---
 # http://www.sublimetext.com/docs/3/syntax.html
+version: 2
 name: simplec
 scope: source.simplec
 contexts:
   block|0:
     - meta_content_scope: meta.block.simplec
-    - match: '(?=\b[A-Za-z_]+\b)'
-      branch_point: block@1
-      branch:
-        - type|2|block@1
-        - function-call|2|block@1
+    - include: include!block@1
     - match: '[0-9]+'
-      scope: constant.numeric.simplec
-      push: statement|0
+      scope: meta.block.simplec constant.numeric.simplec
+      push: [block|meta, statement|0]
     - match: '{'
-      scope: meta.block.simplec
+      scope: meta.block.simplec meta.block.simplec
       push: [block|meta, block|0]
     - match: '}'
       scope: meta.block.simplec
@@ -113,13 +114,13 @@ contexts:
   block|1|block@1:
     - match: '\b[A-Za-z_]+\b'
       scope: meta.block.simplec variable.simplec
-      set: variable-declaration|2
+      set: [block|meta, variable-declaration|2]
     - match: '\S'
       fail: block@1
   block|2|block@1:
     - match: '\('
       scope: meta.block.simplec meta.function-call.simplec
-      set: [statement|0, function-call|meta, function-call|1]
+      set: [block|meta, statement|0, function-call|1]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -130,6 +131,7 @@ contexts:
   function-call|0:
     - meta_content_scope: meta.function-call.simplec
     - match: '\('
+      scope: meta.function-call.simplec
       set: function-call|1
     - match: '\S'
       scope: invalid.illegal.simplec
@@ -146,14 +148,12 @@ contexts:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
-      push: [pop-2, block|2|block@1]
-  function-call|meta:
-    - meta_content_scope: meta.function-call.simplec
-    - match: ''
+      push: block|2|block@1
       pop: true
   function-definition|0:
     - meta_content_scope: meta.function.simplec
     - match: '\)'
+      scope: meta.function.simplec
       set: function-definition|1
     - match: '\S'
       scope: invalid.illegal.simplec
@@ -161,8 +161,8 @@ contexts:
   function-definition|1:
     - meta_content_scope: meta.function.simplec
     - match: '{'
-      scope: meta.block.simplec
-      set: [block|meta, block|0]
+      scope: meta.function.simplec meta.block.simplec
+      set: [function-definition|meta, block|0]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -170,24 +170,34 @@ contexts:
     - meta_content_scope: meta.function.simplec
     - match: ''
       pop: true
-  main:
+  include!block@1:
+    - match: '(?=\b[A-Za-z_]+\b)'
+      branch_point: block@1
+      branch:
+        - type|2|block@1
+        - function-call|2|block@1
+  include!main@1:
     - match: '(?=\b[A-Za-z_]+\b)'
       branch_point: main@1
       branch:
         - type|0|main@1
         - type|1|main@1
+  main:
+    - include: include!main@1
     - match: '\S'
       scope: invalid.illegal.simplec
   main|0|main@1:
     - match: '\b[A-Za-z_]+\b'
       scope: variable.simplec
-      set: main|2|main@1
+      push: main|2|main@1
+      pop: true
     - match: '\S'
       fail: main@1
   main|1|main@1:
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function.simplec entity.name.function.simplec
-      set: main|3|main@1
+      push: main|3|main@1
+      pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -201,14 +211,10 @@ contexts:
   main|3|main@1:
     - match: '\('
       scope: meta.function.simplec
-      set: [function-definition|meta, function-definition|0]
+      set: function-definition|0
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
-  pop-2:
-    - meta_include_prototype: false
-    - match: ''
-      pop: 2
   prototype:
     - match: '(//+).*\n?'
       scope: comment.line.simplec
@@ -224,24 +230,27 @@ contexts:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: storage.type.simplec
-      push: [pop-2, main|0|main@1]
+      push: main|0|main@1
+      pop: true
   type|1|main@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function.simplec storage.type.simplec
-      push: [pop-2, main|1|main@1]
+      push: main|1|main@1
+      pop: true
   type|2|block@1:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: storage.type.simplec
-      push: [pop-2, block|1|block@1]
+      push: block|1|block@1
+      pop: true
   variable-declaration|0:
     - match: '[0-9]+'
       scope: constant.numeric.simplec
       set: variable-declaration|1
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
-      set: [variable-declaration|1, function-call|meta, function-call|0]
+      set: [variable-declaration|1, function-call|0]
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
@@ -398,6 +407,91 @@ a[A] = 'a' ;
 
 b[A] = 'a' ;
 b[B] = 'b' ;
+```
+
+#### Include/Embed
+
+SBNF also has support for including/embedding other sublime syntaxes. This can
+only be done on a literal or regex terminal expression with a postfix of
+`%include[<with_prototype>]{<syntax>}` for including a syntax or
+`%embed[<regex>]{<syntax>}` for an embed.
+
+Note that these translate directly to the sublime syntax include/embed
+functionality and thus have the same limitations.
+
+Examples:
+
+```sbnf
+# This is a basic implementation of the html script tag embedding the javascript
+# syntax.
+script
+= '<script>'{tag.begin.script}
+  %embed['</script>']{scope:source.js, embedded.js, 0: tag.end.script}
+;
+```
+
+```yaml
+# The above translates to the following context
+script:
+  - match: '<script>'
+    scope: tag.begin.script.example
+    embed: scope:source.js
+    embed_scope: embedded.js.example
+    escape: '</script>'
+    escape_captures:
+      0: tag.end.script.example
+    pop: true
+  - match: '\S'
+    scope: invalid.illegal.example
+```
+
+```sbnf
+# This is a basic implementation of a regex string. It has a prototype rule that
+# extends the regex syntax with an escape sequence for the string.
+
+regex-prototype{include-prototype: false}
+= ( ~`\'`{constant.character.escape} )*
+  # A lookahead is required here, as otherwise we would only pop one context
+  # The same is required in a sublime-syntax file
+  ~'(?=\')'
+;
+
+regex-string{string.quoted}
+= `'`{punctuation.definition.string.begin}
+  %include[regex-prototype]{scope:source.regexp}
+  `'`{punctuation.definition.string.end}
+;
+```
+
+```yaml
+# The above translates to the following contexts
+regex-string:
+  - meta_content_scope: string.quoted.example
+  - match: ''''
+    scope: string.quoted.example punctuation.definition.string.begin.example
+    set: [regex-string|0, regex-string|1]
+  - match: '\S'
+    scope: invalid.illegal.example
+regex-string|0:
+  - meta_content_scope: string.quoted.example
+  - match: ''''
+    scope: string.quoted.example punctuation.definition.string.end.example
+    pop: true
+  - match: '\S'
+    scope: invalid.illegal.example
+    pop: true
+regex-string|1:
+  - meta_include_prototype: false
+  - match: ''
+    set: scope:source.regexp
+    with_prototype:
+      - include: regex-prototype|0
+regex-prototype|0:
+  - meta_include_prototype: false
+  - match: '\\'''
+    scope: constant.character.escape.example
+  - match: '(?='')'
+    pop: true
 ```
 
 ### Command Line
