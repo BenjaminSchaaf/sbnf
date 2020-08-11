@@ -1,7 +1,16 @@
 [package]
 name = "sbnfc"
-version = "0.2.0"
+version = "0.3.1"
+license-file = "LICENSE"
+repository = "https://github.com/BenjaminSchaaf/sbnf"
+description = "CLI program for SBNF: A BNF-style language for writing sublime-syntax files"
+authors = ["Benjamin Schaaf <ben.schaaf@gmail.com>"]
 edition = "2018"
+include = [
+    "/src/**",
+    "/Cargo.toml",
+    "/LICENSE",
+]
 
 [[bin]]
 name = "sbnf"
