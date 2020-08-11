@@ -7,6 +7,7 @@ use crate::sublime_syntax;
 pub struct Analysis<'a> {
     pub rules: HashMap<&'a str, Vec<&'a Node<'a>>>,
     pub metadata: Metadata,
+    pub debug_contexts: bool,
 }
 
 pub struct Metadata {
@@ -35,6 +36,7 @@ pub fn analyze<'a>(options: &CompileOptions<'a>, grammar: &'a Grammar<'a>) -> Co
             Ok(Analysis {
                 rules,
                 metadata,
+                debug_contexts: options.debug_contexts,
             })
         } else {
             Err(state.errors)

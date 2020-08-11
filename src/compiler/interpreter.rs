@@ -628,6 +628,10 @@ fn parse_rule_options<'a>(state: &mut State<'a>, var_map: &VarMap<'a>, analysis:
     let mut scope = sublime_syntax::Scope::empty();
     let mut include_prototype: Option<(&'a Node<'a>, bool)> = None;
 
+    if analysis.debug_contexts {
+        scope.scopes.push(format!("{}.sbnf-dbg", name));
+    }
+
     for (i, argument) in options.iter().enumerate() {
         if i == 0 && argument.data == NodeData::PositionalArgument {
             let interpolated = interpolate_string(state, var_map, argument, argument.text);
