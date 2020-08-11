@@ -7,8 +7,10 @@ description = "A BNF-style language for writing sublime-syntax files"
 authors = ["Benjamin Schaaf <ben.schaaf@gmail.com>"]
 edition = "2018"
 include = [
+    "/cli/**",
     "/src/**",
     "/tests/**",
+    "/wasm/**",
     "/Cargo.toml",
     "/LICENSE",
 ]
