@@ -23,19 +23,18 @@ SBNF attempts do the following:
 
 ## Installation
 
-Currently you'll need to [install rust](https://www.rust-lang.org/tools/install)
-to use SBNF. With rust installed you can download, build and install the latest
-released version of SBNF using:
+With [rust installed](https://www.rust-lang.org/tools/install) you can download,
+build and install the latest released version of SBNF using:
 
 ```bash
-$ cargo install sbnf
+$ cargo install sbnfc
 ```
 
 Or if you want the latest features, clone this repository, then build and
 install using:
 
 ```bash
-$ cargo install --path .
+$ cargo install --path cli
 ```
 
 Note that in order to use the generated syntax you'll need at minimum Sublime
