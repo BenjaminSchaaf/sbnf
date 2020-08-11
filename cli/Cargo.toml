@@ -8,7 +8,7 @@ name = "sbnf"
 path = "src/main.rs"
 
 [dependencies]
-sbnf = { path = "../" }
+sbnf = { version = "0.3.1", path = "../" }
 
 [dependencies.clap]
 version = "~2.27.0"
