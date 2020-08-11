@@ -3,7 +3,7 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4076;
 
-const LANGUAGES: [&str; 7] = [
+const LANGUAGES: [&str; 8] = [
     "sbnf",
     "simplec",
     "regexp",
@@ -11,6 +11,7 @@ const LANGUAGES: [&str; 7] = [
     "tests/issue_6",
     "tests/recursive_branch_points",
     "tests/simple_interpreter",
+    "tests/meta_scopes",
 ];
 
 fn main() -> std::io::Result<()> {

@@ -1,0 +1,10 @@
+# SYNTAX TEST "Packages/tests/meta_scopes/meta_scopes.sublime-syntax"
+
+ '' !
+#^^ string
+
+ 'a' !
+#^^^ string
+
+ 'abc' !
+#^^^^^ string

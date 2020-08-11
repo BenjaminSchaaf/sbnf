@@ -1,0 +1,7 @@
+scope: test
+
+main = ( ~test-string )* ;
+
+test-string = string1 '!' ;
+string1{string} = string2 ;
+string2{include-prototype: false} = `'` ~`'` ;

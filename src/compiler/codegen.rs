@@ -180,11 +180,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
-                    let scope = if branch_point.is_some() {
-                            scope_for_match_stack(interpreted, Some(rule_key), match_)
-                        } else {
-                            scope_for_match_stack(interpreted, None, match_)
-                        };
+                    let scope = scope_for_match_stack(interpreted, Some(rule_key), match_);
 
                     patterns.push(gen_simple_match(state, interpreted, name, context_key, scope, match_));
                 }
@@ -592,16 +588,11 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
     let mut contexts = vec!();
 
     for match_ in match_stack[first..].iter().rev() {
-        if match_.remaining.is_empty() && match_.is_variable() {
+        if match_.remaining.is_empty() {
             // If a match has no remaining nodes it can generally be ignored,
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
-            let rule_key = match &match_.expression {
-                    Some(Expression::Variable { key, .. }) => key,
-                    _ => panic!(),
-                };
-
             let meta_content_scope = interpreted.rules[rule_key].options.scope.clone();
 
             if !meta_content_scope.is_empty() {
@@ -629,7 +620,7 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
             let context = collect_context_nodes_concatenation(interpreted, &match_.remaining);
 
             let key = ContextKey {
-                rule_key: rule_key,
+                rule_key,
                 context,
                 branch_point: None,
             };
