@@ -52,7 +52,7 @@ impl Syntax {
         };
         serializeln!(state, "%YAML 1.2")?;
         serializeln!(state, "---")?;
-        serializeln!(state, "# http://www.sublimetext.com/docs/3/syntax.html")?;
+        serializeln!(state, "# http://www.sublimetext.com/docs/syntax.html")?;
         serializeln!(state, "version: 2")?;
         serializeln!(state, "name: {}", self.name)?;
 
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(buf, "\
 %YAML 1.2
 ---
-# http://www.sublimetext.com/docs/3/syntax.html
+# http://www.sublimetext.com/docs/syntax.html
 version: 2
 name: Empty Lang
 file_extensions:
@@ -447,7 +447,7 @@ hidden: true\n");
         assert_eq!(buf, "\
 %YAML 1.2
 ---
-# http://www.sublimetext.com/docs/3/syntax.html
+# http://www.sublimetext.com/docs/syntax.html
 version: 2
 name: Vars
 scope: source.vars text.vars
@@ -570,7 +570,7 @@ variables:
         syntax.serialize(&mut buf).unwrap();
         assert_eq!(buf, r#"%YAML 1.2
 ---
-# http://www.sublimetext.com/docs/3/syntax.html
+# http://www.sublimetext.com/docs/syntax.html
 version: 2
 name: Ctx
 file_extensions:
