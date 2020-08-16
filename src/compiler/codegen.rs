@@ -14,6 +14,16 @@ struct ContextKey<'a> {
     branch_point: Option<String>,
 }
 
+impl<'a> std::fmt::Display for ContextKey<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.rule_key)?;
+        if let Some(branch_point) = &self.branch_point {
+            write!(f, "\n For branch point '{}'", branch_point)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct ContextCacheEntry {
     name: String,
@@ -285,8 +295,11 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                         meta_include_prototype: false,
                         clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                         matches: vec!(terminal_match),
+                        comment: None,
                     });
                 }
+
+                let comment = format!("Include context for branch point {}", branch_point.as_deref().unwrap());
 
                 state.contexts.insert(include_context_name.clone(), sublime_syntax::Context {
                     meta_scope: sublime_syntax::Scope::empty(),
@@ -302,6 +315,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             pop: 0,
                         }),
                     ),
+                    comment: Some(comment),
                 });
 
                 patterns.push(sublime_syntax::ContextPattern::Include(include_context_name));
@@ -352,6 +366,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
             meta_include_prototype,
             clear_scopes: sublime_syntax::ScopeClear::Amount(0),
             matches: patterns,
+            comment: Some(format!("Rule: {}", context_key)),
         });
     }
 
@@ -432,6 +447,7 @@ fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             change_context: embed_exit,
                             pop: 1,
                         })),
+                        comment: None,
                     });
 
                     contexts.push(embed_context);
@@ -489,6 +505,7 @@ fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                             change_context: include_exit,
                             pop: 0,
                         })),
+                        comment: None
                     });
 
                     contexts.push(embed_context);
@@ -611,6 +628,7 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
                             change_context: sublime_syntax::ContextChange::None,
                             pop: 1,
                         })),
+                        comment: Some(format!("Meta scope context for {}", rule_key)),
                     });
                 }
 

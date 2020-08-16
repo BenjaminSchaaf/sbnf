@@ -93,9 +93,16 @@ impl Syntax {
             keys.sort();
             indent!(state, {
                 for key in &keys {
+                    let context = self.contexts.get::<str>(key).unwrap();
+
+                    if let Some(comment) = &context.comment {
+                        for line in comment.lines() {
+                            serializeln!(state, "# {}", line)?;
+                        }
+                    }
+
                     serializeln!(state, "{}:", key)?;
                     indent!(state, {
-                        let context = self.contexts.get::<str>(key).unwrap();
                         context.serialize(&mut state)?;
                     });
                 }
@@ -185,6 +192,7 @@ pub struct Context {
     pub meta_include_prototype: bool,
     pub clear_scopes: ScopeClear,
     pub matches: Vec<ContextPattern>,
+    pub comment: Option<String>,
 }
 
 impl Context {
@@ -505,6 +513,7 @@ variables:
                             pop: 1,
                         }),
                     ),
+                    comment: None,
                 },
                 "bar".to_string() => Context {
                     meta_scope: Scope::empty(),
@@ -558,10 +567,12 @@ variables:
                                         pop: 0,
                                     }),
                                 ),
+                                comment: Some("inner".to_string()),
                             }),
                             pop: 2,
                         }),
                     ),
+                    comment: Some("foo\nbar".to_string()),
                 },
             },
         };
@@ -577,6 +588,8 @@ file_extensions:
   - ctx
 scope: source.ctx
 contexts:
+  # foo
+  # bar
   bar:
     - meta_include_prototype: false
     - match: '//'
