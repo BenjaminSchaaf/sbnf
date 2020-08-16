@@ -98,6 +98,7 @@
       });
     </script>
     <link rel="stylesheet" href="https://unpkg.com/spectre.css/dist/spectre.min.css">
+    <title>SBNF Playground</title>
   </head>
   <body style="padding: 10px 15px">
     <div class="container">
@@ -106,7 +107,7 @@
           <span class="text-large">SBNF Playground</span>
         </section>
         <section class="navbar-section">
-          <a href="https://github.com/BenjaminSchaaf/sbnf" class="btn btn-link">GitHub</a>
+          <a href="https://github.com/BenjaminSchaaf/sbnf" class="btn btn-primary btn-large">GitHub</a>
         </section>
       </header>
 
@@ -120,15 +121,15 @@
           </div>
           <label class="form-checkbox form-inline">
             <input type="checkbox" id="input-quiet">
-            <i class="form-icon"></i> Quiet
+            <i class="form-icon"></i> Quiet <code>-q</code>
           </label>
           <label class="form-checkbox form-inline">
             <input type="checkbox" id="input-debug" checked>
-            <i class="form-icon"></i> Debug
+            <i class="form-icon"></i> Debug <code>-g</code>
           </label>
         </div>
         <div class="form-group">
-          <textarea class="form-input" id="input-code" placeholder="Textarea" rows="15" style="font-family: monospace;">
+          <textarea class="form-input" id="input-code" placeholder="Textarea" rows="15" style="font-family: monospace; resize: vertical;">
 main = ( ~( foo
           | bar
        )  )*
