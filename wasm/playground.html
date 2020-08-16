@@ -42,17 +42,30 @@
         }
         messages_tab_elem.addEventListener('click', activate_messages_tab);
 
-        function do_compile() {
+        async function do_compile() {
           const name = name_input.value;
           const code = code_input.value;
           const args = arguments_input.value;
           const quiet = quiet_input.checked;
           const debug = debug_input.checked;
 
-          const result = compile(name, code, args, quiet, debug);
+          let syntax;
+          let messages;
+          let error = null;
 
-          const syntax = result.syntax();
-          const messages = result.messages();
+          try {
+            const result = compile(name, code, args, quiet, debug);
+
+            syntax = result.syntax();
+            messages = result.messages();
+          } catch (e) {
+            syntax = '';
+            messages = 'Whoops, it looks like the compiler has crashed.\n'
+                     + 'This is a bug and should be reported.\n';
+
+            // Reinitialize wasm to reset any broken state.
+            await init();
+          }
 
           syntax_content_elem.textContent = syntax;
           messages_content_elem.textContent = messages;
