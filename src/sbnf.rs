@@ -263,7 +263,7 @@ impl ParseError {
     }
 
     pub fn fmt(&self, origin: &str, source: &str) -> String {
-        format!("Parser Error: {} ({}:{})\n\n{}", self.error, origin, self.location, self.location.fmt_source(source))
+        format!("Parser Error: {} ({}:{})\n{}", self.error, origin, self.location, self.location.fmt_source(source))
     }
 }
 
