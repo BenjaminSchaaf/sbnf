@@ -63,7 +63,7 @@ pub fn compile(name: &str, source: &str, args: &str, quiet: bool, debug: bool) -
                 messages.write_char('\n').unwrap();
             }
 
-            result_syntax = "Compilation Failed".to_string();
+            result_syntax = "".to_string();
         },
         Ok(syntax) => {
             let mut output_buffer = String::new();
