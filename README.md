@@ -90,11 +90,12 @@ The above grammar compiles to the following:
 ```yaml
 %YAML 1.2
 ---
-# http://www.sublimetext.com/docs/3/syntax.html
+# http://www.sublimetext.com/docs/syntax.html
 version: 2
 name: simplec
 scope: source.simplec
 contexts:
+  # Rule: block
   block|0:
     - meta_content_scope: meta.block.simplec
     - include: include!block@1
@@ -110,12 +111,16 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: block
+  #  For branch point 'block@1'
   block|1|block@1:
     - match: '\b[A-Za-z_]+\b'
       scope: meta.block.simplec variable.simplec
       set: [block|meta, variable-declaration|2]
     - match: '\S'
       fail: block@1
+  # Rule: block
+  #  For branch point 'block@1'
   block|2|block@1:
     - match: '\('
       scope: meta.block.simplec meta.function-call.simplec
@@ -123,10 +128,12 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Meta scope context for block
   block|meta:
     - meta_content_scope: meta.block.simplec
     - match: ''
       pop: true
+  # Rule: function-call
   function-call|0:
     - meta_content_scope: meta.function-call.simplec
     - match: '\('
@@ -135,6 +142,7 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: function-call
   function-call|1:
     - meta_content_scope: meta.function-call.simplec
     - match: '\)'
@@ -149,6 +157,7 @@ contexts:
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
       push: block|2|block@1
       pop: true
+  # Rule: function-definition
   function-definition|0:
     - meta_content_scope: meta.function.simplec
     - match: '\)'
@@ -157,6 +166,7 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: function-definition
   function-definition|1:
     - meta_content_scope: meta.function.simplec
     - match: '{'
@@ -165,26 +175,32 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Meta scope context for function-definition
   function-definition|meta:
     - meta_content_scope: meta.function.simplec
     - match: ''
       pop: true
+  # Include context for branch point block@1
   include!block@1:
     - match: '(?=\b[A-Za-z_]+\b)'
       branch_point: block@1
       branch:
         - type|2|block@1
         - function-call|2|block@1
+  # Include context for branch point main@1
   include!main@1:
     - match: '(?=\b[A-Za-z_]+\b)'
       branch_point: main@1
       branch:
         - type|0|main@1
         - type|1|main@1
+  # Rule: main
   main:
     - include: include!main@1
     - match: '\S'
       scope: invalid.illegal.simplec
+  # Rule: main
+  #  For branch point 'main@1'
   main|0|main@1:
     - match: '\b[A-Za-z_]+\b'
       scope: variable.simplec
@@ -192,6 +208,8 @@ contexts:
       pop: true
     - match: '\S'
       fail: main@1
+  # Rule: main
+  #  For branch point 'main@1'
   main|1|main@1:
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function.simplec entity.name.function.simplec
@@ -200,6 +218,8 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: main
+  #  For branch point 'main@1'
   main|2|main@1:
     - match: '='
       set: variable-declaration|0
@@ -207,6 +227,8 @@ contexts:
       pop: true
     - match: '\S'
       fail: main@1
+  # Rule: main
+  #  For branch point 'main@1'
   main|3|main@1:
     - match: '\('
       scope: meta.function.simplec
@@ -214,11 +236,13 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: prototype
   prototype:
     - match: '(//+).*\n?'
       scope: comment.line.simplec
       captures:
         1: punctuation.definition.comment.simplec
+  # Rule: statement
   statement|0:
     - match: ';'
       pop: true
@@ -243,6 +267,7 @@ contexts:
       scope: storage.type.simplec
       push: block|1|block@1
       pop: true
+  # Rule: variable-declaration
   variable-declaration|0:
     - match: '[0-9]+'
       scope: constant.numeric.simplec
@@ -253,12 +278,14 @@ contexts:
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: variable-declaration
   variable-declaration|1:
     - match: ';'
       pop: true
     - match: '\S'
       scope: invalid.illegal.simplec
       pop: true
+  # Rule: variable-declaration
   variable-declaration|2:
     - match: '='
       set: variable-declaration|0
