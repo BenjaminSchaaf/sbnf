@@ -54,7 +54,7 @@ fn main() -> std::io::Result<()> {
 
                 // Compile syntax to target
                 let status = Command::new("cargo")
-                    .args(&["run", "--", sbnf.to_str().unwrap(), target.to_str().unwrap()])
+                    .args(&["run", "--", sbnf.to_str().unwrap(), "-o", target.to_str().unwrap()])
                     .status()
                     .expect("Failed run exec cargo");
                 assert!(status.success(), "Failed to compile {:?}", sbnf);

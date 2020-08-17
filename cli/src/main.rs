@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::io::prelude::*;
 
 #[macro_use]
@@ -28,14 +28,15 @@ fn try_main() -> Result<(), String> {
         (version: crate_version!())
         (@arg quiet: -q "Do not display warnings")
         (@arg debug: -g "Compile with debug scopes")
+        (@arg output: -o +takes_value "The file to write the compiled sublime-syntax to. \
+         Defaults to $INPUT.sublime-syntax if left out. Use a single dash `-` \
+         to write to stdout instead.")
         (@arg INPUT: +required "The SBNF file to compile")
-        (@arg OUTPUT: "The file to write the compiled sublime-syntax to. \
-         Leaving this out or set to - will instead write to stdout")
-        (@arg ARGS: ... "Arguments to pass to main and prototype")
+        (@arg ARGS: ... "Arguments to pass to the main and prototype rules")
         ).get_matches();
 
     let input = matches.value_of("INPUT").unwrap();
-    let output = matches.value_of("OUTPUT");
+    let output = matches.value_of("output");
     let args = matches.values_of("ARGS");
 
     let mut contents = String::new();
@@ -82,12 +83,18 @@ fn try_main() -> Result<(), String> {
             let mut output_buffer = String::new();
             syntax.serialize(&mut output_buffer).map_err(|e| format!("{}", e))?;
 
-            match output {
-                None | Some("-") => {
+            let output_path = match output {
+                    Some("-") => None,
+                    Some(path) => Some(PathBuf::from(path)),
+                    None => Some(Path::new(&input).with_extension("sublime-syntax")),
+                };
+
+            match output_path {
+                None => {
                     print!("{}", output_buffer);
                 },
-                Some(output) => {
-                    let mut file = fmt_io_err(File::create(output))?;
+                Some(path) => {
+                    let mut file = fmt_io_err(File::create(path))?;
                     fmt_io_err(file.write_fmt(format_args!("{}", output_buffer)))?;
                 },
             }
