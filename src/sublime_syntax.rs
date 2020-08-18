@@ -1,7 +1,7 @@
 /// This file describes the structure of sublime-syntax files and defines a
 /// serializer for it.
 use std::collections::HashMap;
-use std::fmt::{ Write, Error };
+use std::fmt::{Error, Write};
 
 struct SerializeState<'a> {
     indent: u16,
@@ -26,11 +26,11 @@ macro_rules! serializeln {
 }
 
 macro_rules! indent {
-    ($state:expr, $fn:expr) => ({
+    ($state:expr, $fn:expr) => {{
         $state.indent += 1;
         $fn;
         $state.indent -= 1;
-    });
+    }};
 }
 
 #[derive(Debug)]
@@ -46,10 +46,8 @@ pub struct Syntax {
 
 impl Syntax {
     pub fn serialize(&self, output: &mut dyn Write) -> Result<(), Error> {
-        let mut state = SerializeState {
-            indent: 0,
-            output: output,
-        };
+        let mut state = SerializeState { indent: 0, output: output };
+
         serializeln!(state, "%YAML 1.2")?;
         serializeln!(state, "---")?;
         serializeln!(state, "# http://www.sublimetext.com/docs/syntax.html")?;
@@ -82,7 +80,12 @@ impl Syntax {
             let mut keys = self.variables.keys().collect::<Vec<&String>>();
             keys.sort();
             for key in &keys {
-                serializeln!(state, "  {}: {}", key, self.variables.get::<str>(key).unwrap())?;
+                serializeln!(
+                    state,
+                    "  {}: {}",
+                    key,
+                    self.variables.get::<str>(key).unwrap()
+                )?;
             }
         }
 
@@ -141,7 +144,7 @@ pub struct Scope {
 
 impl Scope {
     pub fn empty() -> Scope {
-        Scope { scopes: vec!() }
+        Scope { scopes: vec![] }
     }
 
     pub fn new(scopes: Vec<String>) -> Scope {
@@ -202,7 +205,11 @@ impl Context {
         }
 
         if !self.meta_content_scope.is_empty() {
-            serializeln!(state, "- meta_content_scope: {}", self.meta_content_scope)?;
+            serializeln!(
+                state,
+                "- meta_content_scope: {}",
+                self.meta_content_scope
+            )?;
         }
 
         if !self.meta_include_prototype {
@@ -212,8 +219,8 @@ impl Context {
         match self.clear_scopes {
             ScopeClear::All => {
                 serializeln!(state, "- clear_scopes: true")?;
-            },
-            ScopeClear::Amount(0) => {},
+            }
+            ScopeClear::Amount(0) => {}
             ScopeClear::Amount(amount) => {
                 serializeln!(state, "- clear_scopes: {}", amount)?;
             }
@@ -238,10 +245,10 @@ impl ContextPattern {
         match self {
             ContextPattern::Match(m) => {
                 m.serialize(state)?;
-            },
+            }
             ContextPattern::Include(context) => {
                 serializeln!(state, "- include: {}", context)?;
-            },
+            }
         }
 
         Ok(())
@@ -269,39 +276,47 @@ impl Match {
             write_captures(state, "captures", &self.captures)?;
 
             match &self.change_context {
-                ContextChange::None => {},
+                ContextChange::None => {}
                 ContextChange::Push(contexts) => {
                     state.write_indentation()?;
                     write!(&mut state.output, "push: ")?;
                     write_context_list(state, &contexts)?;
-                },
+                }
                 ContextChange::Set(contexts) => {
                     state.write_indentation()?;
                     write!(&mut state.output, "set: ")?;
                     write_context_list(state, &contexts)?;
-                },
+                }
                 ContextChange::PushEmbed(context) => {
                     serializeln!(state, "push:")?;
                     indent!(state, {
                         context.serialize(state)?;
                     });
-                },
+                }
                 ContextChange::SetEmbed(context) => {
                     serializeln!(state, "set:")?;
                     indent!(state, {
                         context.serialize(state)?;
                     });
-                },
+                }
                 ContextChange::Embed(embed) => {
                     serializeln!(state, "embed: {}", embed.embed)?;
                     if embed.embed_scope.len() > 0 {
-                        serializeln!(state, "embed_scope: {}", embed.embed_scope)?;
+                        serializeln!(
+                            state,
+                            "embed_scope: {}",
+                            embed.embed_scope
+                        )?;
                     }
                     if let Some(pattern) = &embed.escape {
                         serializeln!(state, "escape: {}", pattern)?;
                     }
-                    write_captures(state, "escape_captures", &embed.escape_captures)?;
-                },
+                    write_captures(
+                        state,
+                        "escape_captures",
+                        &embed.escape_captures,
+                    )?;
+                }
                 ContextChange::IncludeEmbed(embed) => {
                     if embed.use_push {
                         serializeln!(state, "push: {}", embed.path)?;
@@ -317,7 +332,7 @@ impl Match {
                             }
                         });
                     }
-                },
+                }
                 ContextChange::Branch(branch_point, branches) => {
                     serializeln!(state, "branch_point: {}", branch_point)?;
                     serializeln!(state, "branch:")?;
@@ -325,10 +340,10 @@ impl Match {
                     for branch in branches {
                         serializeln!(state, "  - {}", branch)?;
                     }
-                },
+                }
                 ContextChange::Fail(branch_point) => {
                     serializeln!(state, "fail: {}", branch_point)?;
-                },
+                }
             }
 
             if self.pop == 1 {
@@ -342,7 +357,11 @@ impl Match {
     }
 }
 
-fn write_captures(state: &mut SerializeState, name: &str, captures: &HashMap<u16, Scope>) -> Result<(), Error> {
+fn write_captures(
+    state: &mut SerializeState,
+    name: &str,
+    captures: &HashMap<u16, Scope>,
+) -> Result<(), Error> {
     if captures.len() > 0 {
         serializeln!(state, "{}:", name)?;
 
@@ -356,7 +375,10 @@ fn write_captures(state: &mut SerializeState, name: &str, captures: &HashMap<u16
     Ok(())
 }
 
-fn write_context_list(state: &mut SerializeState, list: &Vec<String>) -> Result<(), Error> {
+fn write_context_list(
+    state: &mut SerializeState,
+    list: &Vec<String>,
+) -> Result<(), Error> {
     if list.len() == 1 {
         writeln!(&mut state.output, "{}", list[0])
     } else {
@@ -403,7 +425,7 @@ mod tests {
     use std::collections::HashMap;
 
     extern crate maplit;
-    use maplit::{ hashmap };
+    use maplit::hashmap;
 
     use crate::sublime_syntax::*;
 
@@ -411,7 +433,7 @@ mod tests {
     fn serialize_empty_syntax() {
         let syntax = Syntax {
             name: "Empty Lang".to_string(),
-            file_extensions: vec!("tes".to_string(), "test".to_string()),
+            file_extensions: vec!["tes".to_string(), "test".to_string()],
             first_line_match: Some(Pattern::from_str(".*\\bfoo\\b")),
             scope: Scope::from_str(&["source.empty"]),
             hidden: true,
@@ -421,7 +443,9 @@ mod tests {
 
         let mut buf = String::new();
         syntax.serialize(&mut buf).unwrap();
-        assert_eq!(buf, "\
+        assert_eq!(
+            buf,
+            "\
 %YAML 1.2
 ---
 # http://www.sublimetext.com/docs/syntax.html
@@ -432,18 +456,19 @@ file_extensions:
   - test
 first_line_match: '.*\\bfoo\\b'
 scope: source.empty
-hidden: true\n");
+hidden: true\n"
+        );
     }
 
     #[test]
     fn serialize_variables() {
         let syntax = Syntax {
             name: "Vars".to_string(),
-            file_extensions: vec!(),
+            file_extensions: vec![],
             first_line_match: None,
             scope: Scope::from_str(&["source.vars", "text.vars"]),
             hidden: false,
-            variables: hashmap!{
+            variables: hashmap! {
                 "foo".to_string() => Pattern::from_str("^foo\\b.*$"),
                 "bar".to_string() => Pattern::from_str("\\bbar\\b|\\bfoo\\b"),
             },
@@ -452,7 +477,9 @@ hidden: true\n");
 
         let mut buf = String::new();
         syntax.serialize(&mut buf).unwrap();
-        assert_eq!(buf, "\
+        assert_eq!(
+            buf,
+            "\
 %YAML 1.2
 ---
 # http://www.sublimetext.com/docs/syntax.html
@@ -461,19 +488,20 @@ name: Vars
 scope: source.vars text.vars
 variables:
   bar: '\\bbar\\b|\\bfoo\\b'
-  foo: '^foo\\b.*$'\n");
+  foo: '^foo\\b.*$'\n"
+        );
     }
 
     #[test]
     fn serialize_contexts() {
         let syntax = Syntax {
             name: "Ctx".to_string(),
-            file_extensions: vec!("ctx".to_string()),
+            file_extensions: vec!["ctx".to_string()],
             first_line_match: None,
             scope: Scope::from_str(&["source.ctx"]),
             hidden: false,
             variables: HashMap::new(),
-            contexts: hashmap!{
+            contexts: hashmap! {
                 "foo".to_string() => Context {
                     meta_scope: Scope::empty(),
                     meta_content_scope: Scope::from_str(&["a", "b"]),
@@ -579,7 +607,9 @@ variables:
 
         let mut buf = String::new();
         syntax.serialize(&mut buf).unwrap();
-        assert_eq!(buf, r#"%YAML 1.2
+        assert_eq!(
+            buf,
+            r#"%YAML 1.2
 ---
 # http://www.sublimetext.com/docs/syntax.html
 version: 2
@@ -625,6 +655,7 @@ contexts:
       push: [foo, bar]
     - match: ''
       pop: true
-"#);
+"#
+        );
     }
 }

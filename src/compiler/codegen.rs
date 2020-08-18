@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use indexmap::IndexMap;
 use base64;
+use indexmap::IndexMap;
+use std::collections::HashMap;
 
-use super::common::{Error, CompileOptions, CompileResult};
-use super::interpreter::{RuleKey, Interpreted, Expression, TerminalEmbed};
-use super::analysis::{parse_scope};
+use super::analysis::parse_scope;
+use super::common::{CompileOptions, CompileResult, Error};
+use super::interpreter::{Expression, Interpreted, RuleKey, TerminalEmbed};
 use crate::sublime_syntax;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -52,21 +52,23 @@ struct State<'a> {
     _warnings: Vec<Error<'a>>,
 }
 
-pub fn codegen<'a>(_options: &CompileOptions<'a>, interpreted: Interpreted<'a>) -> CompileResult<'a, sublime_syntax::Syntax> {
+pub fn codegen<'a>(
+    _options: &CompileOptions<'a>,
+    interpreted: Interpreted<'a>,
+) -> CompileResult<'a, sublime_syntax::Syntax> {
     let mut state = State {
         rules: HashMap::new(),
         context_cache: HashMap::new(),
         include_context_cache: HashMap::new(),
         contexts: HashMap::new(),
 
-        _errors: vec!(),
-        _warnings: vec!(),
+        _errors: vec![],
+        _warnings: vec![],
     };
 
     for rule_key in &interpreted.entry_points {
         gen_rule(&mut state, &interpreted, rule_key);
     }
-
 
     // All rules should be compiled
     // assert!(state.rules.len() == interpreted.rules.len() || !state.errors.is_empty());
@@ -81,31 +83,38 @@ pub fn codegen<'a>(_options: &CompileOptions<'a>, interpreted: Interpreted<'a>) 
         contexts: state.contexts,
     };
 
-    CompileResult::new(Ok(syntax), vec!())
+    CompileResult::new(Ok(syntax), vec![])
 }
 
-fn gen_rule<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, rule_key: &'a RuleKey<'a>) {
+fn gen_rule<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    rule_key: &'a RuleKey<'a>,
+) {
     let rule = &interpreted.rules[rule_key];
 
     let context = collect_context_nodes(interpreted, &rule.expression);
 
-    let context_key = ContextKey {
-        rule_key,
-        context,
-        branch_point: None,
-    };
+    let context_key = ContextKey { rule_key, context, branch_point: None };
 
     let name = rule_key.name.to_string();
 
-    let old_entry = state.context_cache.insert(context_key.clone(), ContextCacheEntry { name: name.clone(), capture: true });
+    let old_entry = state.context_cache.insert(
+        context_key.clone(),
+        ContextCacheEntry { name: name.clone(), capture: true },
+    );
     assert!(old_entry.is_none());
 
-    gen_contexts(state, interpreted, vec!((name, context_key)));
+    gen_contexts(state, interpreted, vec![(name, context_key)]);
 }
 
 // Compile a set of contexts following a branch point. If no branch point exists
 // there should only be one context.
-fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, contexts: Vec<(String, ContextKey<'a>)>) {
+fn gen_contexts<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    contexts: Vec<(String, ContextKey<'a>)>,
+) {
     assert!(!contexts.is_empty());
     let branch_point = contexts[0].1.branch_point.clone();
 
@@ -117,7 +126,7 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
     // use unique matches per context to determine when a branch needs to be
     // made.
     let mut regexes: HashMap<&'a str, usize> = HashMap::new();
-    let mut context_maps: Vec<IndexMap<&'a str, Vec<&MatchStack<'a>>>> = vec!();
+    let mut context_maps: Vec<IndexMap<&'a str, Vec<&MatchStack<'a>>>> = vec![];
 
     for (_, context_key) in &contexts {
         let mut map: IndexMap<&'a str, Vec<&MatchStack<'a>>> = IndexMap::new();
@@ -134,23 +143,25 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
             if let Some(m) = map.get_mut(regex) {
                 m.push(match_stack);
             } else {
-                map.insert(regex, vec!(match_stack));
+                map.insert(regex, vec![match_stack]);
             }
         }
 
         context_maps.push(map);
-    };
+    }
 
     assert!(context_maps.len() == contexts.len());
 
-    let mut next_contexts: Vec<(String, ContextKey<'a>)> = vec!();
+    let mut next_contexts: Vec<(String, ContextKey<'a>)> = vec![];
 
-    for (i, ((name, context_key), matches_map)) in contexts.iter().zip(context_maps.iter()).enumerate() {
+    for (i, ((name, context_key), matches_map)) in
+        contexts.iter().zip(context_maps.iter()).enumerate()
+    {
         let rule_key = context_key.rule_key;
 
         let is_last = i == contexts.len() - 1;
 
-        let mut patterns = vec!();
+        let mut patterns = vec![];
 
         for (regex, matches) in matches_map {
             let continue_branch = *regexes.get(regex).unwrap() > 1;
@@ -162,37 +173,64 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
 
                 // Continue branch
                 if continue_branch {
-                    let scope = scope_for_match_stack(interpreted, Some(rule_key), match_);
+                    let scope = scope_for_match_stack(
+                        interpreted,
+                        Some(rule_key),
+                        match_,
+                    );
 
-                    let exit =
-                        if let Some(context) = advance_context_stack(interpreted, match_) {
-                            let next_key = ContextKey {
-                                rule_key,
-                                context: context.clone(),
-                                branch_point: branch_point.clone(),
-                            };
-
-                            let name =
-                                if let Some(name) = state.context_cache.get(&next_key).map(|c| &c.name) {
-                                    name.clone()
-                                } else {
-                                    let name = create_context_name(state, next_key.clone());
-
-                                    next_contexts.push((name.clone(), next_key));
-                                    name
-                                };
-                            sublime_syntax::ContextChange::Push(vec!(name))
-                        } else {
-                            sublime_syntax::ContextChange::None
+                    let exit = if let Some(context) =
+                        advance_context_stack(interpreted, match_)
+                    {
+                        let next_key = ContextKey {
+                            rule_key,
+                            context: context.clone(),
+                            branch_point: branch_point.clone(),
                         };
 
-                    patterns.push(gen_terminal(state, interpreted, name, context_key, scope, match_[0].get_expression(), exit, true));
+                        let name = if let Some(name) =
+                            state.context_cache.get(&next_key).map(|c| &c.name)
+                        {
+                            name.clone()
+                        } else {
+                            let name =
+                                create_context_name(state, next_key.clone());
+
+                            next_contexts.push((name.clone(), next_key));
+                            name
+                        };
+                        sublime_syntax::ContextChange::Push(vec![name])
+                    } else {
+                        sublime_syntax::ContextChange::None
+                    };
+
+                    patterns.push(gen_terminal(
+                        state,
+                        interpreted,
+                        name,
+                        context_key,
+                        scope,
+                        match_[0].get_expression(),
+                        exit,
+                        true,
+                    ));
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
-                    let scope = scope_for_match_stack(interpreted, Some(rule_key), match_);
+                    let scope = scope_for_match_stack(
+                        interpreted,
+                        Some(rule_key),
+                        match_,
+                    );
 
-                    patterns.push(gen_simple_match(state, interpreted, name, context_key, scope, match_));
+                    patterns.push(gen_simple_match(
+                        state,
+                        interpreted,
+                        name,
+                        context_key,
+                        scope,
+                        match_,
+                    ));
                 }
             } else {
                 // Start a branch point or use an existing one
@@ -204,121 +242,175 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                     let key = ContextKey {
                         rule_key,
                         context: Context {
-                            matches: matches.iter().map(|m| (**m).clone()).collect::<Vec<_>>(),
+                            matches: matches
+                                .iter()
+                                .map(|m| (**m).clone())
+                                .collect::<Vec<_>>(),
                             end: ContextEnd::None,
                             maybe_empty: true,
                         },
                         branch_point: None,
                     };
 
-                    if let Some(include_context_name) = state.include_context_cache.get(&key) {
-                        patterns.push(sublime_syntax::ContextPattern::Include(include_context_name.clone()));
+                    if let Some(include_context_name) =
+                        state.include_context_cache.get(&key)
+                    {
+                        patterns.push(sublime_syntax::ContextPattern::Include(
+                            include_context_name.clone(),
+                        ));
                         continue;
                     } else {
                         // Start new branch
-                        branch_point = Some(create_branch_point(state, rule_key));
+                        branch_point =
+                            Some(create_branch_point(state, rule_key));
 
-                        include_context_name = create_branch_point_include_context_name(branch_point.as_ref().unwrap());
-                        assert!(!state.contexts.contains_key(&include_context_name));
+                        include_context_name =
+                            create_branch_point_include_context_name(
+                                branch_point.as_ref().unwrap(),
+                            );
+                        assert!(!state
+                            .contexts
+                            .contains_key(&include_context_name));
 
-                        state.include_context_cache.insert(key, include_context_name.clone());
+                        state
+                            .include_context_cache
+                            .insert(key, include_context_name.clone());
                     }
                 }
 
                 let lookahead = format!("(?={})", regex);
 
-                let mut branches = vec!();
+                let mut branches = vec![];
 
                 for match_ in matches {
                     // Determine if the branch is a simple repetition. If so
                     // we can ignore the repetition in the branch. This
                     // avoids context stack leaks in most cases.
-                    let branch_match =
-                        if match_[match_.len() - 1].is_repetition() && collect_context_nodes_concatenation(interpreted, &match_[match_.len() - 1].remaining) == context_key.context {
-                            &match_[..match_.len() - 1]
-                        } else {
-                            &match_
-                        };
+                    let branch_match = if match_[match_.len() - 1]
+                        .is_repetition()
+                        && collect_context_nodes_concatenation(
+                            interpreted,
+                            &match_[match_.len() - 1].remaining,
+                        ) == context_key.context
+                    {
+                        &match_[..match_.len() - 1]
+                    } else {
+                        &match_
+                    };
 
-                    let branch_rule_key = rule_for_match_stack(rule_key, branch_match);
+                    let branch_rule_key =
+                        rule_for_match_stack(rule_key, branch_match);
 
                     let branch_key = ContextKey {
                         rule_key: branch_rule_key,
                         context: Context {
-                            matches: vec!(branch_match.to_vec()),
+                            matches: vec![branch_match.to_vec()],
                             end: ContextEnd::Illegal,
                             maybe_empty: false,
                         },
                         branch_point: branch_point.clone(),
                     };
 
-                    let ctx_name = create_context_name(state, branch_key.clone());
+                    let ctx_name =
+                        create_context_name(state, branch_key.clone());
                     branches.push(ctx_name.clone());
 
-                    let next_name =
-                        if let Some(context) = advance_context_stack(interpreted, branch_match) {
-                            let next_key = ContextKey {
-                                rule_key,
-                                context,
-                                branch_point: branch_point.clone(),
-                            };
-
-                            if let Some(name) = state.context_cache.get(&next_key).map(|c| &c.name) {
-                                Some(name.clone())
-                            } else {
-                                let name = create_context_name(state, next_key.clone());
-
-                                next_contexts.push((name.clone(), next_key));
-                                Some(name)
-                            }
-                        } else {
-                            None
+                    let next_name = if let Some(context) =
+                        advance_context_stack(interpreted, branch_match)
+                    {
+                        let next_key = ContextKey {
+                            rule_key,
+                            context,
+                            branch_point: branch_point.clone(),
                         };
 
-                    let scope = scope_for_match_stack(interpreted, None, branch_match);
+                        if let Some(name) =
+                            state.context_cache.get(&next_key).map(|c| &c.name)
+                        {
+                            Some(name.clone())
+                        } else {
+                            let name =
+                                create_context_name(state, next_key.clone());
+
+                            next_contexts.push((name.clone(), next_key));
+                            Some(name)
+                        }
+                    } else {
+                        None
+                    };
+
+                    let scope =
+                        scope_for_match_stack(interpreted, None, branch_match);
 
                     let (exit, pop) = if let Some(name) = next_name {
-                            let pop = context_key.context.end == ContextEnd::None || match_stack_is_repetition(match_);
+                        let pop = context_key.context.end == ContextEnd::None
+                            || match_stack_is_repetition(match_);
 
-                            // Using set in branch_point is broken, so we
-                            // have to use push.
-                            (sublime_syntax::ContextChange::Push(vec!(name)), pop)
-                        } else {
-                            (sublime_syntax::ContextChange::None, true)
-                        };
+                        // Using set in branch_point is broken, so we
+                        // have to use push.
+                        (sublime_syntax::ContextChange::Push(vec![name]), pop)
+                    } else {
+                        (sublime_syntax::ContextChange::None, true)
+                    };
 
-                    let terminal_match = gen_terminal(state, interpreted, &ctx_name, &branch_key, scope, branch_match[0].get_expression(), exit, pop);
+                    let terminal_match = gen_terminal(
+                        state,
+                        interpreted,
+                        &ctx_name,
+                        &branch_key,
+                        scope,
+                        branch_match[0].get_expression(),
+                        exit,
+                        pop,
+                    );
 
-                    state.contexts.insert(ctx_name, sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope: sublime_syntax::Scope::empty(),
-                        meta_include_prototype: false,
-                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                        matches: vec!(terminal_match),
-                        comment: None,
-                    });
+                    state.contexts.insert(
+                        ctx_name,
+                        sublime_syntax::Context {
+                            meta_scope: sublime_syntax::Scope::empty(),
+                            meta_content_scope: sublime_syntax::Scope::empty(),
+                            meta_include_prototype: false,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec![terminal_match],
+                            comment: None,
+                        },
+                    );
                 }
 
-                let comment = format!("Include context for branch point {}", branch_point.as_deref().unwrap());
+                let comment = format!(
+                    "Include context for branch point {}",
+                    branch_point.as_deref().unwrap()
+                );
 
-                state.contexts.insert(include_context_name.clone(), sublime_syntax::Context {
-                    meta_scope: sublime_syntax::Scope::empty(),
-                    meta_content_scope: sublime_syntax::Scope::empty(),
-                    meta_include_prototype: true,
-                    clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                    matches: vec!(
-                        sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                            pattern: sublime_syntax::Pattern::new(lookahead),
-                            scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: sublime_syntax::ContextChange::Branch(branch_point.unwrap(), branches),
-                            pop: 0,
-                        }),
-                    ),
-                    comment: Some(comment),
-                });
+                state.contexts.insert(
+                    include_context_name.clone(),
+                    sublime_syntax::Context {
+                        meta_scope: sublime_syntax::Scope::empty(),
+                        meta_content_scope: sublime_syntax::Scope::empty(),
+                        meta_include_prototype: true,
+                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                        matches: vec![sublime_syntax::ContextPattern::Match(
+                            sublime_syntax::Match {
+                                pattern: sublime_syntax::Pattern::new(
+                                    lookahead,
+                                ),
+                                scope: sublime_syntax::Scope::empty(),
+                                captures: HashMap::new(),
+                                change_context:
+                                    sublime_syntax::ContextChange::Branch(
+                                        branch_point.unwrap(),
+                                        branches,
+                                    ),
+                                pop: 0,
+                            },
+                        )],
+                        comment: Some(comment),
+                    },
+                );
 
-                patterns.push(sublime_syntax::ContextPattern::Include(include_context_name));
+                patterns.push(sublime_syntax::ContextPattern::Include(
+                    include_context_name,
+                ));
             }
         }
 
@@ -330,13 +422,14 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
             let rule = interpreted.rules.get(rule_key).unwrap();
 
             meta_content_scope = if branch_point.is_none() {
-                    rule.options.scope.clone()
-                } else {
-                    sublime_syntax::Scope::empty()
-                };
+                rule.options.scope.clone()
+            } else {
+                sublime_syntax::Scope::empty()
+            };
 
             meta_include_prototype = rule.options.include_prototype;
-            capture = rule.options.capture && state.context_cache[context_key].capture;
+            capture = rule.options.capture
+                && state.context_cache[context_key].capture;
         }
 
         // Need to add the meta_content_scope to all patterns that pop. This
@@ -355,19 +448,24 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
         //     }
         // }
 
-        if let Some(pattern) = gen_end_match(interpreted, context_key, is_last, capture) {
+        if let Some(pattern) =
+            gen_end_match(interpreted, context_key, is_last, capture)
+        {
             patterns.push(pattern);
         }
 
         assert!(state.contexts.get(name).is_none());
-        state.contexts.insert(name.clone(), sublime_syntax::Context {
-            meta_scope: sublime_syntax::Scope::empty(),
-            meta_content_scope,
-            meta_include_prototype,
-            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-            matches: patterns,
-            comment: Some(format!("Rule: {}", context_key)),
-        });
+        state.contexts.insert(
+            name.clone(),
+            sublime_syntax::Context {
+                meta_scope: sublime_syntax::Scope::empty(),
+                meta_content_scope,
+                meta_include_prototype,
+                clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                matches: patterns,
+                comment: Some(format!("Rule: {}", context_key)),
+            },
+        );
     }
 
     if !next_contexts.is_empty() {
@@ -375,10 +473,15 @@ fn gen_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
     }
 }
 
-fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<'a>, is_last: bool, capture: bool) -> Option<sublime_syntax::ContextPattern> {
+fn gen_end_match<'a>(
+    interpreted: &'a Interpreted<'a>,
+    context_key: &ContextKey<'a>,
+    is_last: bool,
+    capture: bool,
+) -> Option<sublime_syntax::ContextPattern> {
     match context_key.context.end {
-        ContextEnd::Illegal => Some(
-            if context_key.context.maybe_empty && !capture {
+        ContextEnd::Illegal => {
+            Some(if context_key.context.maybe_empty && !capture {
                 sublime_syntax::Match {
                     pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
                     scope: sublime_syntax::Scope::empty(),
@@ -391,76 +494,109 @@ fn gen_end_match<'a>(interpreted: &'a Interpreted<'a>, context_key: &ContextKey<
                     pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
-                    change_context: sublime_syntax::ContextChange::Fail(context_key.branch_point.as_ref().unwrap().clone()),
+                    change_context: sublime_syntax::ContextChange::Fail(
+                        context_key.branch_point.as_ref().unwrap().clone(),
+                    ),
                     pop: 0,
                 }
             } else {
                 sublime_syntax::Match {
                     pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
-                    scope: parse_scope(&interpreted.metadata, "invalid.illegal"),
+                    scope: parse_scope(
+                        &interpreted.metadata,
+                        "invalid.illegal",
+                    ),
                     captures: HashMap::new(),
                     change_context: sublime_syntax::ContextChange::None,
                     pop: if capture { 0 } else { 1 },
                 }
-            }),
+            })
+        }
         ContextEnd::None => None,
         ContextEnd::Push(_) => todo!(),
-    }.map(&sublime_syntax::ContextPattern::Match)
+    }
+    .map(&sublime_syntax::ContextPattern::Match)
 }
 
-fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, context_name: &str, context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, terminal: &'a Expression<'a>, mut exit: sublime_syntax::ContextChange, should_pop: bool) -> sublime_syntax::ContextPattern {
-    let (regex, options) =
-        match terminal {
-            Expression::Terminal { regex: r, options: o, .. } => (r, o),
-            _ => panic!(),
-        };
+fn gen_terminal<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    context_name: &str,
+    context_key: &ContextKey<'a>,
+    scope: sublime_syntax::Scope,
+    terminal: &'a Expression<'a>,
+    mut exit: sublime_syntax::ContextChange,
+    should_pop: bool,
+) -> sublime_syntax::ContextPattern {
+    let (regex, options) = match terminal {
+        Expression::Terminal { regex: r, options: o, .. } => (r, o),
+        _ => panic!(),
+    };
 
     let pop_amount = if should_pop { 1 } else { 0 };
 
     match &options.embed {
-        TerminalEmbed::Embed { embed, embed_scope, escape, escape_captures } => {
-            let embed_exit = sublime_syntax::ContextChange::Embed(sublime_syntax::Embed {
-                embed: embed.clone(),
-                embed_scope: embed_scope.clone(),
-                escape: Some(sublime_syntax::Pattern::new(escape.clone())),
-                escape_captures: escape_captures.clone(),
-            });
+        TerminalEmbed::Embed {
+            embed,
+            embed_scope,
+            escape,
+            escape_captures,
+        } => {
+            let embed_exit =
+                sublime_syntax::ContextChange::Embed(sublime_syntax::Embed {
+                    embed: embed.clone(),
+                    embed_scope: embed_scope.clone(),
+                    escape: Some(sublime_syntax::Pattern::new(escape.clone())),
+                    escape_captures: escape_captures.clone(),
+                });
 
             match &mut exit {
                 sublime_syntax::ContextChange::None => {
                     exit = embed_exit;
-                },
+                }
                 sublime_syntax::ContextChange::Set(ref mut contexts)
                 | sublime_syntax::ContextChange::Push(ref mut contexts) => {
                     // TODO: This generates duplicate contexts
-                    let embed_context = create_uncached_context_name(state, context_key);
+                    let embed_context =
+                        create_uncached_context_name(state, context_key);
 
-                    state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope: sublime_syntax::Scope::empty(),
-                        meta_include_prototype: true,
-                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                            pattern: sublime_syntax::Pattern::from_str(""),
-                            scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: embed_exit,
-                            pop: 1,
-                        })),
-                        comment: None,
-                    });
+                    state.contexts.insert(
+                        embed_context.clone(),
+                        sublime_syntax::Context {
+                            meta_scope: sublime_syntax::Scope::empty(),
+                            meta_content_scope: sublime_syntax::Scope::empty(),
+                            meta_include_prototype: true,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec![
+                                sublime_syntax::ContextPattern::Match(
+                                    sublime_syntax::Match {
+                                        pattern:
+                                            sublime_syntax::Pattern::from_str(
+                                                "",
+                                            ),
+                                        scope: sublime_syntax::Scope::empty(),
+                                        captures: HashMap::new(),
+                                        change_context: embed_exit,
+                                        pop: 1,
+                                    },
+                                ),
+                            ],
+                            comment: None,
+                        },
+                    );
 
                     contexts.push(embed_context);
-                },
+                }
                 _ => panic!(),
             }
-        },
+        }
         TerminalEmbed::Include { context: path, prototype } => {
             // Generate the prototype context
             let prototype_context = {
                 let rule = &interpreted.rules[prototype];
 
-                let context = collect_context_nodes(interpreted, &rule.expression);
+                let context =
+                    collect_context_nodes(interpreted, &rule.expression);
 
                 let prototype_key = ContextKey {
                     rule_key: prototype,
@@ -468,66 +604,91 @@ fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
                     branch_point: None,
                 };
 
-                if let Some(name) = state.context_cache.get(&prototype_key).map(|c| &c.name) {
+                if let Some(name) =
+                    state.context_cache.get(&prototype_key).map(|c| &c.name)
+                {
                     name.to_string()
                 } else {
-                    let name = create_context_name(state, prototype_key.clone());
+                    let name =
+                        create_context_name(state, prototype_key.clone());
 
-                    gen_contexts(state, interpreted, vec!((name.clone(), prototype_key)));
+                    gen_contexts(
+                        state,
+                        interpreted,
+                        vec![(name.clone(), prototype_key)],
+                    );
                     name
                 }
             };
 
-            let include_exit = sublime_syntax::ContextChange::IncludeEmbed(sublime_syntax::IncludeEmbed {
-                path: path.to_string(),
-                use_push: false,
-                with_prototype: vec!(sublime_syntax::ContextPattern::Include(prototype_context)),
-            });
+            let include_exit = sublime_syntax::ContextChange::IncludeEmbed(
+                sublime_syntax::IncludeEmbed {
+                    path: path.to_string(),
+                    use_push: false,
+                    with_prototype: vec![
+                        sublime_syntax::ContextPattern::Include(
+                            prototype_context,
+                        ),
+                    ],
+                },
+            );
 
             match exit {
                 sublime_syntax::ContextChange::None => {
                     exit = include_exit;
-                },
+                }
                 sublime_syntax::ContextChange::Set(ref mut contexts)
                 | sublime_syntax::ContextChange::Push(ref mut contexts) => {
                     // TODO: This generates duplicate contexts
-                    let embed_context = create_uncached_context_name(state, context_key);
+                    let embed_context =
+                        create_uncached_context_name(state, context_key);
 
-                    state.contexts.insert(embed_context.clone(), sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope: sublime_syntax::Scope::empty(),
-                        meta_include_prototype: false,
-                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                            pattern: sublime_syntax::Pattern::from_str(""),
-                            scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: include_exit,
-                            pop: 0,
-                        })),
-                        comment: None
-                    });
+                    state.contexts.insert(
+                        embed_context.clone(),
+                        sublime_syntax::Context {
+                            meta_scope: sublime_syntax::Scope::empty(),
+                            meta_content_scope: sublime_syntax::Scope::empty(),
+                            meta_include_prototype: false,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec![
+                                sublime_syntax::ContextPattern::Match(
+                                    sublime_syntax::Match {
+                                        pattern:
+                                            sublime_syntax::Pattern::from_str(
+                                                "",
+                                            ),
+                                        scope: sublime_syntax::Scope::empty(),
+                                        captures: HashMap::new(),
+                                        change_context: include_exit,
+                                        pop: 0,
+                                    },
+                                ),
+                            ],
+                            comment: None,
+                        },
+                    );
 
                     contexts.push(embed_context);
-                },
+                }
                 _ => panic!(),
             }
-        },
-        TerminalEmbed::None => {},
+        }
+        TerminalEmbed::None => {}
     }
-
 
     // Translate Set into Push/Pop if we're setting back to the same context
     match &exit {
         sublime_syntax::ContextChange::Push(contexts) => {
             if pop_amount > 0 && contexts[0] == context_name {
                 if contexts.len() > 1 {
-                    exit = sublime_syntax::ContextChange::Push(contexts[1..].to_vec());
+                    exit = sublime_syntax::ContextChange::Push(
+                        contexts[1..].to_vec(),
+                    );
                 } else {
                     exit = sublime_syntax::ContextChange::None;
                 }
             }
-        },
+        }
         _ => {}
     }
 
@@ -540,69 +701,121 @@ fn gen_terminal<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, con
     })
 }
 
-fn gen_simple_match<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, context_name: &str, context_key: &ContextKey<'a>, scope: sublime_syntax::Scope, match_stack: &MatchStack<'a>) -> sublime_syntax::ContextPattern {
-    let contexts =
-        if match_stack[match_stack.len() - 1].is_repetition() {
-            let last_match = &match_stack[match_stack.len() - 1];
-            assert!(!last_match.remaining.is_empty());
-            let context = collect_context_nodes_concatenation(interpreted, &last_match.remaining);
+fn gen_simple_match<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    context_name: &str,
+    context_key: &ContextKey<'a>,
+    scope: sublime_syntax::Scope,
+    match_stack: &MatchStack<'a>,
+) -> sublime_syntax::ContextPattern {
+    let contexts = if match_stack[match_stack.len() - 1].is_repetition() {
+        let last_match = &match_stack[match_stack.len() - 1];
+        assert!(!last_match.remaining.is_empty());
+        let context = collect_context_nodes_concatenation(
+            interpreted,
+            &last_match.remaining,
+        );
 
-            let mut contexts = gen_simple_match_contexts(state, interpreted, context_key.rule_key, &match_stack[..match_stack.len() - 1]);
+        let mut contexts = gen_simple_match_contexts(
+            state,
+            interpreted,
+            context_key.rule_key,
+            &match_stack[..match_stack.len() - 1],
+        );
 
-            if context == context_key.context {
-                // If the remaining of a top-level repetition leads to the same
-                // context, then we have a simple repetition. We can just push
-                // the child match.
-                let exit =
-                    if contexts.is_empty() {
-                        sublime_syntax::ContextChange::None
-                    } else {
-                        sublime_syntax::ContextChange::Push(contexts)
-                    };
-
-                return gen_terminal(state, interpreted, context_name, context_key, scope, match_stack[0].get_expression(), exit, false);
+        if context == context_key.context {
+            // If the remaining of a top-level repetition leads to the same
+            // context, then we have a simple repetition. We can just push
+            // the child match.
+            let exit = if contexts.is_empty() {
+                sublime_syntax::ContextChange::None
             } else {
-                // Otherwise we have a complex repetition, which behaves the
-                // same way as a regular match.
-                let repetition_context_key = ContextKey {
-                    rule_key: context_key.rule_key,
-                    context,
-                    branch_point: None,
-                };
+                sublime_syntax::ContextChange::Push(contexts)
+            };
 
-                if let Some(name) = state.context_cache.get(&repetition_context_key).map(|c| &c.name) {
-                    contexts.insert(0, name.to_string());
-                } else {
-                    let name = create_context_name(state, repetition_context_key.clone());
-                    gen_contexts(state, interpreted, vec!((name.clone(), repetition_context_key)));
+            return gen_terminal(
+                state,
+                interpreted,
+                context_name,
+                context_key,
+                scope,
+                match_stack[0].get_expression(),
+                exit,
+                false,
+            );
+        } else {
+            // Otherwise we have a complex repetition, which behaves the
+            // same way as a regular match.
+            let repetition_context_key = ContextKey {
+                rule_key: context_key.rule_key,
+                context,
+                branch_point: None,
+            };
 
-                    contexts.insert(0, name);
-                }
+            if let Some(name) = state
+                .context_cache
+                .get(&repetition_context_key)
+                .map(|c| &c.name)
+            {
+                contexts.insert(0, name.to_string());
+            } else {
+                let name =
+                    create_context_name(state, repetition_context_key.clone());
+                gen_contexts(
+                    state,
+                    interpreted,
+                    vec![(name.clone(), repetition_context_key)],
+                );
+
+                contexts.insert(0, name);
             }
+        }
 
-            contexts
-        } else {
-            gen_simple_match_contexts(state, interpreted, context_key.rule_key, match_stack)
-        };
+        contexts
+    } else {
+        gen_simple_match_contexts(
+            state,
+            interpreted,
+            context_key.rule_key,
+            match_stack,
+        )
+    };
 
-    let (exit, pop) =
-        if contexts.is_empty() {
-            (sublime_syntax::ContextChange::None, true)
-        } else {
-            (sublime_syntax::ContextChange::Set(contexts), false)
-        };
+    let (exit, pop) = if contexts.is_empty() {
+        (sublime_syntax::ContextChange::None, true)
+    } else {
+        (sublime_syntax::ContextChange::Set(contexts), false)
+    };
 
-    gen_terminal(state, interpreted, context_name, context_key, scope, match_stack[0].get_expression(), exit, pop)
+    gen_terminal(
+        state,
+        interpreted,
+        context_name,
+        context_key,
+        scope,
+        match_stack[0].get_expression(),
+        exit,
+        pop,
+    )
 }
 
-fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpreted<'a>, mut rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> Vec<String> {
+fn gen_simple_match_contexts<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    mut rule_key: &'a RuleKey<'a>,
+    match_stack: &[Match<'a>],
+) -> Vec<String> {
     // Find the first significant match from the match stack. This makes it so
     // that we skip creating meta contexts when they wouldn't have any effect.
-    let first = match_stack.iter().enumerate()
-        .find(|(_, match_)| !match_.remaining.is_empty()).map_or(match_stack.len(), |m| m.0);
+    let first = match_stack
+        .iter()
+        .enumerate()
+        .find(|(_, match_)| !match_.remaining.is_empty())
+        .map_or(match_stack.len(), |m| m.0);
 
     // Create a context for each item in the match stack that needs it.
-    let mut contexts = vec!();
+    let mut contexts = vec![];
 
     for match_ in match_stack[first..].iter().rev() {
         if match_.remaining.is_empty() {
@@ -610,44 +823,59 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
             // unless it has a meta scope and there are child matches that were
             // not ignored. In those cases we create a special meta context.
             // Meta scopes are ignored for transparent rules and repetitions.
-            let meta_content_scope = interpreted.rules[rule_key].options.scope.clone();
+            let meta_content_scope =
+                interpreted.rules[rule_key].options.scope.clone();
 
             if !meta_content_scope.is_empty() {
-                let rule_meta_ctx_name = format!("{}|meta", build_rule_key_name(rule_key));
+                let rule_meta_ctx_name =
+                    format!("{}|meta", build_rule_key_name(rule_key));
 
                 if !state.contexts.contains_key(&rule_meta_ctx_name) {
-                    state.contexts.insert(rule_meta_ctx_name.clone(), sublime_syntax::Context {
-                        meta_scope: sublime_syntax::Scope::empty(),
-                        meta_content_scope,
-                        meta_include_prototype: true,
-                        clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                        matches: vec!(sublime_syntax::ContextPattern::Match(sublime_syntax::Match{
-                            pattern: sublime_syntax::Pattern::from_str(""),
-                            scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: sublime_syntax::ContextChange::None,
-                            pop: 1,
-                        })),
-                        comment: Some(format!("Meta scope context for {}", rule_key)),
-                    });
+                    state.contexts.insert(
+                        rule_meta_ctx_name.clone(),
+                        sublime_syntax::Context {
+                            meta_scope: sublime_syntax::Scope::empty(),
+                            meta_content_scope,
+                            meta_include_prototype: true,
+                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                            matches: vec![
+                                sublime_syntax::ContextPattern::Match(
+                                    sublime_syntax::Match {
+                                        pattern:
+                                            sublime_syntax::Pattern::from_str(
+                                                "",
+                                            ),
+                                        scope: sublime_syntax::Scope::empty(),
+                                        captures: HashMap::new(),
+                                        change_context:
+                                            sublime_syntax::ContextChange::None,
+                                        pop: 1,
+                                    },
+                                ),
+                            ],
+                            comment: Some(format!(
+                                "Meta scope context for {}",
+                                rule_key
+                            )),
+                        },
+                    );
                 }
 
                 contexts.push(rule_meta_ctx_name);
             }
         } else if !match_.remaining.is_empty() {
-            let context = collect_context_nodes_concatenation(interpreted, &match_.remaining);
+            let context = collect_context_nodes_concatenation(
+                interpreted,
+                &match_.remaining,
+            );
 
-            let key = ContextKey {
-                rule_key,
-                context,
-                branch_point: None,
-            };
+            let key = ContextKey { rule_key, context, branch_point: None };
 
             if let Some(name) = state.context_cache.get(&key).map(|c| &c.name) {
                 contexts.push(name.to_string());
             } else {
                 let name = create_context_name(state, key.clone());
-                gen_contexts(state, interpreted, vec!((name.clone(), key)));
+                gen_contexts(state, interpreted, vec![(name.clone(), key)]);
 
                 contexts.push(name);
             }
@@ -656,8 +884,8 @@ fn gen_simple_match_contexts<'a>(state: &mut State<'a>, interpreted: &'a Interpr
         match &match_.expression {
             Some(Expression::Variable { key, .. }) => {
                 rule_key = key;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
@@ -680,7 +908,8 @@ fn build_rule_key_name<'a>(rule_key: &RuleKey<'a>) -> String {
         }
         s.push_str("]");
 
-        let encoded = base64::encode_config(s.as_bytes(), base64::URL_SAFE_NO_PAD);
+        let encoded =
+            base64::encode_config(s.as_bytes(), base64::URL_SAFE_NO_PAD);
         result.push_str(&encoded);
     }
 
@@ -688,22 +917,24 @@ fn build_rule_key_name<'a>(rule_key: &RuleKey<'a>) -> String {
 }
 
 // Generate an uncached unique name for a context key
-fn create_uncached_context_name<'a>(state: &mut State<'a>, key: &ContextKey<'a>) -> String {
+fn create_uncached_context_name<'a>(
+    state: &mut State<'a>,
+    key: &ContextKey<'a>,
+) -> String {
     let mut result = build_rule_key_name(key.rule_key);
 
     // Add inner context count to prevent context name collisions in inner contexts
-    let index =
-        if let Some(rule) = state.rules.get_mut(key.rule_key) {
-            let i = rule.context_count;
-            rule.context_count += 1;
-            i
-        } else {
-            state.rules.insert(key.rule_key, Rule {
-                context_count: 1,
-                branch_point_count: 0,
-            });
-            0
-        };
+    let index = if let Some(rule) = state.rules.get_mut(key.rule_key) {
+        let i = rule.context_count;
+        rule.context_count += 1;
+        i
+    } else {
+        state.rules.insert(
+            key.rule_key,
+            Rule { context_count: 1, branch_point_count: 0 },
+        );
+        0
+    };
     result.push_str(&format!("|{}", index));
 
     // Add optional branch point
@@ -716,28 +947,33 @@ fn create_uncached_context_name<'a>(state: &mut State<'a>, key: &ContextKey<'a>)
 }
 
 // Generate a unique name for a context key
-fn create_context_name<'a>(state: &mut State<'a>, key: ContextKey<'a>) -> String {
+fn create_context_name<'a>(
+    state: &mut State<'a>,
+    key: ContextKey<'a>,
+) -> String {
     let name = create_uncached_context_name(state, &key);
 
-    let old_entry = state.context_cache.insert(key, ContextCacheEntry::new(name.clone()));
+    let old_entry =
+        state.context_cache.insert(key, ContextCacheEntry::new(name.clone()));
     assert!(old_entry.is_none());
 
     name
 }
 
 // Generate a new branch point for a rule
-fn create_branch_point<'a>(state: &mut State<'a>, key: &'a RuleKey<'a>) -> String {
-    let index =
-        if let Some(rule) = state.rules.get_mut(key) {
-            rule.branch_point_count += 1;
-            rule.branch_point_count
-        } else {
-            state.rules.insert(key, Rule {
-                context_count: 0,
-                branch_point_count: 1,
-            });
-            1
-        };
+fn create_branch_point<'a>(
+    state: &mut State<'a>,
+    key: &'a RuleKey<'a>,
+) -> String {
+    let index = if let Some(rule) = state.rules.get_mut(key) {
+        rule.branch_point_count += 1;
+        rule.branch_point_count
+    } else {
+        state
+            .rules
+            .insert(key, Rule { context_count: 0, branch_point_count: 1 });
+        1
+    };
 
     format!("{}@{}", key.name, index)
 }
@@ -758,21 +994,28 @@ fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {
     return false;
 }
 
-fn rule_for_match_stack<'a>(rule_key: &'a RuleKey<'a>, match_stack: &[Match<'a>]) -> &'a RuleKey<'a> {
+fn rule_for_match_stack<'a>(
+    rule_key: &'a RuleKey<'a>,
+    match_stack: &[Match<'a>],
+) -> &'a RuleKey<'a> {
     for match_ in match_stack {
         match match_.expression {
             Some(Expression::Variable { key, .. }) => {
                 return &key;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
     rule_key
 }
 
-fn scope_for_match_stack<'a>(interpreted: &'a Interpreted<'a>, rule_key: Option<&'a RuleKey<'a>>, match_stack: &[Match<'a>]) -> sublime_syntax::Scope {
-    let mut scopes = vec!();
+fn scope_for_match_stack<'a>(
+    interpreted: &'a Interpreted<'a>,
+    rule_key: Option<&'a RuleKey<'a>>,
+    match_stack: &[Match<'a>],
+) -> sublime_syntax::Scope {
+    let mut scopes = vec![];
 
     if let Some(rule_key) = rule_key {
         scopes = interpreted.rules[rule_key].options.scope.scopes.clone();
@@ -784,12 +1027,12 @@ fn scope_for_match_stack<'a>(interpreted: &'a Interpreted<'a>, rule_key: Option<
                 let rule_options = &interpreted.rules[key].options;
 
                 scopes.extend(rule_options.scope.scopes.iter().cloned());
-            },
+            }
             Some(Expression::Terminal { options, .. }) => {
                 scopes.extend(options.scope.scopes.iter().cloned());
-            },
-            Some(Expression::Repetition { .. }) | None => {},
-            _ => panic!()
+            }
+            Some(Expression::Repetition { .. }) | None => {}
+            _ => panic!(),
         }
     }
 
@@ -797,24 +1040,31 @@ fn scope_for_match_stack<'a>(interpreted: &'a Interpreted<'a>, rule_key: Option<
 }
 
 // Collect the next context following the context stack
-fn advance_context_stack<'a>(interpreted: &'a Interpreted<'a>, match_stack: &[Match<'a>]) -> Option<Context<'a>> {
+fn advance_context_stack<'a>(
+    interpreted: &'a Interpreted<'a>,
+    match_stack: &[Match<'a>],
+) -> Option<Context<'a>> {
     // Find the top most match with remaining expressions, collect the
     // concatenation of those expressions and add the rest of the stack onto the
     // back of the resulting match stacks.
-    let result = match_stack.iter().enumerate().find(|(_, m)| !m.remaining.is_empty());
+    let result =
+        match_stack.iter().enumerate().find(|(_, m)| !m.remaining.is_empty());
 
     if let Some((index, match_)) = result {
         // TODO: When the resulting context maybe empty then we should continue collecting down the stack
         let remaining_stack = &match_stack[index + 1..];
 
-        let mut context = collect_context_nodes_concatenation(interpreted, &match_.remaining);
-
+        let mut context =
+            collect_context_nodes_concatenation(interpreted, &match_.remaining);
 
         for stack in &mut context.matches {
             // Check for recursion and convert it to a repetition
             let stack_len = stack.len();
-            if stack_len > 1 && stack_len - 1 <= remaining_stack.len() && &stack[1..] == &remaining_stack[0..stack.len() - 1] {
-                stack.insert(1, Match { expression: None, remaining: vec!() });
+            if stack_len > 1
+                && stack_len - 1 <= remaining_stack.len()
+                && &stack[1..] == &remaining_stack[0..stack.len() - 1]
+            {
+                stack.insert(1, Match { expression: None, remaining: vec![] });
                 stack.extend(remaining_stack[0..stack_len - 1].iter().cloned());
                 continue;
             }
@@ -855,7 +1105,7 @@ impl<'a> Match<'a> {
     fn get_regex(&self) -> &'a str {
         match &self.expression {
             Some(Expression::Terminal { regex, .. }) => regex,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 
@@ -895,26 +1145,24 @@ impl<'a> Context<'a> {
         match self.end {
             ContextEnd::Illegal => {
                 self.end = other.end;
-            },
+            }
             ContextEnd::None => {
-                self.end =
-                    match other.end {
-                        ContextEnd::Illegal
-                        | ContextEnd::None => ContextEnd::None,
-                        ContextEnd::Push(ref mut _push) => {
-                            // push.append_update_end(ContextEnd::None);
-                            other.end
-                        },
-                    };
-            },
+                self.end = match other.end {
+                    ContextEnd::Illegal | ContextEnd::None => ContextEnd::None,
+                    ContextEnd::Push(ref mut _push) => {
+                        // push.append_update_end(ContextEnd::None);
+                        other.end
+                    }
+                };
+            }
             ContextEnd::Push(ref mut self_push) => {
                 match other.end {
                     ContextEnd::Illegal | ContextEnd::None => {
                         // self_push.append_update_end(ContextEnd::None);
-                    },
+                    }
                     ContextEnd::Push(other_push) => {
                         self_push.append(*other_push);
-                    },
+                    }
                 }
             }
         }
@@ -922,51 +1170,57 @@ impl<'a> Context<'a> {
 }
 
 // Transform and collect matches that the context for the expression needs to match
-fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a Expression<'a>) -> Context<'a> {
+fn collect_context_nodes<'a>(
+    interpreted: &'a Interpreted<'a>,
+    expression: &'a Expression<'a>,
+) -> Context<'a> {
     match expression {
         Expression::Variable { key, .. } => {
             let rule = interpreted.rules.get(key).unwrap();
 
-            let mut context = collect_context_nodes(interpreted, &rule.expression);
+            let mut context =
+                collect_context_nodes(interpreted, &rule.expression);
 
             // Add the variable to the rule stack
             for match_stack in &mut context.matches {
                 match_stack.push(Match {
                     expression: Some(expression),
-                    remaining: vec!(),
+                    remaining: vec![],
                 })
             }
 
-            let end =
-                match context.end {
-                    ContextEnd::Illegal => ContextEnd::Illegal,
-                    ContextEnd::None => ContextEnd::Push(Box::new(context.clone())),
-                    ContextEnd::Push(_) => context.end.clone(),
-                };
+            let end = match context.end {
+                ContextEnd::Illegal => ContextEnd::Illegal,
+                ContextEnd::None => ContextEnd::Push(Box::new(context.clone())),
+                ContextEnd::Push(_) => context.end.clone(),
+            };
 
             Context {
                 matches: context.matches,
                 end,
                 maybe_empty: context.maybe_empty,
             }
-        },
+        }
         // A terminal is simply a context that matches the terminal's regex
         Expression::Terminal { .. } => {
             let mut match_ = MatchStack::new();
-            match_.push(Match { expression: Some(expression), remaining: vec!() });
+            match_.push(Match {
+                expression: Some(expression),
+                remaining: vec![],
+            });
 
             Context {
-                matches: vec!(match_),
+                matches: vec![match_],
                 end: ContextEnd::Illegal,
                 maybe_empty: false,
             }
-        },
+        }
         // A passive context is one that doesn't match the end
         Expression::Passive { expression: child, .. } => {
             let context = collect_context_nodes(interpreted, &child);
 
             match context.end {
-                ContextEnd::Illegal => {},
+                ContextEnd::Illegal => {}
                 _ => todo!(),
             }
 
@@ -975,54 +1229,48 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
                 end: ContextEnd::None,
                 maybe_empty: context.maybe_empty,
             }
-        },
+        }
         // A repeating context repeats each match
         Expression::Repetition { expression: child, .. } => {
             let mut context = collect_context_nodes(interpreted, &child);
 
             // Add the repetition to the front of each match stack
             for match_ in &mut context.matches {
-                match_.push(Match { expression: Some(expression), remaining: vec!(expression) });
+                match_.push(Match {
+                    expression: Some(expression),
+                    remaining: vec![expression],
+                });
             }
 
-            let end =
-                match context.end {
-                    ContextEnd::Illegal => ContextEnd::Illegal,
-                    ContextEnd::None => ContextEnd::None,
-                    _ => todo!(),
-                };
+            let end = match context.end {
+                ContextEnd::Illegal => ContextEnd::Illegal,
+                ContextEnd::None => ContextEnd::None,
+                _ => todo!(),
+            };
 
-            Context {
-                matches: context.matches,
-                end,
-                maybe_empty: true,
-            }
-        },
+            Context { matches: context.matches, end, maybe_empty: true }
+        }
         // An optional context is one which may match nothing
         Expression::Optional { expression: child, .. } => {
             let context = collect_context_nodes(interpreted, &child);
 
             match context.end {
-                ContextEnd::Illegal => {
-                    Context {
-                        matches: context.matches,
-                        end: context.end,
-                        maybe_empty: true,
-                    }
+                ContextEnd::Illegal => Context {
+                    matches: context.matches,
+                    end: context.end,
+                    maybe_empty: true,
                 },
-                ContextEnd::None | ContextEnd::Push(_) => {
-                    Context {
-                        matches: vec!(),
-                        end: ContextEnd::Push(Box::new(context)),
-                        maybe_empty: true,
-                    }
+                ContextEnd::None | ContextEnd::Push(_) => Context {
+                    matches: vec![],
+                    end: ContextEnd::Push(Box::new(context)),
+                    maybe_empty: true,
                 },
             }
-        },
+        }
         // An alternating context is a sum of matches
         Expression::Alternation { expressions, .. } => {
             let mut context = Context {
-                matches: vec!(),
+                matches: vec![],
                 end: ContextEnd::Illegal,
                 maybe_empty: false,
             };
@@ -1032,17 +1280,20 @@ fn collect_context_nodes<'a>(interpreted: &'a Interpreted<'a>, expression: &'a E
             }
 
             context
-        },
+        }
         Expression::Concatenation { expressions, .. } => {
             let e = expressions.iter().collect::<Vec<_>>();
 
             collect_context_nodes_concatenation(interpreted, &e)
-        },
+        }
     }
 }
 
 // A concatenation of contexts is the first context that can't be empty, with those before being alternations
-fn collect_context_nodes_concatenation<'a>(interpreted: &'a Interpreted<'a>, expressions: &[&'a Expression<'a>]) -> Context<'a> {
+fn collect_context_nodes_concatenation<'a>(
+    interpreted: &'a Interpreted<'a>,
+    expressions: &[&'a Expression<'a>],
+) -> Context<'a> {
     // Recursively consider the first expression until it may not be empty
 
     assert!(expressions.len() >= 1);
@@ -1069,36 +1320,27 @@ fn collect_context_nodes_concatenation<'a>(interpreted: &'a Interpreted<'a>, exp
 
     let mut next = collect_context_nodes_concatenation(interpreted, rest);
 
-    context.end =
-        match context.end {
-            ContextEnd::Illegal => {
-                match next.end {
-                    ContextEnd::Illegal => ContextEnd::Illegal,
-                    ContextEnd::None => {
-                        ContextEnd::Push(Box::new(Context {
-                            matches: next.matches.clone(),
-                            end: ContextEnd::None,
-                            maybe_empty: next.maybe_empty,
-                        }))
-                    },
-                    _ => todo!(),
-                }
-            },
-            ContextEnd::None => {
-                match next.end {
-                    ContextEnd::Illegal => {
-                        ContextEnd::Push(Box::new(Context {
-                            matches: context.matches.clone(),
-                            end: ContextEnd::None,
-                            maybe_empty: next.maybe_empty,
-                        }))
-                    },
-                    ContextEnd::None => ContextEnd::None,
-                    _ => todo!(),
-                }
-            },
+    context.end = match context.end {
+        ContextEnd::Illegal => match next.end {
+            ContextEnd::Illegal => ContextEnd::Illegal,
+            ContextEnd::None => ContextEnd::Push(Box::new(Context {
+                matches: next.matches.clone(),
+                end: ContextEnd::None,
+                maybe_empty: next.maybe_empty,
+            })),
             _ => todo!(),
-        };
+        },
+        ContextEnd::None => match next.end {
+            ContextEnd::Illegal => ContextEnd::Push(Box::new(Context {
+                matches: context.matches.clone(),
+                end: ContextEnd::None,
+                maybe_empty: next.maybe_empty,
+            })),
+            ContextEnd::None => ContextEnd::None,
+            _ => todo!(),
+        },
+        _ => todo!(),
+    };
 
     context.matches.append(&mut next.matches);
     context.maybe_empty = next.maybe_empty;
@@ -1111,27 +1353,32 @@ mod tests {
     use matches::assert_matches;
 
     use crate::compiler::codegen::*;
-    use crate::sbnf;
     use crate::compiler::{analysis, interpreter};
+    use crate::sbnf;
 
-    fn collect_node<F>(source: &str, rule: &str, fun: F) where F: Fn(Context) -> () {
+    fn collect_node<F>(source: &str, rule: &str, fun: F)
+    where
+        F: Fn(Context) -> (),
+    {
         let grammar = sbnf::parse(source).unwrap();
 
         let options = CompileOptions {
             name_hint: Some("test"),
-            arguments: vec!(),
+            arguments: vec![],
             debug_contexts: false,
-            entry_points: vec!("m"),
+            entry_points: vec!["m"],
         };
 
         let analysis_result = analysis::analyze(&options, &grammar);
         assert!(analysis_result.warnings.is_empty());
 
-        let interpreter_result = interpreter::interpret(&options, analysis_result.result.unwrap());
+        let interpreter_result =
+            interpreter::interpret(&options, analysis_result.result.unwrap());
         assert!(interpreter_result.warnings.is_empty());
 
         let interpreted = interpreter_result.result.as_ref().unwrap();
-        let rule = &interpreted.rules[&interpreter::RuleKey { name: rule, arguments: vec!() }];
+        let rule = &interpreted.rules
+            [&interpreter::RuleKey { name: rule, arguments: vec![] }];
         let cn = collect_context_nodes(interpreted, &rule.expression);
         fun(cn);
     }
@@ -1150,30 +1397,49 @@ mod tests {
     impl<'a> PartialEq<TestExpression> for Expression<'a> {
         fn eq(&self, other: &TestExpression) -> bool {
             match (self, other) {
-                (Expression::Variable { key, .. }, TestExpression::Variable(name))
-                    => key.arguments.is_empty() && key.name == *name,
+                (
+                    Expression::Variable { key, .. },
+                    TestExpression::Variable(name),
+                ) => key.arguments.is_empty() && key.name == *name,
 
-                (Expression::Terminal { regex, .. }, TestExpression::Terminal(oregex))
-                    => {
-                        regex == oregex
-                    },
+                (
+                    Expression::Terminal { regex, .. },
+                    TestExpression::Terminal(oregex),
+                ) => regex == oregex,
 
-                (Expression::Passive { expression, .. }, TestExpression::Passive(child))
-                | (Expression::Repetition { expression, .. }, TestExpression::Repetition(child))
-                | (Expression::Optional { expression, .. }, TestExpression::Optional(child))
-                    => **expression == **child,
+                (
+                    Expression::Passive { expression, .. },
+                    TestExpression::Passive(child),
+                )
+                | (
+                    Expression::Repetition { expression, .. },
+                    TestExpression::Repetition(child),
+                )
+                | (
+                    Expression::Optional { expression, .. },
+                    TestExpression::Optional(child),
+                ) => **expression == **child,
 
-                (Expression::Alternation { expressions, .. }, TestExpression::Alternation(children))
-                | (Expression::Concatenation { expressions, .. }, TestExpression::Concatenation(children))
-                    => expressions == children,
+                (
+                    Expression::Alternation { expressions, .. },
+                    TestExpression::Alternation(children),
+                )
+                | (
+                    Expression::Concatenation { expressions, .. },
+                    TestExpression::Concatenation(children),
+                ) => expressions == children,
 
                 _ => false,
             }
         }
     }
 
-    fn variable(s: &'static str) -> TestExpression { TestExpression::Variable(s) }
-    fn term(s: &'static str) -> TestExpression { TestExpression::Terminal(s) }
+    fn variable(s: &'static str) -> TestExpression {
+        TestExpression::Variable(s)
+    }
+    fn term(s: &'static str) -> TestExpression {
+        TestExpression::Terminal(s)
+    }
     fn passive(n: TestExpression) -> TestExpression {
         TestExpression::Passive(Box::new(n))
     }
@@ -1209,24 +1475,15 @@ mod tests {
     }
 
     fn m_term(s: &'static str, r: &[TestExpression]) -> TestMatch {
-        TestMatch {
-            expression: term(s),
-            remaining: r.to_vec(),
-        }
+        TestMatch { expression: term(s), remaining: r.to_vec() }
     }
 
     fn m_var(s: &'static str, r: &[TestExpression]) -> TestMatch {
-        TestMatch {
-            expression: variable(s),
-            remaining: r.to_vec(),
-        }
+        TestMatch { expression: variable(s), remaining: r.to_vec() }
     }
 
     fn m_rep(n: TestExpression, r: &[TestExpression]) -> TestMatch {
-        TestMatch {
-            expression: repetition(n),
-            remaining: r.to_vec(),
-        }
+        TestMatch { expression: repetition(n), remaining: r.to_vec() }
     }
 
     #[test]
@@ -1234,52 +1491,70 @@ mod tests {
         collect_node("m = ~'a';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-            ]);
+            assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
         collect_node("m = ~'a' 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[term("b")])),
-            ]);
+            assert_eq!(ctx.matches, [vec!(m_term("a", &[term("b")])),]);
         });
 
         collect_node("m = ~'a'* ~'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[]), m_rep(term("a"), &[repetition(term("a")), passive(term("b"))])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(
+                        m_term("a", &[]),
+                        m_rep(
+                            term("a"),
+                            &[repetition(term("a")), passive(term("b"))]
+                        )
+                    ),
+                    vec!(m_term("b", &[])),
+                ]
+            );
         });
 
         collect_node("m = (~'a')* ~'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[]), m_rep(passive(term("a")), &[repetition(passive(term("a"))), passive(term("b"))])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(
+                        m_term("a", &[]),
+                        m_rep(
+                            passive(term("a")),
+                            &[
+                                repetition(passive(term("a"))),
+                                passive(term("b"))
+                            ]
+                        )
+                    ),
+                    vec!(m_term("b", &[])),
+                ]
+            );
         });
 
         collect_node("m = ~('a' | 'b') 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[term("c")])),
-                vec!(m_term("b", &[term("c")])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[term("c")])),
+                    vec!(m_term("b", &[term("c")])),
+                ]
+            );
         });
 
         collect_node("m = ~'a'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-            ]);
+            assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
         collect_node("m = (~'a')?;", "m", |ctx| {
@@ -1287,10 +1562,8 @@ mod tests {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
                     assert!(!ctx2.maybe_empty);
-                    assert_eq!(ctx2.matches, [
-                        vec!(m_term("a", &[])),
-                    ]);
-                },
+                    assert_eq!(ctx2.matches, [vec!(m_term("a", &[])),]);
+                }
                 _ => panic!(),
             }
             assert!(ctx.maybe_empty);
@@ -1302,17 +1575,33 @@ mod tests {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
                     assert!(!ctx2.maybe_empty);
-                    assert_eq!(ctx2.matches, [
-                        vec!(m_term("a", &[]), m_rep(passive(term("a")), &[repetition(passive(term("a"))), term("b")])),
-                    ]);
-                },
+                    assert_eq!(
+                        ctx2.matches,
+                        [vec!(
+                            m_term("a", &[]),
+                            m_rep(
+                                passive(term("a")),
+                                &[repetition(passive(term("a"))), term("b")]
+                            )
+                        ),]
+                    );
+                }
                 _ => panic!(),
             }
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[]), m_rep(passive(term("a")), &[repetition(passive(term("a"))), term("b")])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(
+                        m_term("a", &[]),
+                        m_rep(
+                            passive(term("a")),
+                            &[repetition(passive(term("a"))), term("b")]
+                        )
+                    ),
+                    vec!(m_term("b", &[])),
+                ]
+            );
         });
 
         collect_node("m = 'a'? ~'b';", "m", |ctx| {
@@ -1320,17 +1609,18 @@ mod tests {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
                     assert!(!ctx2.maybe_empty);
-                    assert_eq!(ctx2.matches, [
-                        vec!(m_term("b", &[])),
-                    ]);
-                },
+                    assert_eq!(ctx2.matches, [vec!(m_term("b", &[])),]);
+                }
                 _ => panic!(),
             }
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[passive(term("b"))])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[passive(term("b"))])),
+                    vec!(m_term("b", &[])),
+                ]
+            );
         });
     }
 
@@ -1339,9 +1629,13 @@ mod tests {
         collect_node("m = 'a'*;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[]), m_rep(term("a"), &[repetition(term("a"))])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [vec!(
+                    m_term("a", &[]),
+                    m_rep(term("a"), &[repetition(term("a"))])
+                ),]
+            );
         });
 
         collect_node("m = ('a'? 'b' | 'c')*;", "m", |ctx| {
@@ -1351,11 +1645,23 @@ mod tests {
                 concatenation(&[optional(term("a")), term("b")]),
                 term("c"),
             ]);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[term("b")]), m_rep(inner.clone(), &[repetition(inner.clone())])),
-                vec!(m_term("b", &[]), m_rep(inner.clone(), &[repetition(inner.clone())])),
-                vec!(m_term("c", &[]), m_rep(inner.clone(), &[repetition(inner.clone())])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(
+                        m_term("a", &[term("b")]),
+                        m_rep(inner.clone(), &[repetition(inner.clone())])
+                    ),
+                    vec!(
+                        m_term("b", &[]),
+                        m_rep(inner.clone(), &[repetition(inner.clone())])
+                    ),
+                    vec!(
+                        m_term("c", &[]),
+                        m_rep(inner.clone(), &[repetition(inner.clone())])
+                    ),
+                ]
+            );
         });
     }
 
@@ -1364,19 +1670,23 @@ mod tests {
         collect_node("m = 'a'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-            ]);
+            assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
         collect_node("m = ('a' | 'b'* 'c')?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-                vec!(m_term("b", &[]), m_rep(term("b"), &[repetition(term("b")), term("c")])),
-                vec!(m_term("c", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[])),
+                    vec!(
+                        m_term("b", &[]),
+                        m_rep(term("b"), &[repetition(term("b")), term("c")])
+                    ),
+                    vec!(m_term("c", &[])),
+                ]
+            );
         });
     }
 
@@ -1385,29 +1695,35 @@ mod tests {
         collect_node("m = 'a' | 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [vec!(m_term("a", &[])), vec!(m_term("b", &[])),]
+            );
         });
 
         collect_node("m = 'a' | 'b' 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-                vec!(m_term("b", &[term("c")])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [vec!(m_term("a", &[])), vec!(m_term("b", &[term("c")])),]
+            );
         });
 
         collect_node("m = 'a'? | 'b' | 'c'*;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[])),
-                vec!(m_term("b", &[])),
-                vec!(m_term("c", &[]), m_rep(term("c"), &[repetition(term("c"))])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[])),
+                    vec!(m_term("b", &[])),
+                    vec!(
+                        m_term("c", &[]),
+                        m_rep(term("c"), &[repetition(term("c"))])
+                    ),
+                ]
+            );
         });
     }
 
@@ -1416,37 +1732,53 @@ mod tests {
         collect_node("m = 'a' 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[term("b")])),
-            ]);
+            assert_eq!(ctx.matches, [vec!(m_term("a", &[term("b")])),]);
         });
 
         collect_node("m = ('a' | 'b') 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[term("c")])),
-                vec!(m_term("b", &[term("c")])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[term("c")])),
+                    vec!(m_term("b", &[term("c")])),
+                ]
+            );
         });
 
         collect_node("m = 'a'? 'b'* 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[repetition(term("b")), term("c")])),
-                vec!(m_term("b", &[]), m_rep(term("b"), &[repetition(term("b")), term("c")])),
-                vec!(m_term("c", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(m_term("a", &[repetition(term("b")), term("c")])),
+                    vec!(
+                        m_term("b", &[]),
+                        m_rep(term("b"), &[repetition(term("b")), term("c")])
+                    ),
+                    vec!(m_term("c", &[])),
+                ]
+            );
         });
 
         collect_node("m = 'a'* 'b'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
-            assert_eq!(ctx.matches, [
-                vec!(m_term("a", &[]), m_rep(term("a"), &[repetition(term("a")), optional(term("b"))])),
-                vec!(m_term("b", &[])),
-            ]);
+            assert_eq!(
+                ctx.matches,
+                [
+                    vec!(
+                        m_term("a", &[]),
+                        m_rep(
+                            term("a"),
+                            &[repetition(term("a")), optional(term("b"))]
+                        )
+                    ),
+                    vec!(m_term("b", &[])),
+                ]
+            );
         });
     }
 }

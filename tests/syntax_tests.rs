@@ -30,31 +30,55 @@ fn main() -> std::io::Result<()> {
             .arg(&shell)
             .status()
             .expect("Failed to exec shell");
-        assert!(status.success(), "Failed to download ST syntax tests executable");
+        assert!(
+            status.success(),
+            "Failed to download ST syntax tests executable"
+        );
     }
 
     // Copy all the tests cleanly from the test languages
     for language in &LANGUAGES {
-        let mut sbnfs: Vec<PathBuf> = vec!();
-        let mut tests: Vec<PathBuf> = vec!();
+        let mut sbnfs: Vec<PathBuf> = vec![];
+        let mut tests: Vec<PathBuf> = vec![];
 
         let dir = Path::new(language);
         visit_dirs(dir, &mut |entry| {
-            if entry.path().file_name().unwrap().to_str().unwrap().starts_with("syntax_test_") {
+            if entry
+                .path()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("syntax_test_")
+            {
                 tests.push(entry.path());
-            } else if entry.path().file_name().unwrap().to_str().unwrap().ends_with(".sbnf") {
+            } else if entry
+                .path()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .ends_with(".sbnf")
+            {
                 sbnfs.push(entry.path());
             }
         })?;
 
         if !sbnfs.is_empty() {
             for sbnf in sbnfs {
-                let target = PathBuf::from("target/test/Data/Packages").join(sbnf.with_extension("sublime-syntax"));
+                let target = PathBuf::from("target/test/Data/Packages")
+                    .join(sbnf.with_extension("sublime-syntax"));
                 std::fs::create_dir_all(target.parent().unwrap()).unwrap();
 
                 // Compile syntax to target
                 let status = Command::new("cargo")
-                    .args(&["run", "--", sbnf.to_str().unwrap(), "-o", target.to_str().unwrap()])
+                    .args(&[
+                        "run",
+                        "--",
+                        sbnf.to_str().unwrap(),
+                        "-o",
+                        target.to_str().unwrap(),
+                    ])
                     .status()
                     .expect("Failed run exec cargo");
                 assert!(status.success(), "Failed to compile {:?}", sbnf);
@@ -62,7 +86,8 @@ fn main() -> std::io::Result<()> {
 
             // Copy syntax tests
             for test in &tests {
-                let dest = PathBuf::from("target/test/Data/Packages").join(test);
+                let dest =
+                    PathBuf::from("target/test/Data/Packages").join(test);
                 std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
 
                 std::fs::copy(test, dest).unwrap();
@@ -77,7 +102,10 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn visit_dirs(dir: &Path, cb: &mut dyn FnMut(&std::fs::DirEntry)) -> std::io::Result<()> {
+fn visit_dirs(
+    dir: &Path,
+    cb: &mut dyn FnMut(&std::fs::DirEntry),
+) -> std::io::Result<()> {
     if dir.is_dir() {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;

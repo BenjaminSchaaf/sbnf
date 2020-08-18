@@ -9,4 +9,5 @@ before_cache:
 before_install:
   - sudo apt-get -y install libglu1-mesa libgl1-mesa-glx libgtk-3-0 xvfb
 script:
+  cargo fmt -- --check
   xvfb-run cargo test --verbose -p sbnf
