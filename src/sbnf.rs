@@ -430,8 +430,9 @@ fn parse_identifier<'a>(
             )));
         }
     } else {
-        return Err(parser
-            .char_error("Expected an identifier, got EOF instead".to_string()));
+        return Err(parser.char_error(
+            "Expected an identifier, got EOF instead".to_string(),
+        ));
     }
 
     while let Some((end, chr)) = parser.peek() {
