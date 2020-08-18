@@ -8,6 +8,8 @@ before_cache:
   - rm -rf target/test
 before_install:
   - sudo apt-get -y install libglu1-mesa libgl1-mesa-glx libgtk-3-0 xvfb
+before_script:
+- rustup component add rustfmt
 script:
-  cargo fmt -- --check
-  xvfb-run cargo test --verbose -p sbnf
+- xvfb-run cargo test --verbose -p sbnf
+- cargo fmt -- --check
