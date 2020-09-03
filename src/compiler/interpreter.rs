@@ -431,17 +431,15 @@ fn interpret_expression<'a>(
                 if let Some(value) = interpret_value(var_map, analysis, param) {
                     arguments.push(value);
                 } else {
-                    state.errors.push(
-                        state.stack.error_from_str(
-                            "Undefined variable",
-                            param,
-                            vec![(
+                    state.errors.push(state.stack.error_from_str(
+                        "Undefined variable",
+                        param,
+                        vec![(
                                 node,
                                 "wasn't declared and doesn't refer to a rule"
                                     .to_string(),
                             )],
-                        ),
-                    );
+                    ));
                 }
             }
 
