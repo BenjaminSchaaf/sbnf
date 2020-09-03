@@ -8,12 +8,19 @@ comment{comment.line.number-sign} = '#+'{punctuation.definition.comment}
 
 main = ( header # comments work too
        | rule
+       | parameters
        )*
      ;
 
 header = '[[:alnum:]_\-\.]+'{entity.name.tag}
-         '(:)(.*)\n?'{string.unquoted}
+         header-value
        ;
+
+header-value{string.unquoted, include-prototype: false}
+= ':'
+  ( ~interpolation ) *
+  ~'\n|$'
+;
 
 rule = '[[:alnum:]_\-\.]+'{entity.name.function}
        parameters?

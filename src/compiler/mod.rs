@@ -244,4 +244,26 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn compile_syntax_parameters() {
+        let contexts = compile_matches(
+            "[A]\n\
+            name: #[A]\n\
+            main = ( ~'a#[A]'{#[A]a} )* ;",
+            vec!["b"],
+        );
+        assert_eq!(contexts.len(), 1);
+        let main = contexts.get("main").unwrap();
+        assert_eq!(
+            main.matches,
+            [sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str("ab"),
+                scope: sublime_syntax::Scope::from_str(&["ba.b"]),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 0,
+            }),]
+        );
+    }
 }

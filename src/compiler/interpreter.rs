@@ -3,10 +3,10 @@ use std::collections::{HashMap, HashSet};
 use super::analysis::{parse_scope, Analysis, Metadata};
 // use super::analysis;
 use super::common::{
-    trim_ascii, CallStack, CompileOptions, CompileResult, Error, RuleOptions,
-    Value,
+    trim_ascii, var_maps_get, CallStack, CompileOptions, CompileResult, Error,
+    RuleOptions, Value, VarMap,
 };
-use crate::sbnf::{is_identifier_char, Node, NodeData};
+use crate::sbnf::{Node, NodeData};
 use crate::sublime_syntax;
 
 pub struct Interpreted<'a> {
@@ -179,18 +179,10 @@ struct State<'a> {
     warnings: Vec<Error<'a>>,
 }
 
-type VarMap<'a> = HashMap<&'a str, Value<'a>>;
-
 pub fn interpret<'a>(
     options: &CompileOptions<'a>,
     analysis: Analysis<'a>,
 ) -> CompileResult<'a, Interpreted<'a>> {
-    let arguments = options
-        .arguments
-        .iter()
-        .map(|arg| Value::String { regex: arg, literal: arg, node: None })
-        .collect::<Vec<_>>();
-
     let mut state = State {
         rule_keys: HashSet::new(),
         rules: HashMap::new(),
@@ -203,8 +195,7 @@ pub fn interpret<'a>(
 
     for entry_point in &options.entry_points {
         if analysis.rules.contains_key(entry_point) {
-            let key =
-                RuleKey { name: entry_point, arguments: arguments.clone() };
+            let key = RuleKey { name: entry_point, arguments: vec![] };
 
             interpret_rule(&mut state, &analysis, None, &key);
 
@@ -244,7 +235,7 @@ fn interpret_rule<'a>(
         rules
     } else {
         state.errors.push(state.stack.error(
-            format!("Could not file rule {}", key.name),
+            format!("Could not find rule {}", key.name),
             variable.unwrap(),
             vec![(variable.unwrap(), "Unknown rule".to_string())],
         ));
@@ -348,175 +339,61 @@ fn match_rule<'a, 'b>(
     let mut var_map = HashMap::new();
 
     for (param, arg) in parameters.iter().zip(arguments.iter()) {
-        // Check if the parameter is a unique name, else it refers to a rule and
-        // needs to match the argument
-        match param.data {
-            NodeData::Variable { .. } => {
-                if !analysis.rules.contains_key(param.text) {
-                    // Check if there's another parameter with the same name. If
-                    // so it needs to match that parameter's value. Otherwise
-                    // add it to the var map.
-                    if let Some(value) = var_map.get(param.text) {
-                        if value != arg {
-                            return None;
-                        }
-                    } else {
-                        var_map.insert(param.text, arg.clone());
-                        continue;
-                    }
-                }
+        let value = interpret_value(&var_map, analysis, param);
+
+        if let Some(value) = value {
+            if value != *arg {
+                return None;
             }
-            _ => {}
-        }
-
-        let param_value = interpret_value(param);
-
-        if param_value != *arg {
-            return None;
+        } else {
+            var_map.insert(param.text, arg.clone());
         }
     }
 
     Some((rule, var_map))
 }
 
-fn interpret_value<'a>(node: &'a Node<'a>) -> Value<'a> {
+fn interpret_value<'a>(
+    var_map: &VarMap<'a>,
+    analysis: &Analysis<'a>,
+    node: &'a Node<'a>,
+) -> Option<Value<'a>> {
     match &node.data {
         NodeData::RegexTerminal { options, embed } => {
             assert!(options.is_empty());
             assert!(embed.is_none());
-            Value::String {
+            Some(Value::String {
                 regex: node.text,
                 literal: node.text,
                 node: Some(node),
-            }
+            })
         }
         NodeData::LiteralTerminal { regex, options, embed } => {
             assert!(options.is_empty());
             assert!(embed.is_none());
-            Value::String {
+            Some(Value::String {
                 regex: &regex,
                 literal: node.text,
                 node: Some(node),
-            }
+            })
         }
         NodeData::Variable { parameters } => {
             assert!(parameters.is_empty());
-            Value::Variable { name: node.text, node: node }
+
+            if analysis.rules.contains_key(node.text) {
+                Some(Value::Rule { name: node.text, node: node })
+            } else if let Some(value) =
+                var_maps_get(&[var_map, &analysis.variables], node.text)
+            {
+                Some(value.clone())
+            } else {
+                None
+            }
         }
         _ => {
             panic!();
         }
     }
-}
-
-// TODO: Tests
-fn interpolate_string<'a>(
-    state: &mut State<'a>,
-    var_map: &VarMap<'a>,
-    node: &'a Node<'a>,
-    string: &'a str,
-) -> String {
-    let mut result = String::new();
-
-    let mut iter = string.chars();
-
-    while let Some(chr) = iter.next() {
-        if chr == '\\' {
-            match iter.next() {
-                Some('#') => {
-                    result.push('#');
-                }
-                Some(next_chr) => {
-                    result.push('\\');
-                    result.push(next_chr);
-                }
-                _ => {
-                    break;
-                }
-            }
-        } else if chr == '#' {
-            match iter.next() {
-                Some('[') => {
-                    let mut variable = String::new();
-
-                    loop {
-                        match iter.next() {
-                            Some(']') => {
-                                break;
-                            }
-                            Some(c) => {
-                                if is_identifier_char(c) {
-                                    variable.push(c);
-                                } else {
-                                    // TODO: Add node offset to show the error at the character
-                                    state.errors.push(state.stack.error(
-                                        format!("Unexpected character '{}' in string interpolation", c),
-                                        node,
-                                        vec!()));
-                                    return result;
-                                }
-                            }
-                            None => {
-                                state.errors.push(state.stack.error_from_str(
-                                    "Expected ']' before the end of the string to end string interpolation",
-                                    node,
-                                    vec!()));
-                                return result;
-                            }
-                        }
-                    }
-
-                    if let Some(value) = var_map.get::<str>(&variable) {
-                        match value {
-                            Value::Variable { node: var_node, .. } => {
-                                state.errors.push(state.stack.error_from_str(
-                                    "Can't interpolate rule",
-                                    node,
-                                    vec![
-                                        (
-                                            node,
-                                            format!(
-                                                "{} must refer to a string",
-                                                variable
-                                            ),
-                                        ),
-                                        (
-                                            var_node,
-                                            format!(
-                                                "{} is {}",
-                                                variable, value
-                                            ),
-                                        ),
-                                    ],
-                                ));
-                            }
-                            Value::String { regex, .. } => {
-                                result.push_str(regex);
-                            }
-                        }
-                    } else {
-                        state.errors.push(state.stack.error_from_str(
-                            "Variable in string interpolation not found",
-                            node,
-                            vec!(
-                                (node, format!("{} must be defined as an argument to the rule", variable)),
-                            )));
-                    }
-                }
-                Some(next_chr) => {
-                    result.push('#');
-                    result.push(next_chr);
-                }
-                _ => {
-                    break;
-                }
-            }
-        } else {
-            result.push(chr);
-        }
-    }
-
-    result
 }
 
 fn interpret_expression<'a>(
@@ -527,7 +404,9 @@ fn interpret_expression<'a>(
 ) -> Option<Expression<'a>> {
     match &node.data {
         NodeData::Variable { parameters } => {
-            let name = if let Some(value) = var_map.get(node.text) {
+            let name = if let Some(value) =
+                var_maps_get(&[var_map, &analysis.variables], node.text)
+            {
                 match value {
                     Value::String { .. } => {
                         state.errors.push(state.stack.error_from_str(
@@ -540,22 +419,39 @@ fn interpret_expression<'a>(
                         ));
                         return None;
                     }
-                    Value::Variable { name, .. } => name,
+                    Value::Rule { name, .. } => name,
                 }
             } else {
                 node.text
             };
 
             // TODO: string interpolation for arguments
-            let arguments =
-                parameters.iter().map(interpret_value).collect::<Vec<_>>();
+            let mut arguments = vec![];
+            for param in parameters {
+                if let Some(value) = interpret_value(var_map, analysis, param) {
+                    arguments.push(value);
+                } else {
+                    state.errors.push(
+                        state.stack.error_from_str(
+                            "Undefined variable",
+                            param,
+                            vec![(
+                                node,
+                                "wasn't declared and doesn't refer to a rule"
+                                    .to_string(),
+                            )],
+                        ),
+                    );
+                }
+            }
 
             let key = RuleKey { name, arguments };
             interpret_rule(state, analysis, Some(node), &key);
             Some(Expression::Variable { key, node })
         }
         NodeData::RegexTerminal { options: node_options, embed } => {
-            let regex = interpolate_string(state, var_map, node, node.text);
+            let regex =
+                interpolate_string(state, analysis, var_map, node, node.text);
             let options = parse_terminal_options(
                 state,
                 var_map,
@@ -663,8 +559,13 @@ fn parse_terminal_options<'a>(
                 // A positional option may only appear at the start to
                 // determine the scope
                 if i == 0 {
-                    let interpolated =
-                        interpolate_string(state, var_map, option, option.text);
+                    let interpolated = interpolate_string(
+                        state,
+                        analysis,
+                        var_map,
+                        option,
+                        option.text,
+                    );
 
                     options.scope =
                         parse_scope(&analysis.metadata, &interpolated);
@@ -680,8 +581,9 @@ fn parse_terminal_options<'a>(
 
                 assert!(value_node.data == NodeData::KeywordArgumentValue);
                 let value_text = trim_ascii(value_node.text);
-                let value =
-                    interpolate_string(state, var_map, value_node, value_text);
+                let value = interpolate_string(
+                    state, analysis, var_map, value_node, value_text,
+                );
 
                 // The first set of keyword arguments determine captures
                 if let Some(group) = key.parse::<u16>().ok() {
@@ -730,8 +632,13 @@ fn parse_rule_options<'a>(
 
     for (i, argument) in options.iter().enumerate() {
         if i == 0 && argument.data == NodeData::PositionalArgument {
-            let interpolated =
-                interpolate_string(state, var_map, argument, argument.text);
+            let interpolated = interpolate_string(
+                state,
+                analysis,
+                var_map,
+                argument,
+                argument.text,
+            );
             scope = parse_scope(&analysis.metadata, &interpolated);
         } else if argument.data == NodeData::PositionalArgument {
             state.errors.push(Error::from_str(
@@ -744,8 +651,9 @@ fn parse_rule_options<'a>(
         } else if let NodeData::KeywordArgument(value_node) = &argument.data {
             assert!(value_node.data == NodeData::KeywordArgumentValue);
             let value_text = trim_ascii(value_node.text);
-            let value =
-                interpolate_string(state, var_map, value_node, value_text);
+            let value = interpolate_string(
+                state, analysis, var_map, value_node, value_text,
+            );
 
             if trim_ascii(argument.text) == "include-prototype" {
                 if include_prototype.is_none() {
@@ -830,6 +738,7 @@ fn parse_terminal_embed<'a>(
         {
             interpolate_string(
                 state,
+                analysis,
                 var_map,
                 &parameters[0],
                 parameters[0].text,
@@ -859,15 +768,20 @@ fn parse_terminal_embed<'a>(
         }
 
         let embed = match &options[0].data {
-            NodeData::PositionalArgument => {
-                interpolate_string(state, var_map, &options[0], options[0].text)
-            }
+            NodeData::PositionalArgument => interpolate_string(
+                state,
+                analysis,
+                var_map,
+                &options[0],
+                options[0].text,
+            ),
             NodeData::KeywordArgument(value_node) => {
                 let key = options[0].text;
 
                 assert!(value_node.data == NodeData::KeywordArgumentValue);
                 let value_text = interpolate_string(
                     state,
+                    analysis,
                     var_map,
                     value_node,
                     value_node.text,
@@ -893,6 +807,7 @@ fn parse_terminal_embed<'a>(
                     if i == 0 {
                         let interpolated = interpolate_string(
                             state,
+                            analysis,
                             var_map,
                             option,
                             option.text,
@@ -913,7 +828,7 @@ fn parse_terminal_embed<'a>(
                     assert!(value_node.data == NodeData::KeywordArgumentValue);
                     let value_text = trim_ascii(value_node.text);
                     let value = interpolate_string(
-                        state, var_map, value_node, value_text,
+                        state, analysis, var_map, value_node, value_text,
                     );
 
                     // The first set of keyword arguments determine captures
@@ -984,15 +899,20 @@ fn parse_terminal_embed<'a>(
         }
 
         let context = match &options[0].data {
-            NodeData::PositionalArgument => {
-                interpolate_string(state, var_map, &options[0], options[0].text)
-            }
+            NodeData::PositionalArgument => interpolate_string(
+                state,
+                analysis,
+                var_map,
+                &options[0],
+                options[0].text,
+            ),
             NodeData::KeywordArgument(value_node) => {
                 let key = options[0].text;
 
                 assert!(value_node.data == NodeData::KeywordArgumentValue);
                 let value_text = interpolate_string(
                     state,
+                    analysis,
                     var_map,
                     value_node,
                     value_node.text,
@@ -1020,4 +940,23 @@ fn parse_terminal_embed<'a>(
 
         TerminalEmbed::None
     }
+}
+
+fn interpolate_string<'a>(
+    state: &mut State<'a>,
+    analysis: &Analysis<'a>,
+    var_map: &VarMap<'a>,
+    node: &'a Node<'a>,
+    string: &'a str,
+) -> String {
+    let (result, mut errors) = super::common::interpolate_string(
+        &state.stack,
+        &[var_map, &analysis.variables],
+        node,
+        string,
+    );
+
+    state.errors.append(&mut errors);
+
+    result
 }

@@ -1,4 +1,6 @@
-use crate::sbnf::Node;
+use std::collections::HashMap;
+
+use crate::sbnf::{is_identifier_char, Node};
 use crate::sublime_syntax;
 
 pub struct CompileResult<'a, T> {
@@ -111,7 +113,7 @@ impl Error<'_> {
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
     String { regex: &'a str, literal: &'a str, node: Option<&'a Node<'a>> },
-    Variable { name: &'a str, node: &'a Node<'a> },
+    Rule { name: &'a str, node: &'a Node<'a> },
 }
 
 impl<'a> std::fmt::Display for Value<'a> {
@@ -124,7 +126,7 @@ impl<'a> std::fmt::Display for Value<'a> {
                     write!(f, "`{}`", literal)
                 }
             }
-            Value::Variable { name, .. } => write!(f, "{}", name),
+            Value::Rule { name, .. } => write!(f, "{}", name),
         }
     }
 }
@@ -136,10 +138,9 @@ impl<'a> PartialEq for Value<'a> {
                 Value::String { literal: s, .. },
                 Value::String { literal: o, .. },
             ) => s == o,
-            (
-                Value::Variable { name: s, .. },
-                Value::Variable { name: o, .. },
-            ) => s == o,
+            (Value::Rule { name: s, .. }, Value::Rule { name: o, .. }) => {
+                s == o
+            }
             _ => false,
         }
     }
@@ -153,7 +154,7 @@ impl<'a> std::hash::Hash for Value<'a> {
                 regex.hash(state);
                 literal.hash(state);
             }
-            Value::Variable { name, .. } => {
+            Value::Rule { name, .. } => {
                 name.hash(state);
             }
         }
@@ -237,4 +238,130 @@ pub struct RuleOptions {
     pub scope: sublime_syntax::Scope,
     pub include_prototype: bool,
     pub capture: bool,
+}
+
+pub type VarMap<'a> = HashMap<&'a str, Value<'a>>;
+
+pub fn var_maps_get<'a, 'b>(
+    maps: &[&'b VarMap<'a>],
+    key: &str,
+) -> Option<&'b Value<'a>> {
+    for var_map in maps {
+        if let Some(value) = var_map.get(key) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+// TODO: Tests
+pub fn interpolate_string<'a, 'b>(
+    stack: &CallStack<'a>,
+    var_maps: &[&'b VarMap<'a>],
+    node: &'a Node<'a>,
+    string: &'a str,
+) -> (String, Vec<Error<'a>>) {
+    let mut result = String::new();
+    let mut errors = vec![];
+
+    let mut iter = string.chars();
+
+    while let Some(chr) = iter.next() {
+        if chr == '\\' {
+            match iter.next() {
+                Some('#') => {
+                    result.push('#');
+                }
+                Some(next_chr) => {
+                    result.push('\\');
+                    result.push(next_chr);
+                }
+                _ => {
+                    break;
+                }
+            }
+        } else if chr == '#' {
+            match iter.next() {
+                Some('[') => {
+                    let mut variable = String::new();
+
+                    loop {
+                        match iter.next() {
+                            Some(']') => {
+                                break;
+                            }
+                            Some(c) => {
+                                if is_identifier_char(c) {
+                                    variable.push(c);
+                                } else {
+                                    // TODO: Add node offset to show the error at the character
+                                    errors.push(stack.error(
+                                        format!("Unexpected character '{}' in string interpolation", c),
+                                        node,
+                                        vec!()));
+                                    return (result, errors);
+                                }
+                            }
+                            None => {
+                                errors.push(stack.error_from_str(
+                                    "Expected ']' before the end of the string to end string interpolation",
+                                    node,
+                                    vec!()));
+                                return (result, errors);
+                            }
+                        }
+                    }
+
+                    if let Some(value) = var_maps_get(&var_maps, &variable) {
+                        match value {
+                            Value::Rule { node: rule_node, .. } => {
+                                errors.push(stack.error_from_str(
+                                    "Can't interpolate rule",
+                                    node,
+                                    vec![
+                                        (
+                                            node,
+                                            format!(
+                                                "{} must refer to a string",
+                                                variable
+                                            ),
+                                        ),
+                                        (
+                                            rule_node,
+                                            format!(
+                                                "{} is {}",
+                                                variable, value
+                                            ),
+                                        ),
+                                    ],
+                                ));
+                            }
+                            Value::String { regex, .. } => {
+                                result.push_str(regex);
+                            }
+                        }
+                    } else {
+                        errors.push(stack.error_from_str(
+                            "Variable in string interpolation not found",
+                            node,
+                            vec!(
+                                (node, format!("{} must be defined as an argument to the rule", variable)),
+                            )));
+                    }
+                }
+                Some(next_chr) => {
+                    result.push('#');
+                    result.push(next_chr);
+                }
+                _ => {
+                    break;
+                }
+            }
+        } else {
+            result.push(chr);
+        }
+    }
+
+    (result, errors)
 }

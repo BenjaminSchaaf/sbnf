@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
 use super::common::{
-    parse_top_level_scope, trim_ascii, CompileOptions, CompileResult, Error,
+    parse_top_level_scope, trim_ascii, CallStack, CompileOptions,
+    CompileResult, Error, Value, VarMap,
 };
 use crate::sbnf::{Grammar, Node, NodeData};
 use crate::sublime_syntax;
 
 pub struct Analysis<'a> {
+    pub variables: VarMap<'a>,
     pub rules: HashMap<&'a str, Vec<&'a Node<'a>>>,
     pub metadata: Metadata,
     pub debug_contexts: bool,
@@ -32,13 +34,16 @@ pub fn analyze<'a>(
 ) -> CompileResult<'a, Analysis<'a>> {
     let mut state = State { errors: vec![], warnings: vec![] };
 
-    let metadata = collect_metadata(options, grammar, &mut state);
+    let variables = collect_variables(options, grammar, &mut state);
+
+    let metadata = collect_metadata(options, grammar, &variables, &mut state);
 
     let rules = collect_rules(grammar, &mut state);
 
     CompileResult::new(
         if state.errors.is_empty() {
             Ok(Analysis {
+                variables,
                 rules,
                 metadata,
                 debug_contexts: options.debug_contexts,
@@ -50,9 +55,110 @@ pub fn analyze<'a>(
     )
 }
 
+fn collect_variables<'a>(
+    options: &CompileOptions<'a>,
+    grammar: &'a Grammar<'a>,
+    state: &mut State<'a>,
+) -> VarMap<'a> {
+    let mut result = HashMap::new();
+    let mut duplicate: Option<&Node<'a>> = None;
+
+    for node in &grammar.nodes {
+        match &node.data {
+            NodeData::SyntaxParameters(params) => {
+                if let Some(duplicate) = duplicate {
+                    state.errors.push(Error::from_str(
+                        "Syntax may only contain a single set of syntax parameters",
+                        node,
+                        vec![
+                            (duplicate, "first declared here".to_string()),
+                            (node, "duplicate found here".to_string()),
+                        ]));
+                    continue;
+                }
+
+                duplicate = Some(node);
+
+                if params.is_empty() {
+                    state.errors.push(Error::from_str(
+                        "Empty syntax parameters",
+                        node,
+                        vec![(
+                            node,
+                            "leave out parameters if none are required"
+                                .to_string(),
+                        )],
+                    ));
+                    continue;
+                }
+
+                if params.len() != options.arguments.len() {
+                    state.errors.push(Error::from_str(
+                        "Wrong number of arguments",
+                        node,
+                        vec![(
+                            node,
+                            format!(
+                                "expected {} arguments, but was {} instead",
+                                options.arguments.len(),
+                                params.len()
+                            ),
+                        )],
+                    ));
+                    continue;
+                }
+
+                for (i, param) in params.iter().enumerate() {
+                    match &param.data {
+                        NodeData::RegexTerminal { .. }
+                        | NodeData::LiteralTerminal { .. } => {
+                            state.errors.push(Error::from_str(
+                                "Syntax parameters may only be variables",
+                                node,
+                                vec![(
+                                    param,
+                                    "got terminal instead".to_string(),
+                                )],
+                            ));
+                        }
+                        NodeData::Variable { parameters } => {
+                            assert!(parameters.is_empty());
+
+                            let var = param.text;
+                            let value_text = options.arguments[i];
+                            let value = Value::String {
+                                regex: value_text,
+                                literal: value_text,
+                                node: None,
+                            };
+
+                            if result.insert(var, value).is_some() {
+                                state.errors.push(Error::from_str(
+                                    "Duplicate parameters are not allowed in syntax parameters",
+                                    node,
+                                    vec![
+                                        (param, "conflicts with an earlier parameter".to_string()),
+                                    ],
+                                ));
+                            }
+                        }
+                        _ => panic!(),
+                    }
+                }
+            }
+            NodeData::Header(_) => {}
+            NodeData::Rule { .. } => {}
+            _ => panic!(),
+        }
+    }
+
+    result
+}
+
 fn collect_metadata<'a>(
     options: &CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
+    var_map: &VarMap<'a>,
     state: &mut State<'a>,
 ) -> Metadata {
     let mut name: Option<(&'a Node<'a>, String)> = None;
@@ -64,6 +170,7 @@ fn collect_metadata<'a>(
 
     for node in &grammar.nodes {
         match &node.data {
+            NodeData::SyntaxParameters(_) => {}
             NodeData::Header(value_node) => {
                 let value = value_node.text;
 
@@ -86,7 +193,13 @@ fn collect_metadata<'a>(
                                 ],
                             ));
                         } else {
-                            name = Some((node, trim_ascii(value).to_string()));
+                            let text = interpolate_string(
+                                state,
+                                &var_map,
+                                node,
+                                trim_ascii(value),
+                            );
+                            name = Some((node, text));
                         }
                     }
                     "extensions" => {
@@ -107,7 +220,10 @@ fn collect_metadata<'a>(
                                 ],
                             ));
                         } else {
-                            file_extensions = Some((node, value.to_string()));
+                            let text = interpolate_string(
+                                state, &var_map, node, value,
+                            );
+                            file_extensions = Some((node, text));
                         }
                     }
                     "first-line" => {
@@ -128,8 +244,13 @@ fn collect_metadata<'a>(
                                 ],
                             ));
                         } else {
-                            first_line_match =
-                                Some((node, trim_ascii(value).to_string()));
+                            let text = interpolate_string(
+                                state,
+                                &var_map,
+                                node,
+                                trim_ascii(value),
+                            );
+                            first_line_match = Some((node, text));
                         }
                     }
                     "scope" => {
@@ -150,7 +271,10 @@ fn collect_metadata<'a>(
                                 ],
                             ));
                         } else {
-                            scope = Some((node, value.to_string()));
+                            let text = interpolate_string(
+                                state, &var_map, node, value,
+                            );
+                            scope = Some((node, text));
                         }
                     }
                     "scope-postfix" => {
@@ -171,8 +295,13 @@ fn collect_metadata<'a>(
                                 ],
                             ));
                         } else {
-                            scope_postfix =
-                                Some((node, trim_ascii(value).to_string()));
+                            let text = interpolate_string(
+                                state,
+                                &var_map,
+                                node,
+                                trim_ascii(value),
+                            );
+                            scope_postfix = Some((node, text));
                         }
                     }
                     "hidden" => {
@@ -264,6 +393,24 @@ fn collect_metadata<'a>(
     }
 }
 
+fn interpolate_string<'a>(
+    state: &mut State<'a>,
+    var_map: &VarMap<'a>,
+    node: &'a Node<'a>,
+    string: &'a str,
+) -> String {
+    let (result, mut errors) = super::common::interpolate_string(
+        &CallStack::new(),
+        &[var_map],
+        node,
+        string,
+    );
+
+    state.errors.append(&mut errors);
+
+    result
+}
+
 fn collect_rules<'a>(
     grammar: &'a Grammar<'a>,
     state: &mut State<'a>,
@@ -272,6 +419,7 @@ fn collect_rules<'a>(
 
     for node in &grammar.nodes {
         match &node.data {
+            NodeData::SyntaxParameters(_) => {}
             NodeData::Header(_) => {}
             NodeData::Rule { parameters, .. } => {
                 let name = &node.text;

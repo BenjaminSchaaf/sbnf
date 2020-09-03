@@ -61,6 +61,9 @@ impl<'a> Node<'a> {
 
     fn fmt_inner(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self.data {
+            NodeData::SyntaxParameters(parameters) => {
+                self.fmt_inner_parameters(f, &parameters, "[", "]")
+            }
             NodeData::Header(value) => {
                 write!(f, "{}: ", self.text)?;
                 value.fmt_inner(f)
@@ -148,6 +151,8 @@ impl<'a> std::fmt::Debug for Node<'a> {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum NodeData<'a> {
+    // [parameters]
+    SyntaxParameters(Vec<Node<'a>>),
     // Header: Value
     Header(Box<Node<'a>>),
     HeaderValue,
@@ -356,6 +361,12 @@ fn skip_whitespace(parser: &mut Parser) {
 fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
     let location = parser.location.clone();
+
+    if parser.peek_char() == Some('[') {
+        let params = parse_parameters(parser)?;
+
+        return Ok(Node::new("", location, NodeData::SyntaxParameters(params)));
+    }
 
     let ident = parse_identifier(parser)?;
 
@@ -1064,28 +1075,12 @@ mod tests {
         )
     }
 
-    #[test]
-    fn parse_headers() {
-        assert!(parse("a").is_err());
-        assert!(parse("a:").is_err());
-        assert!(parse("a :").is_err());
-        assert!(parse(" a :").is_err());
-        assert!(
-            parse("a:b").unwrap().nodes
-                == vec!(header("a", (0, 0), "b", (0, 2)),)
-        );
-        assert!(
-            parse("a:\nb: f\t\n\nbar :foo\n").unwrap().nodes
-                == vec!(
-                    header("a", (0, 0), "", (0, 2)),
-                    header("b", (1, 0), " f\t", (1, 2)),
-                    header("bar", (3, 0), "foo", (3, 5)),
-                )
-        );
-        assert!(
-            parse("a\n:b").unwrap().nodes
-                == vec!(header("a", (0, 0), "b", (1, 1)),)
-        );
+    fn syn_params<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
+        Node::new(
+            "",
+            TextLocation::from_tuple(loc),
+            NodeData::SyntaxParameters(nodes),
+        )
     }
 
     fn rule<'a>(
@@ -1214,6 +1209,51 @@ mod tests {
             TextLocation::from_tuple(loc),
             NodeData::PositionalArgument,
         )
+    }
+
+    #[test]
+    fn parse_headers() {
+        assert!(parse("a").is_err());
+        assert!(parse("a:").is_err());
+        assert!(parse("a :").is_err());
+        assert!(parse(" a :").is_err());
+        assert!(
+            parse("a:b").unwrap().nodes
+                == vec!(header("a", (0, 0), "b", (0, 2)),)
+        );
+        assert!(
+            parse("a:\nb: f\t\n\nbar :foo\n").unwrap().nodes
+                == vec!(
+                    header("a", (0, 0), "", (0, 2)),
+                    header("b", (1, 0), " f\t", (1, 2)),
+                    header("bar", (3, 0), "foo", (3, 5)),
+                )
+        );
+        assert!(
+            parse("a\n:b").unwrap().nodes
+                == vec!(header("a", (0, 0), "b", (1, 1)),)
+        );
+    }
+
+    #[test]
+    fn parse_syntax_parameters() {
+        assert!(parse("[").is_err());
+        assert!(parse("]").is_err());
+        assert!(parse("[,]").is_err());
+        assert!(
+            parse("  [ A ] ").unwrap().nodes
+                == vec!(syn_params((0, 2), vec!(var("A", (0, 4), vec!()))))
+        );
+        assert!(
+            parse("[B, `bar`]").unwrap().nodes
+                == vec!(syn_params(
+                    (0, 0),
+                    vec!(
+                        var("B", (0, 1), vec!()),
+                        literal("bar", (0, 4), "bar", vec!())
+                    )
+                ))
+        );
     }
 
     #[test]
