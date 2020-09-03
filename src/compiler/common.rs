@@ -92,13 +92,14 @@ impl Error<'_> {
         if !self.traceback.is_empty() {
             result.push_str("TRACEBACK:\n");
 
-            for frame in &self.traceback {
+            for frame in self.traceback.iter().rev() {
                 result = format!(
                     "{}{}:{} - {}\n",
                     result, origin, frame.rule.location, frame
                 );
                 if let Some(variable) = frame.variable {
                     result.push_str(&variable.location.fmt_source(source));
+                    result.push('\n');
                 }
             }
         }
