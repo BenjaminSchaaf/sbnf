@@ -435,6 +435,29 @@ b[A] = 'a' ;
 b[B] = 'b' ;
 ```
 
+There also exists a set of global arguments which are passed in from the command
+line. These arguments are in the same form as other arguments and should be put
+at the top of the file. They may only consist of variables and are available
+globally, including for headers.
+
+Examples:
+
+```sbnf
+# Declares a single global argument
+[TYPE]
+
+# Can be used in headers
+name: d-#[TYPE]
+
+# As well as rules/terminals
+main = '#[TYPE]' ;
+```
+
+```bash
+# 'dmd' is passed to TYPE when compiled
+sbnf syntax.sbnf dmd
+```
+
 #### Include/Embed
 
 SBNF also has support for including/embedding other sublime syntaxes. This can
@@ -524,10 +547,10 @@ regex-prototype|0:
 
 ```bash
 $ sbnf --help
-SBNF compiler 0.1.0
+SBNF compiler 0.4.0
 
 USAGE:
-    sbnf [FLAGS] <INPUT> [OUTPUT]
+    sbnf [FLAGS] [OPTIONS] <INPUT> [ARGS]...
 
 FLAGS:
     -g               Compile with debug scopes
@@ -535,10 +558,12 @@ FLAGS:
     -q               Do not display warnings
     -V, --version    Prints version information
 
+OPTIONS:
+    -o <output>        The file to write the compiled sublime-syntax to. Defaults to $INPUT.sublime-syntax if left out. Use a single dash `-` to write to stdout instead.
+
 ARGS:
-    <INPUT>     The SBNF file to compile
-    <OUTPUT>    The file to write the compiled sublime-syntax to. Leaving
-                this out will instead write to stdout
+    <INPUT>      The SBNF file to compile
+    <ARGS>...    Arguments to pass to the main and prototype rules
 ```
 
 ## Limitations
