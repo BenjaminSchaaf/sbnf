@@ -282,7 +282,7 @@ fn interpret_rule<'a>(
                 panic!()
             };
 
-        state.stack.push(variable, expression_node, key.arguments.clone());
+        state.stack.push(variable, rule, key.arguments.clone());
 
         // Limit the stack depth. Infinite loops can be constructed through
         // recursion.
