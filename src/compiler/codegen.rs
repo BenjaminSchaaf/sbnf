@@ -1219,11 +1219,6 @@ fn collect_context_nodes<'a>(
         Expression::Passive { expression: child, .. } => {
             let context = collect_context_nodes(interpreted, &child);
 
-            match context.end {
-                ContextEnd::Illegal => {}
-                _ => todo!(),
-            }
-
             Context {
                 matches: context.matches,
                 end: ContextEnd::None,
