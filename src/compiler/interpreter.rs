@@ -155,14 +155,14 @@ impl<'a> std::fmt::Debug for Expression<'a> {
             }
             Expression::Alternation { expressions, .. } => {
                 write!(f, "({:?}", expressions[0])?;
-                for expression in expressions {
+                for expression in &expressions[1..] {
                     write!(f, " | {:?}", expression)?;
                 }
                 write!(f, ")")
             }
             Expression::Concatenation { expressions, .. } => {
                 write!(f, "({:?}", expressions[0])?;
-                for expression in expressions {
+                for expression in &expressions[1..] {
                     write!(f, " {:?}", expression)?;
                 }
                 write!(f, ")")
