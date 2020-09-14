@@ -3,15 +3,16 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4076;
 
-const LANGUAGES: [&str; 8] = [
+const LANGUAGES: [&str; 9] = [
+    "regexp",
     "sbnf",
     "simplec",
-    "regexp",
     "tests/html",
     "tests/issue_6",
+    "tests/meta_scopes",
+    "tests/passive",
     "tests/recursive_branch_points",
     "tests/simple_interpreter",
-    "tests/meta_scopes",
 ];
 
 fn main() -> std::io::Result<()> {

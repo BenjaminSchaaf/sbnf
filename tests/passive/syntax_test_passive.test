@@ -1,0 +1,23 @@
+# SYNTAX TEST "Packages/tests/passive/passive.sublime-syntax"
+
+ test-simple-passive ""
+#^^^^^^^^^^^^^^^^^^^^^^ simple-passive - invalid
+#                    ^ a
+#                     ^ c
+
+ test-simple-passive "fo"
+#^^^^^^^^^^^^^^^^^^^^^^^^ simple-passive - invalid
+#                    ^ a
+#                       ^ c
+
+ test-simple-passive "foo"
+#^^^^^^^^^^^^^^^^^^^^^^^^^ simple-passive - invalid
+#                    ^ a
+#                     ^^^ b
+#                        ^ c
+
+ test-simple-passive "xXfooXx"
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ simple-passive - invalid
+#                    ^ a
+#                       ^^^ b
+#                            ^ c
