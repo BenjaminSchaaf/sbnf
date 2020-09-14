@@ -1,6 +1,5 @@
 /// This file implements a parser for the SBNF grammar
-use std::iter::Peekable;
-use std::str::CharIndices;
+use std::str::{from_utf8_unchecked, Chars};
 
 #[derive(Debug)]
 pub struct Grammar<'a> {
@@ -291,55 +290,142 @@ impl ParseError {
     }
 }
 
+// Can't use Peekable here, as you can't access the underlying iterator, which
+// is required for str_from_iterators. Why‽
 struct Parser<'a> {
     source: &'a str,
-    nodes: Vec<Node<'a>>,
     location: TextLocation,
-    iterator: Peekable<CharIndices<'a>>,
+
+    current: Chars<'a>,
+    peeked_char: Option<char>,
 }
 
-impl Parser<'_> {
-    fn peek_char(&mut self) -> Option<char> {
-        self.peek().map(|(_, c)| c)
+// A fast way to convert an interval of iterators to a substring. Rust should
+// at least have an easy way to get byte indices from Chars :(
+fn str_from_iterators<'a>(
+    string: &'a str,
+    start: Chars<'a>,
+    end: Chars<'a>,
+) -> &'a str {
+    // Convert start and end into byte offsets
+    let bytes_start = string.as_bytes().len() - start.as_str().as_bytes().len();
+    let bytes_end = string.as_bytes().len() - end.as_str().as_bytes().len();
+
+    // SAFETY: As long as the iterators are from the string the byte offsets
+    // will always be valid.
+    unsafe { from_utf8_unchecked(&string.as_bytes()[bytes_start..bytes_end]) }
+}
+
+impl<'a> Parser<'a> {
+    fn peek(&mut self) -> Option<char> {
+        if let Some(chr) = self.peeked_char {
+            Some(chr)
+        } else {
+            let mut ahead = self.current.clone();
+            self.peeked_char = ahead.next();
+            self.peeked_char
+        }
     }
 
-    fn peek(&mut self) -> Option<(usize, char)> {
-        self.iterator.peek().map(|p| *p)
-    }
+    fn next(&mut self) -> Option<char> {
+        self.peeked_char = None;
+        let result = self.current.next();
 
-    fn next(&mut self) -> Option<(usize, char)> {
-        let result = self.iterator.next();
-        if let Some((_, chr)) = result {
+        if let Some(chr) = result {
             self.location.increment(chr);
         }
+
         result
     }
 
     fn char_error(&self, message: String) -> ParseError {
         ParseError::new(self.location.clone(), message)
     }
+
+    fn start_node_collection(&mut self) -> NodeCollector<'a> {
+        let location = self.location.clone();
+        let start = self.current.clone();
+
+        NodeCollector { location, start }
+    }
+}
+
+struct NodeCollector<'a> {
+    location: TextLocation,
+    start: Chars<'a>,
+}
+
+impl<'a> NodeCollector<'a> {
+    fn build_from_parser(
+        self,
+        parser: &Parser<'a>,
+        data: NodeData<'a>,
+    ) -> Node<'a> {
+        self.end_from_parser(parser).build(data)
+    }
+
+    fn build_from_text(self, text: &'a str, data: NodeData<'a>) -> Node<'a> {
+        self.end_from_text(text).build(data)
+    }
+
+    fn end_from_parser(self, parser: &Parser<'a>) -> CollectedNode<'a> {
+        let text = str_from_iterators(
+            parser.source,
+            self.start.clone(),
+            parser.current.clone(),
+        );
+
+        self.end_from_text(text)
+    }
+
+    fn end_from_iterators(
+        self,
+        parser: &Parser<'a>,
+        start: Chars<'a>,
+        end: Chars<'a>,
+    ) -> CollectedNode<'a> {
+        let text = str_from_iterators(parser.source, start, end);
+
+        self.end_from_text(text)
+    }
+
+    fn end_from_text(self, text: &'a str) -> CollectedNode<'a> {
+        CollectedNode { location: self.location, text }
+    }
+}
+
+struct CollectedNode<'a> {
+    location: TextLocation,
+    text: &'a str,
+}
+
+impl<'a> CollectedNode<'a> {
+    fn build(self, data: NodeData<'a>) -> Node<'a> {
+        Node::new(self.text, self.location, data)
+    }
 }
 
 pub fn parse(source: &str) -> Result<Grammar, ParseError> {
     let mut parser = Parser {
-        source: source,
-        nodes: vec![],
+        source,
         location: TextLocation::INITIAL,
-        iterator: source.char_indices().peekable(),
+        current: source.chars(),
+        peeked_char: None,
     };
+
+    let mut nodes = vec![];
 
     loop {
         skip_whitespace(&mut parser);
 
-        if parser.peek_char().is_none() {
+        if parser.peek().is_none() {
             break;
         } else {
-            let node = parse_item(&mut parser)?;
-            parser.nodes.push(node);
+            nodes.push(parse_item(&mut parser)?);
         }
     }
 
-    Ok(Grammar { source: parser.source, nodes: parser.nodes })
+    Ok(Grammar { source: parser.source, nodes: nodes })
 }
 
 pub fn is_identifier_char(chr: char) -> bool {
@@ -347,39 +433,69 @@ pub fn is_identifier_char(chr: char) -> bool {
 }
 
 fn skip_whitespace(parser: &mut Parser) {
-    while let Some(chr) = parser.peek_char() {
+    while let Some(chr) = parser.peek() {
         if chr == ' ' || chr == '\t' || chr == '\n' {
             parser.next();
         } else if chr == '#' {
-            while parser.next().map_or('\n', |(_, c)| c) != '\n' {}
+            while parser.next().unwrap_or('\n') != '\n' {}
         } else {
             break;
         }
     }
 }
 
+fn parse_identifier<'a>(
+    parser: &mut Parser<'a>,
+) -> Result<CollectedNode<'a>, ParseError> {
+    let col = parser.start_node_collection();
+
+    if let Some(chr) = parser.peek() {
+        if !is_identifier_char(chr) {
+            return Err(parser.char_error(format!(
+                "Expected an identifier, got {:?} instead",
+                chr
+            )));
+        }
+    } else {
+        return Err(parser.char_error(
+            "Expected an identifier, got EOF instead".to_string(),
+        ));
+    }
+
+    while let Some(chr) = parser.peek() {
+        if is_identifier_char(chr) {
+            parser.next();
+        } else {
+            break;
+        }
+    }
+
+    Ok(col.end_from_parser(parser))
+}
+
 fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
-    let location = parser.location.clone();
 
-    if parser.peek_char() == Some('[') {
+    if parser.peek() == Some('[') {
+        let node = parser.start_node_collection();
+
         let params = parse_parameters(parser)?;
 
-        return Ok(Node::new("", location, NodeData::SyntaxParameters(params)));
+        return Ok(node.build_from_text("", NodeData::SyntaxParameters(params)));
     }
 
     let ident = parse_identifier(parser)?;
 
     skip_whitespace(parser);
 
-    let data = match parser.peek_char() {
+    let data = match parser.peek() {
         Some(':') => {
             parser.next();
 
             NodeData::Header(parse_header_value(parser)?)
         }
         Some(_) => {
-            let parameters = if parser.peek_char() == Some('[') {
+            let parameters = if parser.peek() == Some('[') {
                 let params = parse_parameters(parser)?;
 
                 skip_whitespace(parser);
@@ -389,7 +505,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 vec![]
             };
 
-            let options = if parser.peek_char() == Some('{') {
+            let options = if parser.peek() == Some('{') {
                 let params = parse_options(parser)?;
 
                 skip_whitespace(parser);
@@ -400,8 +516,8 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
             };
 
             match parser.next() {
-                Some((_, '=')) => {}
-                Some((_, chr)) => {
+                Some('=') => {}
+                Some(chr) => {
                     return Err(parser.char_error(format!(
                         "Expected the start of a rule '=', got {:?} instead",
                         chr
@@ -424,75 +540,35 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
         }
     };
 
-    Ok(Node::new(ident, location, data))
-}
-
-fn parse_identifier<'a>(
-    parser: &mut Parser<'a>,
-) -> Result<&'a str, ParseError> {
-    let start: usize;
-    if let Some((loc, chr)) = parser.peek() {
-        if is_identifier_char(chr) {
-            start = loc;
-        } else {
-            return Err(parser.char_error(format!(
-                "Expected an identifier, got {:?} instead",
-                chr
-            )));
-        }
-    } else {
-        return Err(parser.char_error(
-            "Expected an identifier, got EOF instead".to_string(),
-        ));
-    }
-
-    while let Some((end, chr)) = parser.peek() {
-        if is_identifier_char(chr) {
-            parser.next();
-        } else {
-            return Ok(&parser.source[start..end]);
-        }
-    }
-
-    Ok(&parser.source[start..])
+    Ok(ident.build(data))
 }
 
 fn parse_header_value<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Box<Node<'a>>, ParseError> {
-    let start: usize;
-    if let Some((loc, _)) = parser.peek() {
-        start = loc;
-    } else {
+    let col = parser.start_node_collection();
+
+    if parser.peek().is_none() {
         return Err(parser.char_error(
             "Expected a header value, got EOF instead".to_string(),
         ));
     }
 
-    let location = parser.location.clone();
-
-    let mut end = parser.source.len();
-
-    while let Some((loc, chr)) = parser.peek() {
+    while let Some(chr) = parser.peek() {
         if chr != '\n' {
             parser.next();
         } else {
-            end = loc;
             break;
         }
     }
 
-    Ok(Box::new(Node::new(
-        &parser.source[start..end],
-        location,
-        NodeData::HeaderValue,
-    )))
+    Ok(Box::new(col.build_from_parser(parser, NodeData::HeaderValue)))
 }
 
 fn parse_parameters<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Vec<Node<'a>>, ParseError> {
-    if parser.peek_char() != Some('[') {
+    if parser.peek() != Some('[') {
         return Err(
             parser.char_error("Expected a '[' to start parameters".to_string())
         );
@@ -505,39 +581,30 @@ fn parse_parameters<'a>(
     loop {
         skip_whitespace(parser);
 
-        let location = parser.location.clone();
-
-        match parser.peek_char() {
+        match parser.peek() {
             Some('\'') => {
                 let regex = parse_regex(parser)?;
 
-                parameters.push(Node::new(
-                    regex,
-                    location,
-                    NodeData::RegexTerminal { options: vec![], embed: None },
-                ));
+                parameters.push(regex.build(NodeData::RegexTerminal {
+                    options: vec![],
+                    embed: None,
+                }));
             }
             Some('`') => {
                 let (literal, regex) = parse_literal(parser)?;
 
-                parameters.push(Node::new(
-                    literal,
-                    location,
-                    NodeData::LiteralTerminal {
-                        regex,
-                        options: vec![],
-                        embed: None,
-                    },
-                ));
+                parameters.push(literal.build(NodeData::LiteralTerminal {
+                    regex,
+                    options: vec![],
+                    embed: None,
+                }));
             }
             Some(_) => {
                 let variable = parse_identifier(parser)?;
 
-                parameters.push(Node::new(
-                    variable,
-                    location,
-                    NodeData::Variable { parameters: vec![] },
-                ));
+                parameters.push(
+                    variable.build(NodeData::Variable { parameters: vec![] }),
+                );
             }
             None => {
                 return Err(parser.char_error(
@@ -548,9 +615,9 @@ fn parse_parameters<'a>(
         skip_whitespace(parser);
 
         match parser.next() {
-            Some((_, ',')) => continue,
-            Some((_, ']')) => break,
-            Some((_, chr)) => {
+            Some(',') => continue,
+            Some(']') => break,
+            Some(chr) => {
                 return Err(parser.char_error(
                     format!("Expected end of arguments ']' or continuation ',', but got {:?} instead", chr)));
             }
@@ -567,7 +634,7 @@ fn parse_parameters<'a>(
 fn parse_options<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Vec<Node<'a>>, ParseError> {
-    if parser.peek_char() != Some('{') {
+    if parser.peek() != Some('{') {
         return Err(parser.char_error(
             "Expected a '{' to start meta-parameters".to_string(),
         ));
@@ -579,10 +646,10 @@ fn parse_options<'a>(
 
     loop {
         match parser.next() {
-            Some((_, '}')) => {
+            Some('}') => {
                 break;
             }
-            Some((_, ',')) => {
+            Some(',') => {
                 arguments.push(parse_argument(parser)?);
             }
             None => {
@@ -597,40 +664,33 @@ fn parse_options<'a>(
 }
 
 fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
-    let loc = parser.location.clone();
-    let start: usize;
-    if let Some((loc, _)) = parser.peek() {
-        start = loc;
-    } else {
+    let col = parser.start_node_collection();
+
+    if parser.peek().is_none() {
         return Err(parser
             .char_error("Expected an argument, got EOF instead".to_string()));
     }
 
     loop {
         match parser.peek() {
-            Some((end, '}')) | Some((end, ',')) => {
-                return Ok(Node::new(
-                    &parser.source[start..end],
-                    loc,
-                    NodeData::PositionalArgument,
-                ));
+            // When None let the caller handle it
+            Some('}') | Some(',') | None => {
+                return Ok(
+                    col.build_from_parser(parser, NodeData::PositionalArgument)
+                );
             }
-            Some((end, ':')) => {
+            Some(':') => {
+                let node = col.end_from_parser(parser);
+
                 parser.next();
 
-                return Ok(Node::new(
-                    &parser.source[start..end],
-                    loc,
-                    NodeData::KeywordArgument(Box::new(parse_kwarg_value(
-                        parser,
-                    )?)),
-                ));
+                let kwarg = parse_kwarg_value(parser)?;
+
+                return Ok(
+                    node.build(NodeData::KeywordArgument(Box::new(kwarg)))
+                );
             }
             Some(_) => {}
-            None => {
-                // Let the caller handle it
-                return Ok(Node::new("", loc, NodeData::PositionalArgument));
-            }
         }
         parser.next();
     }
@@ -639,11 +699,9 @@ fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 fn parse_kwarg_value<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Node<'a>, ParseError> {
-    let loc = parser.location.clone();
-    let start: usize;
-    if let Some((loc, _)) = parser.peek() {
-        start = loc;
-    } else {
+    let col = parser.start_node_collection();
+
+    if parser.peek().is_none() {
         return Err(parser.char_error(
             "Expected a keyword argument value, got EOF instead".to_string(),
         ));
@@ -651,18 +709,14 @@ fn parse_kwarg_value<'a>(
 
     loop {
         match parser.peek() {
-            Some((end, '}')) | Some((end, ',')) => {
-                return Ok(Node::new(
-                    &parser.source[start..end],
-                    loc,
+            // When None let the caller handle it
+            Some('}') | Some(',') | None => {
+                return Ok(col.build_from_parser(
+                    parser,
                     NodeData::KeywordArgumentValue,
                 ));
             }
             Some(_) => {}
-            None => {
-                // Let the caller handle it
-                return Ok(Node::new("", loc, NodeData::KeywordArgumentValue));
-            }
         }
         parser.next();
     }
@@ -675,7 +729,7 @@ fn parse_rule<'a>(
 
     skip_whitespace(parser);
 
-    if let Some((_, chr)) = parser.peek() {
+    if let Some(chr) = parser.peek() {
         if chr != ';' {
             return Err(parser.char_error(format!(
                 "Expected end of rule ';', but got {:?} instead",
@@ -696,13 +750,13 @@ fn parse_rule<'a>(
 fn parse_rule_alternation<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Node<'a>, ParseError> {
-    let location = parser.location.clone();
+    let col = parser.start_node_collection();
 
     let first_element = parse_rule_concatenation(parser)?;
 
     skip_whitespace(parser);
 
-    if let Some(chr) = parser.peek_char() {
+    if let Some(chr) = parser.peek() {
         if chr == ')' || chr == ';' {
             return Ok(first_element);
         } else if chr == '|' {
@@ -726,7 +780,7 @@ fn parse_rule_alternation<'a>(
 
         skip_whitespace(parser);
 
-        if let Some(chr) = parser.peek_char() {
+        if let Some(chr) = parser.peek() {
             if chr == ')' || chr == ';' {
                 break;
             } else if chr == '|' {
@@ -744,19 +798,19 @@ fn parse_rule_alternation<'a>(
         }
     }
 
-    Ok(Node::new("", location, NodeData::Alternation(elements)))
+    Ok(col.build_from_text("", NodeData::Alternation(elements)))
 }
 
 fn parse_rule_concatenation<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Node<'a>, ParseError> {
-    let location = parser.location.clone();
+    let col = parser.start_node_collection();
 
     let first_element = parse_rule_element(parser)?;
 
     skip_whitespace(parser);
 
-    if let Some(chr) = parser.peek_char() {
+    if let Some(chr) = parser.peek() {
         if chr == ')' || chr == ';' || chr == '|' {
             return Ok(first_element);
         }
@@ -773,7 +827,7 @@ fn parse_rule_concatenation<'a>(
 
         skip_whitespace(parser);
 
-        if let Some(chr) = parser.peek_char() {
+        if let Some(chr) = parser.peek() {
             if chr == ')' || chr == ';' || chr == '|' {
                 break;
             }
@@ -784,7 +838,7 @@ fn parse_rule_concatenation<'a>(
         }
     }
 
-    Ok(Node::new("", location, NodeData::Concatenation(elements)))
+    Ok(col.build_from_text("", NodeData::Concatenation(elements)))
 }
 
 fn parse_rule_element<'a>(
@@ -792,29 +846,21 @@ fn parse_rule_element<'a>(
 ) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
 
-    let location = parser.location.clone();
+    let col = parser.start_node_collection();
 
-    if let Some((_, chr)) = parser.peek() {
+    if let Some(chr) = parser.peek() {
         if chr == '!' {
             parser.next();
 
-            Ok(Node::new(
-                "",
-                location,
-                NodeData::Capture(Box::new(parse_rule_element_contents(
-                    parser,
-                )?)),
-            ))
+            let element = Box::new(parse_rule_element_contents(parser)?);
+
+            Ok(col.build_from_parser(parser, NodeData::Capture(element)))
         } else if chr == '~' {
             parser.next();
 
-            Ok(Node::new(
-                "",
-                location,
-                NodeData::Passive(Box::new(parse_rule_element_contents(
-                    parser,
-                )?)),
-            ))
+            let element = Box::new(parse_rule_element_contents(parser)?);
+
+            Ok(col.build_from_parser(parser, NodeData::Passive(element)))
         } else {
             parse_rule_element_contents(parser)
         }
@@ -833,13 +879,13 @@ fn parse_rule_element_contents<'a>(
 
     let element: Node<'a>;
 
-    if let Some((_, first_char)) = parser.peek() {
+    if let Some(first_char) = parser.peek() {
         if first_char == '(' {
             parser.next();
 
             element = parse_rule_alternation(parser)?;
 
-            if let Some(chr) = parser.peek_char() {
+            if let Some(chr) = parser.peek() {
                 if chr == ')' {
                     parser.next();
                 } else {
@@ -858,19 +904,17 @@ fn parse_rule_element_contents<'a>(
         } else if first_char == '`' {
             element = parse_literal_terminal(parser)?;
         } else if is_identifier_char(first_char) {
-            let location = parser.location.clone();
             let ident = parse_identifier(parser)?;
 
             skip_whitespace(parser);
 
-            let parameters = if parser.peek_char() == Some('[') {
+            let parameters = if parser.peek() == Some('[') {
                 parse_parameters(parser)?
             } else {
                 vec![]
             };
 
-            element =
-                Node::new(ident, location, NodeData::Variable { parameters });
+            element = ident.build(NodeData::Variable { parameters });
         } else {
             return Err(parser.char_error(format!(
                 "Expected a terminal, variable or group, got {:?} instead",
@@ -886,17 +930,20 @@ fn parse_rule_element_contents<'a>(
 
     skip_whitespace(parser);
 
-    Ok(if let Some(chr) = parser.peek_char() {
-        let location = parser.location.clone();
+    Ok(if let Some(chr) = parser.peek() {
+        let col = parser.start_node_collection();
 
         if chr == '*' {
             parser.next();
 
-            Node::new("", location, NodeData::Repetition(Box::new(element)))
+            col.build_from_parser(
+                parser,
+                NodeData::Repetition(Box::new(element)),
+            )
         } else if chr == '?' {
             parser.next();
 
-            Node::new("", location, NodeData::Optional(Box::new(element)))
+            col.build_from_parser(parser, NodeData::Optional(Box::new(element)))
         } else {
             element
         }
@@ -906,31 +953,34 @@ fn parse_rule_element_contents<'a>(
 }
 
 fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
-    let (_, first) = parser.next().unwrap();
+    let first = parser.next().unwrap();
     assert!(first == '%');
 
     skip_whitespace(parser);
 
-    let location = parser.location.clone();
     let word = parse_identifier(parser)?;
 
     let parameters = parse_parameters(parser)?;
 
     let options = parse_options(parser)?;
 
-    Ok(Node::new(word, location, NodeData::Embed { parameters, options }))
+    Ok(word.build(NodeData::Embed { parameters, options }))
 }
 
-fn parse_regex<'a>(parser: &mut Parser<'a>) -> Result<&'a str, ParseError> {
+fn parse_regex<'a>(
+    parser: &mut Parser<'a>,
+) -> Result<CollectedNode<'a>, ParseError> {
+    let col = parser.start_node_collection();
+
     // Assume we've parsed the first character
-    let (first_pos, first) = parser.next().unwrap();
+    let first = parser.next().unwrap();
     assert!(first == '\'');
 
-    let start = first_pos + 1;
+    let start = parser.current.clone();
 
     let mut has_escape = false;
     loop {
-        let chr = parser.peek_char().ok_or(
+        let chr = parser.peek().ok_or(
             parser.char_error(
                 "Expected the end of the regex `\'` but got EOF instead"
                     .to_string(),
@@ -950,21 +1000,22 @@ fn parse_regex<'a>(parser: &mut Parser<'a>) -> Result<&'a str, ParseError> {
         parser.next();
     }
 
-    let (end, end_chr) = parser.next().unwrap();
+    let end = parser.current.clone();
+
+    let end_chr = parser.next().unwrap();
     assert!(end_chr == '\''); // sanity
 
-    Ok(&parser.source[start..end])
+    Ok(col.end_from_iterators(parser, start, end))
 }
 
 fn parse_regex_terminal<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Node<'a>, ParseError> {
-    let location = parser.location.clone();
     let regex = parse_regex(parser)?;
 
     skip_whitespace(parser);
 
-    let options = if parser.peek_char() == Some('{') {
+    let options = if parser.peek() == Some('{') {
         parse_options(parser)?
     } else {
         vec![]
@@ -972,49 +1023,54 @@ fn parse_regex_terminal<'a>(
 
     skip_whitespace(parser);
 
-    let embed = if parser.peek_char() == Some('%') {
+    let embed = if parser.peek() == Some('%') {
         Some(Box::new(parse_embed(parser)?))
     } else {
         None
     };
 
-    Ok(Node::new(regex, location, NodeData::RegexTerminal { options, embed }))
+    Ok(regex.build(NodeData::RegexTerminal { options, embed }))
 }
 
 fn parse_literal<'a>(
     parser: &mut Parser<'a>,
-) -> Result<(&'a str, String), ParseError> {
+) -> Result<(CollectedNode<'a>, String), ParseError> {
+    let col = parser.start_node_collection();
+
     // Assume we've parsed the first character
-    let (first_pos, first) = parser.next().unwrap();
+    let first = parser.next().unwrap();
     assert!(first == '`');
 
-    // The node should contain only terminal contents
-    let start = first_pos + 1;
+    let start = parser.current.clone();
 
-    while parser.peek_char().unwrap_or('`') != '`' {
+    while parser.peek().unwrap_or('`') != '`' {
         parser.next();
     }
 
-    let (end, end_chr) = parser.next().ok_or(parser.char_error(
+    let end = parser.current.clone();
+
+    let end_chr = parser.next().ok_or(parser.char_error(
         "Expected the end of the terminal '`', but got EOF instead".to_string(),
     ))?;
     assert!(end_chr == '`'); // sanity
 
+    let node = col.end_from_iterators(parser, start, end);
+
     // Convert the literal to a regex now. This makes further compilation much
     // simpler.
-    let text = &parser.source[start..end];
-    Ok((text, literal_to_regex(text)))
+    let regex = literal_to_regex(node.text);
+
+    Ok((node, regex))
 }
 
 fn parse_literal_terminal<'a>(
     parser: &mut Parser<'a>,
 ) -> Result<Node<'a>, ParseError> {
-    let location = parser.location.clone();
     let (text, regex) = parse_literal(parser)?;
 
     skip_whitespace(parser);
 
-    let options = if parser.peek_char() == Some('{') {
+    let options = if parser.peek() == Some('{') {
         parse_options(parser)?
     } else {
         vec![]
@@ -1022,17 +1078,13 @@ fn parse_literal_terminal<'a>(
 
     skip_whitespace(parser);
 
-    let embed = if parser.peek_char() == Some('%') {
+    let embed = if parser.peek() == Some('%') {
         Some(Box::new(parse_embed(parser)?))
     } else {
         None
     };
 
-    Ok(Node::new(
-        text,
-        location,
-        NodeData::LiteralTerminal { regex, options, embed },
-    ))
+    Ok(text.build(NodeData::LiteralTerminal { regex, options, embed }))
 }
 
 fn literal_to_regex(literal: &str) -> String {
@@ -1156,7 +1208,7 @@ mod tests {
 
     fn passive<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
         Node::new(
-            "",
+            "~",
             TextLocation::from_tuple(loc),
             NodeData::Passive(Box::new(node)),
         )
@@ -1164,7 +1216,7 @@ mod tests {
 
     fn capture<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
         Node::new(
-            "",
+            "!",
             TextLocation::from_tuple(loc),
             NodeData::Capture(Box::new(node)),
         )
@@ -1172,7 +1224,7 @@ mod tests {
 
     fn repetition<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
         Node::new(
-            "",
+            "*",
             TextLocation::from_tuple(loc),
             NodeData::Repetition(Box::new(node)),
         )
@@ -1180,7 +1232,7 @@ mod tests {
 
     fn optional<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
         Node::new(
-            "",
+            "?",
             TextLocation::from_tuple(loc),
             NodeData::Optional(Box::new(node)),
         )
