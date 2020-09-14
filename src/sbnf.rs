@@ -133,7 +133,17 @@ impl<'a> Node<'a> {
                 write!(f, "{}: ", self.text)?;
                 node.fmt_inner(f)
             }
-            _ => panic!(),
+            NodeData::Embed { parameters, options } => {
+                write!(f, "%{}", self.text)?;
+                self.fmt_inner_parameters(f, &parameters, "[", "]")?;
+                self.fmt_inner_parameters(f, &options, "{", "}")?;
+                Ok(())
+            }
+            NodeData::Capture(node) => {
+                write!(f, "!(")?;
+                node.fmt_inner(f)?;
+                write!(f, ")")
+            }
         }
     }
 }
@@ -852,15 +862,19 @@ fn parse_rule_element<'a>(
         if chr == '!' {
             parser.next();
 
-            let element = Box::new(parse_rule_element_contents(parser)?);
+            let node = col.end_from_parser(parser);
 
-            Ok(col.build_from_parser(parser, NodeData::Capture(element)))
+            Ok(node.build(NodeData::Capture(Box::new(
+                parse_rule_element_contents(parser)?,
+            ))))
         } else if chr == '~' {
             parser.next();
 
-            let element = Box::new(parse_rule_element_contents(parser)?);
+            let node = col.end_from_parser(parser);
 
-            Ok(col.build_from_parser(parser, NodeData::Passive(element)))
+            Ok(node.build(NodeData::Passive(Box::new(
+                parse_rule_element_contents(parser)?,
+            ))))
         } else {
             parse_rule_element_contents(parser)
         }
