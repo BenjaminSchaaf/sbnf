@@ -5,13 +5,17 @@ pub mod collector;
 pub mod common;
 pub mod interpreter;
 
-use crate::sbnf::Grammar;
+use crate::sbnf::parser::Grammar;
 pub use common::{CompileOptions, CompileResult, Error};
 
 pub fn compile<'a>(
     options: &'a CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
 ) -> CompileResult<'a, sublime_syntax::Syntax> {
+    // In debug mode check that the lexer is able to fully re
+    #[cfg(debug_assertions)]
+    lexer_check(grammar);
+
     let collection = collector::collect(&options, grammar);
 
     let (mut warnings, collected) = match collection {
@@ -36,6 +40,13 @@ pub fn compile<'a>(
     warnings.append(&mut codegen_result.warnings);
 
     CompileResult::new(codegen_result.result, warnings)
+}
+
+#[cfg(debug_assertions)]
+fn lexer_check<'a>(grammar: &Grammar<'a>) {
+    let lex_grammar = crate::sbnf::lexer::lex(grammar.source);
+
+    assert!(format!("{}", lex_grammar) == grammar.source);
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::sbnf::Node;
+use crate::sbnf::parser::Node;
 use crate::sublime_syntax;
 
 pub struct CompileResult<'a, T> {

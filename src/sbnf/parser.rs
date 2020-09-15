@@ -1,5 +1,6 @@
+use super::common::{is_identifier_char, str_from_iterators};
 /// This file implements a parser for the SBNF grammar
-use std::str::{from_utf8_unchecked, Chars};
+use std::str::Chars;
 
 #[derive(Debug)]
 pub struct Grammar<'a> {
@@ -319,22 +320,6 @@ struct Parser<'a> {
     peeked_char: Option<char>,
 }
 
-// A fast way to convert an interval of iterators to a substring. Rust should
-// at least have an easy way to get byte indices from Chars :(
-fn str_from_iterators<'a>(
-    string: &'a str,
-    start: Chars<'a>,
-    end: Chars<'a>,
-) -> &'a str {
-    // Convert start and end into byte offsets
-    let bytes_start = string.as_bytes().len() - start.as_str().as_bytes().len();
-    let bytes_end = string.as_bytes().len() - end.as_str().as_bytes().len();
-
-    // SAFETY: As long as the iterators are from the string the byte offsets
-    // will always be valid.
-    unsafe { from_utf8_unchecked(&string.as_bytes()[bytes_start..bytes_end]) }
-}
-
 impl<'a> Parser<'a> {
     fn peek(&mut self) -> Option<char> {
         if let Some(chr) = self.peeked_char {
@@ -388,11 +373,8 @@ impl<'a> NodeCollector<'a> {
     }
 
     fn end_from_parser(self, parser: &Parser<'a>) -> CollectedNode<'a> {
-        let text = str_from_iterators(
-            parser.source,
-            self.start.clone(),
-            parser.current.clone(),
-        );
+        let text =
+            str_from_iterators(parser.source, &self.start, &parser.current);
 
         self.end_from_text(text)
     }
@@ -400,10 +382,10 @@ impl<'a> NodeCollector<'a> {
     fn end_from_iterators(
         self,
         parser: &Parser<'a>,
-        start: Chars<'a>,
-        end: Chars<'a>,
+        start: &Chars<'a>,
+        end: &Chars<'a>,
     ) -> CollectedNode<'a> {
-        let text = str_from_iterators(parser.source, start, end);
+        let text = str_from_iterators(parser.source, &start, &end);
 
         self.end_from_text(text)
     }
@@ -445,10 +427,6 @@ pub fn parse(source: &str) -> Result<Grammar, ParseError> {
     }
 
     Ok(Grammar { source: parser.source, nodes: nodes })
-}
-
-pub fn is_identifier_char(chr: char) -> bool {
-    chr.is_alphanumeric() || chr == '_' || chr == '-' || chr == '.'
 }
 
 fn skip_whitespace(parser: &mut Parser) {
@@ -1064,7 +1042,7 @@ fn parse_regex<'a>(
     let end_chr = parser.next().unwrap();
     assert!(end_chr == '\''); // sanity
 
-    Ok(col.end_from_iterators(parser, start, end))
+    Ok(col.end_from_iterators(parser, &start, &end))
 }
 
 fn parse_regex_terminal<'a>(
@@ -1113,7 +1091,7 @@ fn parse_literal<'a>(
     ))?;
     assert!(end_chr == '`'); // sanity
 
-    let node = col.end_from_iterators(parser, start, end);
+    let node = col.end_from_iterators(parser, &start, &end);
 
     // Convert the literal to a regex now. This makes further compilation much
     // simpler.
@@ -1162,7 +1140,7 @@ fn literal_to_regex(literal: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::sbnf::*;
+    use super::*;
 
     #[test]
     fn parse_empty() {

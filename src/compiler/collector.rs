@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::common::{CompileOptions, CompileResult, Error, Value, VarMap};
-use crate::sbnf::{Grammar, Node, NodeData};
+use crate::sbnf::parser::{Grammar, Node, NodeData};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum DefinitionKind {

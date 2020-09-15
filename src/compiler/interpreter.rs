@@ -8,7 +8,8 @@ use super::common::{
     parse_scope, parse_top_level_scope, trim_ascii, CallStack, CompileOptions,
     CompileResult, Error, Metadata, RuleOptions, Value, VarMap,
 };
-use crate::sbnf::{is_identifier_char, Node, NodeData};
+use crate::sbnf::parser::{Node, NodeData};
+use crate::sbnf::common::is_identifier_char;
 use crate::sublime_syntax;
 
 pub struct Interpreted<'a> {
@@ -1472,7 +1473,7 @@ fn interpolate_string<'a, 'b>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sbnf::TextLocation;
+    use crate::sbnf::parser::TextLocation;
 
     fn interp<'a, 'b>(
         collection: &DefinitionMap<'a>,
