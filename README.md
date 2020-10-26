@@ -40,6 +40,12 @@ $ cargo install --path cli
 Note that in order to use the generated syntax you'll need at minimum Sublime
 Text build 4077 with support for version 2 of Sublime Syntax.
 
+### Sublime Syntax
+
+The syntax definition for SBNF is found in `sbnf/sbnf.sbnf`. To compile it
+simply run `sbnf sbnf/sbnf.sbnf`, you can then symlink or copy the `sbnf/`
+directory to your user packages.
+
 ## Example
 
 The following is a sbnf grammar for a cut-down version of C. It only allows
