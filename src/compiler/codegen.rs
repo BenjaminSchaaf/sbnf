@@ -188,10 +188,10 @@ fn gen_contexts<'a>(
                             branch_point: branch_point.clone(),
                         };
 
-                        let name = if let Some(name) =
-                            state.context_cache.get(&next_key).map(|c| &c.name)
+                        let name = if let Some(entry) =
+                            state.context_cache.get(&next_key)
                         {
-                            name.clone()
+                            entry.name.clone()
                         } else {
                             let name =
                                 create_context_name(state, next_key.clone());
@@ -449,7 +449,7 @@ fn gen_contexts<'a>(
         // }
 
         if let Some(pattern) =
-            gen_end_match(interpreted, context_key, is_last, capture)
+            gen_end_match(state, interpreted, context_key, is_last, capture)
         {
             patterns.push(pattern);
         }
@@ -474,12 +474,13 @@ fn gen_contexts<'a>(
 }
 
 fn gen_end_match<'a>(
+    state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
     context_key: &ContextKey<'a>,
     is_last: bool,
     capture: bool,
 ) -> Option<sublime_syntax::ContextPattern> {
-    match context_key.context.end {
+    match &context_key.context.end {
         ContextEnd::Illegal => {
             Some(if context_key.context.maybe_empty && !capture {
                 sublime_syntax::Match {
@@ -513,7 +514,36 @@ fn gen_end_match<'a>(
             })
         }
         ContextEnd::None => None,
-        ContextEnd::Push(_) => todo!(),
+        ContextEnd::Push(context) => {
+            let push_context_key = ContextKey {
+                rule_key: context_key.rule_key,
+                context: (**context).clone(),
+                branch_point: context_key.branch_point.clone(),
+            };
+
+            let name = if let Some(entry) =
+                state.context_cache.get(&push_context_key)
+            {
+                entry.name.clone()
+            } else {
+                let name = create_context_name(state, push_context_key.clone());
+
+                gen_contexts(
+                    state,
+                    interpreted,
+                    vec![(name.clone(), push_context_key)],
+                );
+                name
+            };
+
+            Some(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
+                scope: sublime_syntax::Scope::empty(),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::Set(vec![name]),
+                pop: 0,
+            })
+        }
     }
     .map(&sublime_syntax::ContextPattern::Match)
 }

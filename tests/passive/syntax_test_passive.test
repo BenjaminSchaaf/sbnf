@@ -21,3 +21,20 @@
 #                    ^ a
 #                       ^^^ b
 #                            ^ c
+
+ test-push-passive foo foo ;
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^ push-passive - invalid
+#                  ^^^ foo
+#                      ^^^ foo
+#                          ^ end
+
+ test-push-passive a foo ;
+#^^^^^^^^^^^^^^^^^^^^^^^^^ push-passive - invalid
+#                    ^^^ - foo
+#                        ^ end
+
+ test-push-passive foo a foo ;
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ push-passive - invalid
+#                  ^^^ foo
+#                        ^^^ - foo
+#                            ^ end

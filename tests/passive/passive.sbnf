@@ -7,7 +7,7 @@ comment{comment.line.number-sign}
 
 main
 = ( ~( test-simple-passive
-     # | test-push-passive
+     | test-push-passive
      )
   )*
 ;
@@ -19,8 +19,8 @@ test-simple-passive{simple-passive}
   ~`"`{c}
 ;
 
-# test-push-passive{push-passive}
-# = '\btest-push-passive\b'
-#   `foo`*
-#   ~`;`
-# ;
+test-push-passive{push-passive}
+= '\btest-push-passive\b'
+  '\bfoo\b'{foo}*
+  ~`;`{end}
+;
