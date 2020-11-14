@@ -40,7 +40,7 @@ checksum = "1b8c532887f1a292d17de05ae858a8fe50a301e196f9ef0ddb7ccd0d1d00f180"
 dependencies = [
  "bitflags",
  "term_size",
- "textwrap",
+ "textwrap 0.9.0",
  "unicode-width",
 ]
 
@@ -112,6 +112,7 @@ dependencies = [
  "indexmap",
  "maplit",
  "matches",
+ "textwrap 0.12.1",
 ]
 
 [[package]]
@@ -158,6 +159,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0b59b6b4b44d867f1370ef1bd91bfb262bf07bf0ae65c202ea2fbc16153b693"
 dependencies = [
  "term_size",
+ "unicode-width",
+]
+
+[[package]]
+name = "textwrap"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "203008d98caf094106cfaba70acfed15e18ed3ddb7d94e49baec153a2b462789"
+dependencies = [
  "unicode-width",
 ]
 

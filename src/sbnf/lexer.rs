@@ -17,13 +17,12 @@ impl<'a> std::fmt::Display for Grammar<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Token<'a> {
-    Whitespace(&'a str),
+    WhiteSpace(&'a str),
     Newline,
     Comment(&'a str),
     Identifier(&'a str),
     Literal(&'a str),
     Regex(&'a str),
-    HeaderString(&'a str),
     OptionString(&'a str),
     OpenParenthesis,
     CloseParenthesis,
@@ -47,7 +46,7 @@ pub enum Token<'a> {
 impl<'a> Token<'a> {
     pub fn is_insignificant(&self) -> bool {
         match self {
-            Token::Whitespace(_)
+            Token::WhiteSpace(_)
             | Token::Comment(_)
             | Token::Invalid => true,
             _ => false,
@@ -56,7 +55,7 @@ impl<'a> Token<'a> {
 
     pub fn is_whitespace_or_newline(&self) -> bool {
         match self {
-            Token::Whitespace(_)
+            Token::WhiteSpace(_)
             | Token::Newline => true,
             _ => false,
         }
@@ -64,12 +63,11 @@ impl<'a> Token<'a> {
 
     pub fn len(&self) -> usize {
         match self {
-            Token::Whitespace(text)
+            Token::WhiteSpace(text)
             | Token::Comment(text)
             | Token::Identifier(text)
             | Token::Literal(text)
             | Token::Regex(text)
-            | Token::HeaderString(text)
             | Token::OptionString(text) => text.len(),
             Token::Newline
             | Token::OpenParenthesis
@@ -96,12 +94,11 @@ impl<'a> Token<'a> {
 impl<'a> std::fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Whitespace(text)
+            Token::WhiteSpace(text)
             | Token::Comment(text)
             | Token::Identifier(text)
             | Token::Literal(text)
             | Token::Regex(text)
-            | Token::HeaderString(text)
             | Token::OptionString(text) => write!(f, "{}", text),
             Token::Newline => write!(f, "\n"),
             Token::OpenParenthesis => write!(f, "("),
@@ -188,21 +185,6 @@ pub fn lex<'a>(source: &'a str) -> Grammar<'a> {
             Some('#') => {
                 lex_comment(&mut lexer);
             }
-            Some(':') => {
-                lexer.next();
-
-                loop {
-                    match lexer.peek() {
-                        Some('\n') | None => break,
-                        Some(_) => {
-                            lexer.next();
-                        }
-                    }
-                }
-
-                let token = Token::HeaderString(lexer.collect_token());
-                lexer.tokens.push(token);
-            }
             Some('{') => {
                 lexer.skip_token();
                 lexer.tokens.push(Token::OpenCurlyBracket);
@@ -267,6 +249,7 @@ pub fn lex<'a>(source: &'a str) -> Grammar<'a> {
                     '[' => Token::OpenSquareBracket,
                     ']' => Token::CloseSquareBracket,
                     ',' => Token::Comma,
+                    ':' => Token::Colon,
                     ';' => Token::SemiColon,
                     '|' => Token::Pipe,
                     '*' => Token::Asterisk,
@@ -303,7 +286,7 @@ fn lex_white_space<'a>(lexer: &mut Lexer<'a>) {
         }
     }
 
-    let token = Token::Whitespace(lexer.collect_token());
+    let token = Token::WhiteSpace(lexer.collect_token());
     lexer.tokens.push(token);
 }
 
@@ -373,10 +356,10 @@ mod tests {
         check_lexer(" ", 1);
         check_lexer("\t", 1);
         check_lexer(" \n\t", 3);
-        check_lexer("a:b", 2);
-        check_lexer("name: foo", 2);
+        check_lexer("a:b", 3);
+        check_lexer("name: foo", 4);
         check_lexer("# foo\n", 2);
-        check_lexer(" name\n :foo \n", 6);
+        check_lexer(" name\n :foo \n", 8);
         check_lexer("a = 'foo\\'' | `bar`*\n  ; bar = ( ''{foo ,bar}[asd]", 30);
         check_lexer("a\n= 'foo'\n  # bar\n  'bar'\n;\n", 14);
     }
