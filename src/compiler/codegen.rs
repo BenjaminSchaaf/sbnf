@@ -1219,15 +1219,9 @@ fn collect_context_nodes<'a>(
                 })
             }
 
-            let end = match context.end {
-                ContextEnd::Illegal => ContextEnd::Illegal,
-                ContextEnd::None => ContextEnd::Push(Box::new(context.clone())),
-                ContextEnd::Push(_) => context.end.clone(),
-            };
-
             Context {
                 matches: context.matches,
-                end,
+                end: context.end.clone(),
                 maybe_empty: context.maybe_empty,
             }
         }
