@@ -967,7 +967,7 @@ fn gen_simple_match_remaining_context<'a>(
                 _ => return false,
             };
 
-            key == next_rule_key && !last.remaining.is_empty()
+            key == next_rule_key && last.remaining.is_empty()
         });
 
         if !all_match {
