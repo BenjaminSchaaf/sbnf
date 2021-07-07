@@ -851,47 +851,11 @@ fn gen_simple_match_contexts<'a>(
         if match_.remaining.is_empty() {
             // If a match has no remaining nodes it can generally be ignored,
             // unless it has a meta scope and there are child matches that were
-            // not ignored. In those cases we create a special meta context.
-            // Meta scopes are ignored for transparent rules and repetitions.
-            let meta_content_scope =
-                interpreted.rules[rule_key].options.scope.clone();
-
-            if !meta_content_scope.is_empty() {
-                let rule_meta_ctx_name =
-                    format!("{}|meta", build_rule_key_name(rule_key));
-
-                if !state.contexts.contains_key(&rule_meta_ctx_name) {
-                    state.contexts.insert(
-                        rule_meta_ctx_name.clone(),
-                        sublime_syntax::Context {
-                            meta_scope: sublime_syntax::Scope::empty(),
-                            meta_content_scope,
-                            meta_include_prototype: true,
-                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                            matches: vec![
-                                sublime_syntax::ContextPattern::Match(
-                                    sublime_syntax::Match {
-                                        pattern:
-                                            sublime_syntax::Pattern::from_str(
-                                                "",
-                                            ),
-                                        scope: sublime_syntax::Scope::empty(),
-                                        captures: HashMap::new(),
-                                        change_context:
-                                            sublime_syntax::ContextChange::None,
-                                        pop: 1,
-                                    },
-                                ),
-                            ],
-                            comment: Some(format!(
-                                "Meta scope context for {}",
-                                rule_key
-                            )),
-                        },
-                    );
-                }
-
-                contexts.push(rule_meta_ctx_name);
+            // not ignored. In those cases we create a meta scope context.
+            if let Some(context) =
+                gen_meta_content_scope_context(state, interpreted, rule_key)
+            {
+                contexts.push(context);
             }
         } else if !match_.remaining.is_empty() {
             let context = collect_context_nodes_concatenation(
@@ -899,16 +863,12 @@ fn gen_simple_match_contexts<'a>(
                 &match_.remaining,
             );
 
-            let key = ContextKey { rule_key, context, branch_point: None };
-
-            if let Some(name) = state.context_cache.get(&key).map(|c| &c.name) {
-                contexts.push(name.to_string());
-            } else {
-                let name = create_context_name(state, key.clone());
-                gen_contexts(state, interpreted, vec![(name.clone(), key)]);
-
-                contexts.push(name);
-            }
+            contexts.extend(gen_simple_match_remaining_context(
+                state,
+                interpreted,
+                rule_key,
+                context,
+            ));
         }
 
         match &match_.expression {
@@ -917,6 +877,125 @@ fn gen_simple_match_contexts<'a>(
             }
             _ => {}
         }
+    }
+
+    contexts
+}
+
+fn gen_meta_content_scope_context<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    rule_key: &'a RuleKey<'a>,
+) -> Option<String> {
+    let meta_content_scope = interpreted.rules[rule_key].options.scope.clone();
+
+    if !meta_content_scope.is_empty() {
+        let rule_meta_ctx_name =
+            format!("{}|meta", build_rule_key_name(rule_key));
+
+        if !state.contexts.contains_key(&rule_meta_ctx_name) {
+            state.contexts.insert(
+                rule_meta_ctx_name.clone(),
+                sublime_syntax::Context {
+                    meta_scope: sublime_syntax::Scope::empty(),
+                    meta_content_scope,
+                    meta_include_prototype: true,
+                    clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                    matches: vec![sublime_syntax::ContextPattern::Match(
+                        sublime_syntax::Match {
+                            pattern: sublime_syntax::Pattern::from_str(""),
+                            scope: sublime_syntax::Scope::empty(),
+                            captures: HashMap::new(),
+                            change_context: sublime_syntax::ContextChange::None,
+                            pop: 1,
+                        },
+                    )],
+                    comment: Some(format!(
+                        "Meta scope context for {}",
+                        rule_key
+                    )),
+                },
+            );
+        }
+
+        Some(rule_meta_ctx_name)
+    } else {
+        None
+    }
+}
+
+fn gen_simple_match_remaining_context<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted<'a>,
+    mut rule_key: &'a RuleKey<'a>,
+    mut context: Context<'a>,
+) -> Vec<String> {
+    // We can end up in situations where we have a context/rule_key that has
+    // redundant variables, ie. every match stack has the same variable at the
+    // end. Using a similar algorithm to gen_simple_match_contexts we can
+    // de-duplicate this, which may also require making meta scope contexts.
+    // See issue#18
+    let min_matches_count = context
+        .matches
+        .iter()
+        .map(|match_stack| match_stack.len())
+        .min()
+        .unwrap();
+
+    let mut contexts = vec![];
+
+    for _ in 0..min_matches_count {
+        // Take the last item in the match stack for the first context match,
+        // then make sure all the others are the same. Only then can we
+        // de-duplicate.
+        let sample = &context.matches[0][context.matches[0].len() - 1];
+
+        if !sample.remaining.is_empty() {
+            break;
+        }
+
+        let next_rule_key = match &sample.expression {
+            Some(Expression::Variable { key, .. }) => key,
+            _ => break,
+        };
+
+        let all_match = context.matches[1..].iter().all(|ms| {
+            let last = &ms[ms.len() - 1];
+
+            let key = match &last.expression {
+                Some(Expression::Variable { key, .. }) => key,
+                _ => return false,
+            };
+
+            key == next_rule_key && !last.remaining.is_empty()
+        });
+
+        if !all_match {
+            break;
+        }
+
+        for match_stack in &mut context.matches {
+            match_stack.pop();
+        }
+
+        if let Some(context_name) =
+            gen_meta_content_scope_context(state, interpreted, rule_key)
+        {
+            contexts.push(context_name);
+        }
+
+        rule_key = next_rule_key;
+    }
+
+    let context_key = ContextKey { rule_key, context, branch_point: None };
+
+    if let Some(name) = state.context_cache.get(&context_key).map(|c| &c.name) {
+        contexts.push(name.to_string());
+    } else {
+        let name = create_context_name(state, context_key.clone());
+        gen_contexts(state, interpreted, vec![(name.clone(), context_key)]);
+
+        contexts.push(name);
     }
 
     contexts

@@ -1,0 +1,8 @@
+# SYNTAX TEST "Packages/tests/issue_18/issue_18.sublime-syntax"
+
+ r"a"
+#^^^^ meta.string
+#^ storage.type.string - string.quoted.double
+# ^^^ string.quoted.double
+# ^ punctuation.definition.string.begin
+#   ^ punctuation.definition.string.end
