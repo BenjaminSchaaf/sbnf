@@ -1,6 +1,6 @@
 # SBNF
 
-[![Build Status](https://travis-ci.org/BenjaminSchaaf/sbnf.svg?branch=master)](https://travis-ci.org/BenjaminSchaaf/sbnf) [![Crate](http://meritbadge.herokuapp.com/sbnf)](https://crates.io/crates/sbnf)
+[![Build Status](https://github.com/BenjaminSchaaf/sbnf/actions/workflows/rust.yml/badge.svg)](https://github.com/BenjaminSchaaf/sbnf/actions) [![Crate](https://badgen.net/crates/v/sbnf)](https://crates.io/crates/sbnf)
 
 A BNF-style language for writing sublime-syntax files.
 
