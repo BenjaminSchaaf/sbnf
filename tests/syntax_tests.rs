@@ -25,8 +25,8 @@ fn main() -> std::io::Result<()> {
     let tests_exe_path = Path::new(&tests_exe);
 
     if !tests_exe_path.exists() {
-        let url = format!("https://download.sublimetext.com/st_syntax_tests_build_{}_x64.tar.bz2", ST_BUILD);
-        let shell = format!("curl \"{}\" | tar -xjO st_syntax_tests/syntax_tests > {} && chmod u+x {}", url, tests_exe, tests_exe);
+        let url = format!("https://download.sublimetext.com/st_syntax_tests_build_{}_x64.tar.xz", ST_BUILD);
+        let shell = format!("curl \"{}\" | tar -xJO st_syntax_tests/syntax_tests > {} && chmod u+x {}", url, tests_exe, tests_exe);
         let status = Command::new("sh")
             .arg("-c")
             .arg(&shell)
