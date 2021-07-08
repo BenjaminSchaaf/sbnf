@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ST_BUILD: u32 = 4076;
+const ST_BUILD: u32 = 4094;
 
 const LANGUAGES: [&str; 10] = [
     "regexp",
