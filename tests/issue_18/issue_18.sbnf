@@ -1,7 +1,7 @@
-main = (~str)*;
+main : (~str)*;
 
 str
-= '([rR])(")'{
+: '([rR])(")'{
     meta.string,
     1: storage.type.string,
     2: string.quoted.double punctuation.definition.string.begin
@@ -10,7 +10,7 @@ str
 ;
 
 str-impl{meta.string string.quoted.double}
-= ( ~`""`{constant.character.escape.double-quote} )*
+: ( ~`""`{constant.character.escape.double-quote} )*
   ~( '"'{punctuation.definition.string.end}
    | '\n'{invalid.illegal.unclosed-string}
    )

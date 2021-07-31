@@ -1,15 +1,18 @@
 # SYNTAX TEST "Packages/sbnf/sbnf.sublime-syntax"
 
- header: value
-#^^^^^^ entity.name.tag.sbnf
-#      ^^^^^^^^ string.unquoted.sbnf
+ HEADER = `value`
+#^^^^^^ entity.name.variable.sbnf
+#       ^ keyword.operator.assignment.sbnf
+#         ^^^^^^^ string.quoted.sbnf
+#         ^ punctuation.definition.string.begin.sbnf
+#               ^ punctuation.definition.string.end.sbnf
 
- literal = `a` ;
+ literal : `a` ;
 #^^^^^^^ entity.name.function.sbnf
 #        ^ keyword.operator.assignment.sbnf
 #              ^ punctuation.terminator.rule.sbnf
 
- regex = 'a.' ;
+ regex : 'a.' ;
 #^^^^^ entity.name.function.sbnf
 #      ^ keyword.operator.assignment.sbnf
 #          ^ string.quoted.sbnf source.regexp keyword.other.any.regexp

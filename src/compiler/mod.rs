@@ -1,27 +1,27 @@
 use crate::sublime_syntax;
 
-pub mod analysis;
 pub mod codegen;
+pub mod collector;
 pub mod common;
 pub mod interpreter;
 
 use crate::sbnf::Grammar;
-pub use common::{CompileOptions, CompileResult};
+pub use common::{CompileOptions, CompileResult, Error};
 
 pub fn compile<'a>(
-    options: CompileOptions<'a>,
+    options: &'a CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
 ) -> CompileResult<'a, sublime_syntax::Syntax> {
-    let analysis_result = analysis::analyze(&options, grammar);
+    let collection = collector::collect(&options, grammar);
 
-    if let Err(errors) = analysis_result.result {
-        return CompileResult::new(Err(errors), analysis_result.warnings);
-    }
+    let (mut warnings, collected) = match collection {
+        CompileResult { result: Err(errors), warnings } => {
+            return CompileResult::new(Err(errors), warnings);
+        }
+        CompileResult { result: Ok(col), warnings } => (warnings, col),
+    };
 
-    let analysis = analysis_result.result.unwrap();
-    let mut warnings = analysis_result.warnings;
-
-    let mut interpreter_result = interpreter::interpret(&options, analysis);
+    let mut interpreter_result = interpreter::interpret(&options, collected);
 
     warnings.append(&mut interpreter_result.warnings);
 
@@ -57,7 +57,7 @@ mod tests {
             debug_contexts: false,
             entry_points: vec!["main"],
         };
-        let result = compile(options, &grammar);
+        let result = compile(&options, &grammar);
 
         if result.is_err() {
             for error in result.result.as_ref().unwrap_err() {
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn compile_simple_repetition() {
-        let contexts = compile_matches("main = ('a'{a} 'b'{b})*;", vec![]);
+        let contexts = compile_matches("main : ('a'{a} 'b'{b})*;", vec![]);
         assert_eq!(contexts.len(), 2);
         let main = contexts.get("main").unwrap();
         assert_eq!(
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn compile_simple_branch() {
         let contexts = compile_matches(
-            "main = (a | b)*; a{a} = 'c'{ac} 'a'; b{b} = 'c'{bc} 'b';",
+            "main : (a | b)*; a{a} : 'c'{ac} 'a'; b{b} : 'c'{bc} 'b';",
             vec![],
         );
         assert_eq!(contexts.len(), 6);
@@ -249,8 +249,8 @@ mod tests {
     fn compile_syntax_parameters() {
         let contexts = compile_matches(
             "[A]\n\
-            name: #[A]\n\
-            main = ( ~'a#[A]'{#[A]a} )* ;",
+            NAME = '#[A]'\n\
+            main : ( ~'a#[A]'{#[A]a} )* ;",
             vec!["b"],
         );
         assert_eq!(contexts.len(), 1);

@@ -2,6 +2,7 @@
     "word_separators": "./\\()\"':,;<>~!@#$%^&*|+=[]{}`~?",
     "smart_indent": false,
     "detect_indentation": false,
+    "translate_tabs_to_spaces": true,
     "tab_size": 1,
     "draw_indent_guides": false,
 }

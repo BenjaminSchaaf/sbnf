@@ -1,11 +1,11 @@
-scope: test
+SCOPE = `test`
 
 main
-= ( ~( recursive_a
-     | recursive_b
+: ( ~( recursive-a
+     | recursive-b
      )
   )*
 ;
 
-recursive_a = 'a'{scope_a} recursive_a | '!' ;
-recursive_b = 'a'{scope_b} recursive_b | '.' ;
+recursive-a : 'a'{scope_a} recursive-a | '!' ;
+recursive-b : 'a'{scope_b} recursive-b | '.' ;

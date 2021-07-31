@@ -2,14 +2,13 @@ use base64;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-use super::analysis::parse_scope;
-use super::common::{CompileOptions, CompileResult, Error};
-use super::interpreter::{Expression, Interpreted, RuleKey, TerminalEmbed};
+use super::common::{parse_scope, CompileOptions, CompileResult, Error};
+use super::interpreter::{Expression, Interpreted, Key, TerminalEmbed};
 use crate::sublime_syntax;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ContextKey<'a> {
-    rule_key: &'a RuleKey<'a>,
+    rule_key: &'a Key<'a>,
     context: Context<'a>,
     branch_point: Option<String>,
 }
@@ -43,7 +42,7 @@ struct Rule {
 }
 
 struct State<'a> {
-    rules: HashMap<&'a RuleKey<'a>, Rule>,
+    rules: HashMap<&'a Key<'a>, Rule>,
     context_cache: HashMap<ContextKey<'a>, ContextCacheEntry>,
     include_context_cache: HashMap<ContextKey<'a>, String>,
     contexts: HashMap<String, sublime_syntax::Context>,
@@ -89,7 +88,7 @@ pub fn codegen<'a>(
 fn gen_rule<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
-    rule_key: &'a RuleKey<'a>,
+    rule_key: &'a Key<'a>,
 ) {
     let rule = &interpreted.rules[rule_key];
 
@@ -833,7 +832,7 @@ fn gen_simple_match<'a>(
 fn gen_simple_match_contexts<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
-    mut rule_key: &'a RuleKey<'a>,
+    mut rule_key: &'a Key<'a>,
     match_stack: &[Match<'a>],
 ) -> Vec<String> {
     // Find the first significant match from the match stack. This makes it so
@@ -885,7 +884,7 @@ fn gen_simple_match_contexts<'a>(
 fn gen_meta_content_scope_context<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
-    rule_key: &'a RuleKey<'a>,
+    rule_key: &'a Key<'a>,
 ) -> Option<String> {
     let meta_content_scope = interpreted.rules[rule_key].options.scope.clone();
 
@@ -927,7 +926,7 @@ fn gen_meta_content_scope_context<'a>(
 fn gen_simple_match_remaining_context<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
-    mut rule_key: &'a RuleKey<'a>,
+    mut rule_key: &'a Key<'a>,
     mut context: Context<'a>,
 ) -> Vec<String> {
     // We can end up in situations where we have a context/rule_key that has
@@ -1001,7 +1000,7 @@ fn gen_simple_match_remaining_context<'a>(
     contexts
 }
 
-fn build_rule_key_name<'a>(rule_key: &RuleKey<'a>) -> String {
+fn build_rule_key_name<'a>(rule_key: &Key<'a>) -> String {
     let mut result = rule_key.name.to_string();
 
     // Encode arguments
@@ -1070,10 +1069,7 @@ fn create_context_name<'a>(
 }
 
 // Generate a new branch point for a rule
-fn create_branch_point<'a>(
-    state: &mut State<'a>,
-    key: &'a RuleKey<'a>,
-) -> String {
+fn create_branch_point<'a>(state: &mut State<'a>, key: &'a Key<'a>) -> String {
     let index = if let Some(rule) = state.rules.get_mut(key) {
         rule.branch_point_count += 1;
         rule.branch_point_count
@@ -1104,9 +1100,9 @@ fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {
 }
 
 fn rule_for_match_stack<'a>(
-    rule_key: &'a RuleKey<'a>,
+    rule_key: &'a Key<'a>,
     match_stack: &[Match<'a>],
-) -> &'a RuleKey<'a> {
+) -> &'a Key<'a> {
     for match_ in match_stack {
         match match_.expression {
             Some(Expression::Variable { key, .. }) => {
@@ -1121,7 +1117,7 @@ fn rule_for_match_stack<'a>(
 
 fn scope_for_match_stack<'a>(
     interpreted: &'a Interpreted<'a>,
-    rule_key: Option<&'a RuleKey<'a>>,
+    rule_key: Option<&'a Key<'a>>,
     match_stack: &[Match<'a>],
 ) -> sublime_syntax::Scope {
     let mut scopes = vec![];
@@ -1451,7 +1447,7 @@ mod tests {
     use matches::assert_matches;
 
     use crate::compiler::codegen::*;
-    use crate::compiler::{analysis, interpreter};
+    use crate::compiler::{collector, interpreter};
     use crate::sbnf;
 
     fn collect_node<F>(source: &str, rule: &str, fun: F)
@@ -1467,16 +1463,17 @@ mod tests {
             entry_points: vec!["m"],
         };
 
-        let analysis_result = analysis::analyze(&options, &grammar);
-        assert!(analysis_result.warnings.is_empty());
+        let collection = collector::collect(&options, &grammar);
+        assert!(collection.warnings.is_empty());
 
-        let interpreter_result =
-            interpreter::interpret(&options, analysis_result.result.unwrap());
+        let collection = collection.result.unwrap();
+
+        let interpreter_result = interpreter::interpret(&options, collection);
         assert!(interpreter_result.warnings.is_empty());
 
         let interpreted = interpreter_result.result.as_ref().unwrap();
         let rule = &interpreted.rules
-            [&interpreter::RuleKey { name: rule, arguments: vec![] }];
+            [&interpreter::Key { name: rule, arguments: vec![] }];
         let cn = collect_context_nodes(interpreted, &rule.expression);
         fun(cn);
     }
@@ -1586,19 +1583,19 @@ mod tests {
 
     #[test]
     fn collect_passive() {
-        collect_node("m = ~'a';", "m", |ctx| {
+        collect_node("m : ~'a';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
             assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
-        collect_node("m = ~'a' 'b';", "m", |ctx| {
+        collect_node("m : ~'a' 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
             assert_eq!(ctx.matches, [vec!(m_term("a", &[term("b")])),]);
         });
 
-        collect_node("m = ~'a'* ~'b';", "m", |ctx| {
+        collect_node("m : ~'a'* ~'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1616,7 +1613,7 @@ mod tests {
             );
         });
 
-        collect_node("m = (~'a')* ~'b';", "m", |ctx| {
+        collect_node("m : (~'a')* ~'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1637,7 +1634,7 @@ mod tests {
             );
         });
 
-        collect_node("m = ~('a' | 'b') 'c';", "m", |ctx| {
+        collect_node("m : ~('a' | 'b') 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1649,13 +1646,13 @@ mod tests {
             );
         });
 
-        collect_node("m = ~'a'?;", "m", |ctx| {
+        collect_node("m : ~'a'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::None);
             assert!(ctx.maybe_empty);
             assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
-        collect_node("m = (~'a')?;", "m", |ctx| {
+        collect_node("m : (~'a')?;", "m", |ctx| {
             match ctx.end {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
@@ -1668,7 +1665,7 @@ mod tests {
             assert!(ctx.matches.is_empty());
         });
 
-        collect_node("m = (~'a')* 'b';", "m", |ctx| {
+        collect_node("m : (~'a')* 'b';", "m", |ctx| {
             match ctx.end {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
@@ -1702,7 +1699,7 @@ mod tests {
             );
         });
 
-        collect_node("m = 'a'? ~'b';", "m", |ctx| {
+        collect_node("m : 'a'? ~'b';", "m", |ctx| {
             match ctx.end {
                 ContextEnd::Push(ctx2) => {
                     assert_matches!(ctx2.end, ContextEnd::None);
@@ -1724,7 +1721,7 @@ mod tests {
 
     #[test]
     fn collect_repetition() {
-        collect_node("m = 'a'*;", "m", |ctx| {
+        collect_node("m : 'a'*;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             assert_eq!(
@@ -1736,7 +1733,7 @@ mod tests {
             );
         });
 
-        collect_node("m = ('a'? 'b' | 'c')*;", "m", |ctx| {
+        collect_node("m : ('a'? 'b' | 'c')*;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             let inner = alternation(&[
@@ -1765,13 +1762,13 @@ mod tests {
 
     #[test]
     fn collect_optional() {
-        collect_node("m = 'a'?;", "m", |ctx| {
+        collect_node("m : 'a'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             assert_eq!(ctx.matches, [vec!(m_term("a", &[])),]);
         });
 
-        collect_node("m = ('a' | 'b'* 'c')?;", "m", |ctx| {
+        collect_node("m : ('a' | 'b'* 'c')?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             assert_eq!(
@@ -1790,7 +1787,7 @@ mod tests {
 
     #[test]
     fn collect_alternation() {
-        collect_node("m = 'a' | 'b';", "m", |ctx| {
+        collect_node("m : 'a' | 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1799,7 +1796,7 @@ mod tests {
             );
         });
 
-        collect_node("m = 'a' | 'b' 'c';", "m", |ctx| {
+        collect_node("m : 'a' | 'b' 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1808,7 +1805,7 @@ mod tests {
             );
         });
 
-        collect_node("m = 'a'? | 'b' | 'c'*;", "m", |ctx| {
+        collect_node("m : 'a'? | 'b' | 'c'*;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             assert_eq!(
@@ -1827,13 +1824,13 @@ mod tests {
 
     #[test]
     fn collect_concat() {
-        collect_node("m = 'a' 'b';", "m", |ctx| {
+        collect_node("m : 'a' 'b';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
             assert_eq!(ctx.matches, [vec!(m_term("a", &[term("b")])),]);
         });
 
-        collect_node("m = ('a' | 'b') 'c';", "m", |ctx| {
+        collect_node("m : ('a' | 'b') 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1845,7 +1842,7 @@ mod tests {
             );
         });
 
-        collect_node("m = 'a'? 'b'* 'c';", "m", |ctx| {
+        collect_node("m : 'a'? 'b'* 'c';", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(!ctx.maybe_empty);
             assert_eq!(
@@ -1861,7 +1858,7 @@ mod tests {
             );
         });
 
-        collect_node("m = 'a'* 'b'?;", "m", |ctx| {
+        collect_node("m : 'a'* 'b'?;", "m", |ctx| {
             assert_matches!(ctx.end, ContextEnd::Illegal);
             assert!(ctx.maybe_empty);
             assert_eq!(

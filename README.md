@@ -55,40 +55,42 @@ the required `meta.function` and `meta.function-call` scopes, as both function
 definitions and function calls require branch points.
 
 ```sbnf
-name: simplec
+NAME = `simplec`
 
-prototype = ( ~comment )* ;
+prototype : ( ~comment )* ;
 
-comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+comment : '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
 
-main = ( variable-declaration | function-definition )* ;
+main : ( variable-declaration | function-definition )* ;
+
+IDENTIFIER = '\b[A-Za-z_]+\b'
 
 function-definition{meta.function}
-= type
-  '\b[A-Za-z_]+\b'{entity.name.function}
+: type
+  IDENTIFIER{entity.name.function}
   `(`
   `)`
   block
 ;
 
-block{meta.block} = '{' statement* '}' ;
+block{meta.block} : '{' statement* '}' ;
 
-statement = variable-declaration
+statement : variable-declaration
           | value ';'
           | block
           ;
 
-variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
+variable-declaration : type IDENTIFIER{variable} ( '=' value )? ';' ;
 
-type = '\b[A-Za-z_]+\b'{storage.type} ;
+type : IDENTIFIER{storage.type} ;
 
-value = '[0-9]+'{constant.numeric}
+value : '[0-9]+'{constant.numeric}
       | function-call
       ;
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
-= '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+: IDENTIFIER{variable.function meta.path} `(` `)` ;
 ```
 
 The above grammar compiles to the following:
@@ -104,13 +106,22 @@ contexts:
   # Rule: block
   block|0:
     - meta_content_scope: meta.block.simplec
+    - match: '{'
+      scope: meta.block.simplec
+      set: block|1
+    - match: '\S'
+      scope: invalid.illegal.simplec
+      pop: true
+  # Rule: block
+  block|1:
+    - meta_content_scope: meta.block.simplec
     - include: include!block@1
     - match: '[0-9]+'
       scope: meta.block.simplec constant.numeric.simplec
       push: [block|meta, statement|0]
     - match: '{'
       scope: meta.block.simplec meta.block.simplec
-      push: [block|meta, block|0]
+      push: [block|meta, block|1]
     - match: '}'
       scope: meta.block.simplec
       pop: true
@@ -119,7 +130,7 @@ contexts:
       pop: true
   # Rule: block
   #  For branch point 'block@1'
-  block|1|block@1:
+  block|2|block@1:
     - match: '\b[A-Za-z_]+\b'
       scope: meta.block.simplec variable.simplec
       set: [block|meta, variable-declaration|2]
@@ -127,7 +138,7 @@ contexts:
       fail: block@1
   # Rule: block
   #  For branch point 'block@1'
-  block|2|block@1:
+  block|3|block@1:
     - match: '\('
       scope: meta.block.simplec meta.function-call.simplec
       set: [block|meta, statement|0, function-call|1]
@@ -161,22 +172,13 @@ contexts:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: meta.function-call.simplec variable.function.simplec meta.path.simplec
-      push: block|2|block@1
+      push: block|3|block@1
       pop: true
   # Rule: function-definition
   function-definition|0:
     - meta_content_scope: meta.function.simplec
     - match: '\)'
       scope: meta.function.simplec
-      set: function-definition|1
-    - match: '\S'
-      scope: invalid.illegal.simplec
-      pop: true
-  # Rule: function-definition
-  function-definition|1:
-    - meta_content_scope: meta.function.simplec
-    - match: '{'
-      scope: meta.function.simplec meta.block.simplec
       set: [function-definition|meta, block|0]
     - match: '\S'
       scope: invalid.illegal.simplec
@@ -271,7 +273,7 @@ contexts:
     - meta_include_prototype: false
     - match: '\b[A-Za-z_]+\b'
       scope: storage.type.simplec
-      push: block|1|block@1
+      push: block|2|block@1
       pop: true
   # Rule: variable-declaration
   variable-declaration|0:
@@ -304,61 +306,62 @@ contexts:
 
 ## Usage
 
-A SBNF file contains two types of elements: headers and rules. Headers provide
-meta-data for the syntax, such as it's name, while rules are the bnf-style rules
-that define the parsing and scoping of the grammar.
+A SBNF file contains two types of elements: clauses and rules. Clauses provide
+meta-data for the syntax such as the file extensions, as well as some
+meta-programming. Rules are the bnf-style rules that define the parsing and
+scoping of the grammar.
 
 Comments in SBNF start with a `#` and end at the next newline.
 
 See `sbnf.sbnf` for a full example grammar.
 
-### Headers
+### Clauses
 
-Headers are in the form `<head>: <value>`, ending at the end of the line. The
-following headers are allowed:
+Clauses are in the form `<name> <parameters> = <value>`. The `name` must follow
+[SCREAMING_SNAKE_CASE](https://en.wikipedia.org/wiki/SCREAMING_SNAKE_CASE). The
+following names are reserved for meta-data:
 
-* `name`: The name of the syntax. This defaults to the base-name of the sbnf
+* `NAME`: The name of the syntax. This defaults to the base-name of the sbnf
   file.
-* `extensions`: A space-separated list of file extensions. Equivalent to
+* `EXTENSIONS`: A space-separated list of file extensions. Equivalent to
   `file_extensions` in sublime-syntax.
-* `first-line`: A regex for matching the first line of a file. Equivalent to
+* `FIRST_LINE`: A regex for matching the first line of a file. Equivalent to
   `first_line_match` in sublime-syntax.
-* `scope`: The default scope for the grammar. This defaults to `source.`
-  followed by the name lowercased.
-* `scope-postfix`: A postfix appended to all scopes in the grammar (excluding
-  the `scope` header). This defaults to the name lowercased. Can be left empty
+* `SCOPE`: The default scope for the grammar. This defaults to `source.`
+  followed by the lowercased name of the syntax.
+* `SCOPE_POSTFIX`: A postfix appended to all scopes in the grammar (excluding
+  the `SCOPE` clause). This defaults to the name lowercased. Can be left empty
   to leave out the postfix.
-* `hidden`: Whether the syntax will be shown in the menu in Sublime Text.
+* `HIDDEN`: Whether the syntax will be shown in the menu in Sublime Text.
 
 Example:
 
-```
-name: SBNF
-extensions: sbnf
+```sbnf
+NAME = `SBNF`
+EXTENSIONS = `sbnf`
 # Don't need this, as this is already the default
-# scope: source.sbnf
+# SCOPE = `source.sbnf`
 ```
 
 ### Rules
 
-Rules are in the form `<identifier> <arguments> <options> = <expression> ;`.
-Identifiers may contain any alphanumeric character as well as `-`, `_` and `.`.
+Rules are in the form `<name> <parameters> <options> : <expression> ;`. The
+`name` must follow [kebab-case](https://en.wikipedia.org/wiki/Kebab_case).
 
 Like sublime-syntax files, SBNF grammars have two entry points: `main`,
 `prototype`. They behave identically to those in sublime-syntax files. Only
 rules used directly or indirectly from an entry point are compiled.
 
-Rules have two sets of optional parameters: arguments and options. Arguments are
-used for meta-programming and options are used for sublime-syntax specific
-options.
+Rules can optionally have parameters and options. Parameters are used for
+meta-programming and options are used for sublime-syntax specific options.
 
 Examples:
 
 ```sbnf
-a = 'a' ;
-b{source.b} = 'b' ;
-c[S] = 'c'{#[S]} ;
-d[S]{text.d} = a b c[S] ;
+a : 'a' ;
+b{source.b} : 'b' ;
+c[S] : 'c'{#[S]} ;
+d[S]{text.d} : a b c[S] ;
 ```
 
 #### Expressions
@@ -400,20 +403,18 @@ Literal and regex terminals are allowed the following arguments:
 * `<capture>: <scope>`: The scope for a regex capture group. `<capture>` must be
   an integer.
 
-#### Arguments
+#### Parameters
 
-Arguments for rules and non-terminals take the form: `[<value>, <value>]`.
-`<value>` may be either a regex terminal, a literal terminal or an identifier.
-The same name may be used for rules with different sets of arguments, though the
-number of arguments must be the same.
+Parameters for rules and clauses take the form: `[<value>, <value>]`. `<value>`
+may be either a regex terminal, a literal terminal or an identifier. The same
+name may be used for rules/clauses with different sets of parameters.
 
-A rule with arguments is instantiated when it is used as a non-terminal with
-matching arguments. Argument matching is based on the type and value of the
-argument. Terminal arguments are matched based on regex equivalence, while rule
-arguments are matched on same-name. Terminals and rules never match.
+A rule with parameters is instantiated when it is used. Matching is based on the
+type and value of each parameter. Terminal arguments are matched based on regex
+equivalence, while rule arguments are matched by name.
 
 An identifier that does not reference a rule is a free variable unique to the
-rule's scope. It matches any argument and may be passed on and or interpolated.
+rule's scope. It matches any argument and may be passed in and or interpolated.
 
 A variable may be interpolated using the following syntax: `#[]`. This can be
 done inside any terminal or inside options.
@@ -422,29 +423,29 @@ Examples:
 
 ```sbnf
 main
-= a['a'] # instantiates rule 1
+: a['a'] # instantiates rule 1
 | a[a]   # instantiates rule 2
 | a['b'] # instantiates rule 3
 | b['b'] # error: Ambiguous instantiation
 ;
 
 # Rule 1.
-a['a'] = 'a' ;
+a['a'] : 'a' ;
 
 # Rule 2.
-a[a] = 'a' ;
+a[a] : 'a' ;
 
 # Rule 3.
-a[A] = 'a' ;
+a[A] : 'a' ;
 
-b[A] = 'a' ;
-b[B] = 'b' ;
+b[A] : 'a' ;
+b[B] : 'b' ;
 ```
 
 There also exists a set of global arguments which are passed in from the command
 line. These arguments are in the same form as other arguments and should be put
 at the top of the file. They may only consist of variables and are available
-globally, including for headers.
+globally, including for clauses.
 
 Examples:
 
@@ -452,16 +453,16 @@ Examples:
 # Declares a single global argument
 [TYPE]
 
-# Can be used in headers
-name: d-#[TYPE]
+# Can be used in clauses
+name = 'd-#[TYPE]'
 
-# As well as rules/terminals
-main = '#[TYPE]' ;
+# As well as rules
+main : '#[TYPE]' ;
 ```
 
 ```bash
 # 'dmd' is passed to TYPE when compiled
-sbnf syntax.sbnf dmd
+$ sbnf syntax.sbnf dmd
 ```
 
 #### Include/Embed
@@ -480,7 +481,7 @@ Examples:
 # This is a basic implementation of the html script tag embedding the javascript
 # syntax.
 script
-= '<script>'{tag.begin.script}
+: '<script>'{tag.begin.script}
   %embed['</script>']{scope:source.js, embedded.js, 0: tag.end.script}
 ;
 ```
@@ -505,14 +506,14 @@ script:
 # extends the regex syntax with an escape sequence for the string.
 
 regex-prototype{include-prototype: false}
-= ( ~`\'`{constant.character.escape} )*
+: ( ~`\'`{constant.character.escape} )*
   # A lookahead is required here, as otherwise we would only pop one context
   # The same is required in a sublime-syntax file
   ~'(?=\')'
 ;
 
 regex-string{string.quoted}
-= `'`{punctuation.definition.string.begin}
+: `'`{punctuation.definition.string.begin}
   %include[regex-prototype]{scope:source.regexp}
   `'`{punctuation.definition.string.end}
 ;
@@ -580,7 +581,7 @@ When determining whether to create a branch point in the sublime-syntax, SBNF
 has to consider whether regexes overlap. Take the following example:
 
 ```
-main = 'aa?'{scope1} 'b'
+main : 'aa?'{scope1} 'b'
      | 'a'{scope2} 'c'
      ;
 ```
@@ -592,7 +593,7 @@ equivalent regexes. Rewriting the example to work as expected with SBNF yields
 the following:
 
 ```
-main = 'aa'{scope1} 'b'
+main : 'aa'{scope1} 'b'
      | 'a'{scope1} 'b'
      | 'a'{scope2} 'c'
      ;

@@ -1,27 +1,29 @@
 use std::collections::{HashMap, HashSet};
 
-use super::analysis::{parse_scope, Analysis, Metadata};
-// use super::analysis;
-use super::common::{
-    trim_ascii, var_maps_get, CallStack, CompileOptions, CompileResult, Error,
-    RuleOptions, Value, VarMap,
+use super::collector::{
+    is_rule_name, is_variable_name, Collection, Definition, DefinitionKind,
+    DefinitionMap,
 };
-use crate::sbnf::{Node, NodeData};
+use super::common::{
+    parse_scope, parse_top_level_scope, trim_ascii, CallStack, CompileOptions,
+    CompileResult, Error, Metadata, RuleOptions, Value, VarMap,
+};
+use crate::sbnf::{is_identifier_char, Node, NodeData};
 use crate::sublime_syntax;
 
 pub struct Interpreted<'a> {
-    pub rules: HashMap<RuleKey<'a>, Rule<'a>>,
-    pub entry_points: Vec<RuleKey<'a>>,
+    pub rules: HashMap<Key<'a>, Rule<'a>>,
+    pub entry_points: Vec<Key<'a>>,
     pub metadata: Metadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RuleKey<'a> {
+pub struct Key<'a> {
     pub name: &'a str,
     pub arguments: Vec<Value<'a>>,
 }
 
-impl<'a> std::fmt::Display for RuleKey<'a> {
+impl<'a> std::fmt::Display for Key<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)?;
         if !self.arguments.is_empty() {
@@ -58,13 +60,13 @@ pub enum TerminalEmbed<'a> {
     },
     Include {
         context: String,
-        prototype: RuleKey<'a>,
+        prototype: Key<'a>,
     },
     None,
 }
 
 pub enum Expression<'a> {
-    Variable { key: RuleKey<'a>, node: &'a Node<'a> },
+    Variable { key: Key<'a>, node: &'a Node<'a> },
     Terminal { regex: String, options: TerminalOptions<'a>, node: &'a Node<'a> },
     Passive { expression: Box<Expression<'a>>, node: &'a Node<'a> },
     Repetition { expression: Box<Expression<'a>>, node: &'a Node<'a> },
@@ -172,44 +174,64 @@ impl<'a> std::fmt::Debug for Expression<'a> {
 }
 
 struct State<'a> {
-    rule_keys: HashSet<RuleKey<'a>>,
-    rules: HashMap<RuleKey<'a>, Rule<'a>>,
+    seen_definitions: HashSet<Key<'a>>,
+    variables: HashMap<Key<'a>, Option<Value<'a>>>,
+    rules: HashMap<Key<'a>, Rule<'a>>,
     stack: CallStack<'a>,
     errors: Vec<Error<'a>>,
     warnings: Vec<Error<'a>>,
 }
 
-pub fn interpret<'a>(
-    options: &CompileOptions<'a>,
-    analysis: Analysis<'a>,
+struct MetaState<'a, 'b> {
+    options: &'a CompileOptions<'a>,
+    collection: &'b DefinitionMap<'a>,
+    metadata: &'b Metadata,
+}
+
+pub fn interpret<'a, 'b>(
+    options: &'a CompileOptions<'a>,
+    collection: Collection<'a>,
 ) -> CompileResult<'a, Interpreted<'a>> {
     let mut state = State {
-        rule_keys: HashSet::new(),
+        variables: HashMap::new(),
+        seen_definitions: HashSet::new(),
         rules: HashMap::new(),
         stack: CallStack::new(),
         errors: vec![],
         warnings: vec![],
     };
 
+    for (name, value) in collection.variables {
+        state.variables.insert(Key { name, arguments: vec![] }, Some(value));
+    }
+
+    let definitions = &collection.definitions;
+
+    let metadata = collect_metadata(&mut state, &definitions, options);
+
     let mut entry_points = vec![];
 
-    for entry_point in &options.entry_points {
-        if analysis.rules.contains_key(entry_point) {
-            let key = RuleKey { name: entry_point, arguments: vec![] };
+    {
+        let meta_state =
+            MetaState { options, collection: definitions, metadata: &metadata };
 
-            interpret_rule(&mut state, &analysis, None, &key);
+        for entry_point in &options.entry_points {
+            if let Some(((name, _), _)) =
+                meta_state.collection.get_key_value(&(*entry_point, 0))
+            {
+                let key = Key { name, arguments: vec![] };
 
-            entry_points.push(key);
+                assert!(state.stack.is_empty());
+                interpret_rule(&mut state, &meta_state, None, &key);
+
+                entry_points.push(key);
+            }
         }
     }
 
     CompileResult::new(
         if state.errors.is_empty() {
-            Ok(Interpreted {
-                rules: state.rules,
-                entry_points,
-                metadata: analysis.metadata,
-            })
+            Ok(Interpreted { rules: state.rules, entry_points, metadata })
         } else {
             Err(state.errors)
         },
@@ -217,120 +239,157 @@ pub fn interpret<'a>(
     )
 }
 
-const STACK_SIZE_LIMIT: usize = 500;
-
-fn interpret_rule<'a>(
+fn collect_metadata<'a>(
     state: &mut State<'a>,
-    analysis: &Analysis<'a>,
-    variable: Option<&'a Node<'a>>,
-    key: &RuleKey<'a>,
-) {
-    // Nothing to do if the key has been seen before
-    if state.rule_keys.contains(key) {
-        return;
+    collection: &DefinitionMap<'a>,
+    options: &CompileOptions<'a>,
+) -> Metadata {
+    let name = interpret_metadata_variable(state, collection, "NAME", true)
+        .map(|s| s.1.to_string())
+        .or_else(|| options.name_hint.map(|s| trim_ascii(s).to_string()));
+
+    // A name is required, either from a variable or the name hint
+    if name.is_none() {
+        state.errors.push(Error::without_node(
+            "No syntax name provided. Use a 'NAME' variable to specify the name of the syntax".to_string(),
+            vec!()));
     }
 
-    // Find rule matching key
-    let rules = if let Some(rules) = analysis.rules.get(key.name) {
-        rules
-    } else {
-        state.errors.push(state.stack.error(
-            format!("Could not find rule {}", key.name),
-            variable.unwrap(),
-            vec![(variable.unwrap(), "Unknown rule".to_string())],
-        ));
-        return;
-    };
+    let file_extensions =
+        interpret_metadata_variable(state, collection, "EXTENSIONS", true);
 
-    let mut matching_rules =
-        rules.iter().filter_map(|r| match_rule(analysis, r, &key.arguments));
+    let first_line_match =
+        interpret_metadata_variable(state, collection, "FIRST_LINE", false);
 
-    if let Some((rule, var_map)) = matching_rules.next() {
-        // Check for conflicting match
-        if let Some((dup_rule, _)) = matching_rules.next() {
-            let mut comments = vec![
-                (rule, "This rule matches the arguments".to_string()),
-                (dup_rule, "This rule also matches the arguments".to_string()),
-            ];
-            if let Some(variable) = variable {
-                comments.push((variable, "Instantiated from here".to_string()));
-            }
-            state.errors.push(state.stack.error(
-                format!("Ambiguous rule instantiation for {}", key),
-                rule,
-                comments,
-            ));
-            return;
-        }
+    let name_ref = name.as_ref();
 
-        let is_new_key = state.rule_keys.insert(key.clone());
-        assert!(is_new_key);
-
-        let (expression_node, options_node) =
-            if let NodeData::Rule { node, options, .. } = &rule.data {
-                (node, options)
-            } else {
-                panic!()
-            };
-
-        state.stack.push(variable, rule, key.arguments.clone());
-
-        // Limit the stack depth. Infinite loops can be constructed through
-        // recursion.
-        if state.stack.len() > STACK_SIZE_LIMIT {
-            state.errors.push(state.stack.error_from_str(
-                "Recursion depth limit reached",
-                variable.unwrap(), // Only none when the stack size is 1
-                vec![],
-            ));
-            state.stack.pop();
-            return;
-        }
-
-        let options = parse_rule_options(
-            state,
-            &var_map,
-            analysis,
-            key.name,
-            options_node,
+    let scope = interpret_metadata_variable(state, collection, "SCOPE", true)
+        .map_or_else(
+            || {
+                sublime_syntax::Scope::new(vec![format!(
+                    "source.{}",
+                    name_ref.map_or_else(
+                        || "".to_string(),
+                        |s| s.to_ascii_lowercase()
+                    ),
+                )])
+            },
+            |s| parse_top_level_scope(&s.1),
         );
 
-        let expression =
-            interpret_expression(state, &var_map, analysis, expression_node);
+    let scope_postfix =
+        interpret_metadata_variable(state, collection, "SCOPE_POSTFIX", true)
+            .map_or_else(
+                || {
+                    name_ref.map_or_else(
+                        || "".to_string(),
+                        |n| n.to_ascii_lowercase(),
+                    )
+                },
+                |s| s.1,
+            );
 
-        if let Some(expression) = expression {
-            let is_new_rule =
-                state.rules.insert(key.clone(), Rule { options, expression });
-            assert!(is_new_rule.is_none());
+    let hidden = if let Some((node, value)) =
+        interpret_metadata_variable(state, collection, "HIDDEN", true)
+    {
+        if value != "false" && value != "true" {
+            state.errors.push(Error::from_str(
+                "HIDDEN must be either `true` or `false`",
+                node,
+                vec![(node, format!("was `{}` instead", value))],
+            ));
         }
 
-        state.stack.pop();
+        value == "true"
     } else {
-        let mut comments: Vec<(&'a Node<'a>, String)> = vec![];
-        for rule in rules {
-            comments.push((rule, "Does not match".to_string()));
+        false
+    };
+
+    Metadata {
+        name: name.unwrap_or_else(|| "".to_string()),
+        // File extensions are separated by whitespace
+        file_extensions: file_extensions.map_or(vec![], |s| {
+            s.1.split_ascii_whitespace()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        }),
+        first_line_match: first_line_match
+            .map(|s| sublime_syntax::Pattern::new(s.1)),
+        scope,
+        scope_postfix,
+        hidden,
+    }
+}
+
+fn interpret_metadata_variable<'a>(
+    state: &mut State<'a>,
+    collection: &DefinitionMap<'a>,
+    name: &'a str,
+    is_literal: bool,
+) -> Option<(&'a Node<'a>, String)> {
+    if let Some(definition) = collection.get(&(name, 0)) {
+        assert!(definition.kind == DefinitionKind::Variable);
+
+        let overloads = &definition.overloads;
+
+        let key = Key { name, arguments: vec![] };
+
+        let value = interpret_variable(state, collection, None, key);
+
+        match value {
+            Some(Value::String { literal, regex, .. }) => Some((
+                overloads[0],
+                if is_literal {
+                    literal.to_string()
+                } else {
+                    regex.to_string()
+                },
+            )),
+            Some(Value::Rule { node, .. }) => {
+                state.errors.push(Error::new(
+                    format!("'{}' must be a string, not a rule", name),
+                    overloads[0],
+                    vec![
+                        (overloads[0], "must be a string".to_string()),
+                        (node, "was this instead".to_string()),
+                    ],
+                ));
+
+                None
+            }
+            None => None,
         }
-        if let Some(variable) = &variable {
-            comments.push((variable, "Instantiated from here".to_string()));
-        }
-        state.errors.push(state.stack.error(
-            format!("No matching rule instantiation for {}", key),
-            variable.unwrap_or(rules[0]),
-            comments,
-        ));
+    } else {
+        None
     }
 }
 
 fn match_rule<'a, 'b>(
-    analysis: &'b Analysis<'a>,
-    rule: &'a Node<'a>,
+    state: &mut State<'a>,
+    collection: &'b DefinitionMap<'a>,
+    def_node: &'a Node<'a>,
     arguments: &Vec<Value<'a>>,
 ) -> Option<(&'a Node<'a>, VarMap<'a>)> {
-    let parameters = if let NodeData::Rule { parameters, .. } = &rule.data {
-        parameters
-    } else {
-        panic!()
+    let parameters = match &def_node.data {
+        NodeData::Rule { parameters, .. }
+        | NodeData::Variable { parameters, .. } => {
+            parameters.as_ref().map(|p| p.as_ref())
+        }
+        // Syntax parameters don't have a rule or variable node, but they also
+        // never have parameters.
+        _ => None,
     };
+
+    if parameters.is_none() && arguments.is_empty() {
+        return Some((def_node, HashMap::new()));
+    }
+
+    let parameters =
+        if let NodeData::Parameters(params) = &parameters.unwrap().data {
+            params
+        } else {
+            panic!()
+        };
 
     if parameters.len() != arguments.len() {
         return None;
@@ -339,7 +398,7 @@ fn match_rule<'a, 'b>(
     let mut var_map = HashMap::new();
 
     for (param, arg) in parameters.iter().zip(arguments.iter()) {
-        let value = interpret_value(&var_map, analysis, param);
+        let value = interpret_value(state, collection, &var_map, param, true);
 
         if let Some(value) = value {
             if value != *arg {
@@ -350,42 +409,282 @@ fn match_rule<'a, 'b>(
         }
     }
 
-    Some((rule, var_map))
+    Some((def_node, var_map))
+}
+
+fn resolve_definition<'a>(
+    state: &mut State<'a>,
+    collection: &DefinitionMap<'a>,
+    reference: Option<&'a Node<'a>>,
+    key: &Key<'a>,
+) -> Option<(DefinitionKind, &'a Node<'a>, VarMap<'a>)> {
+    if let Some(Definition { kind, overloads }) =
+        collection.get(&(key.name, key.arguments.len() as u8))
+    {
+        let mut matching = overloads
+            .iter()
+            .filter_map(|r| match_rule(state, collection, r, &key.arguments));
+
+        if let Some((node, var_map)) = matching.next() {
+            let remaining = matching.collect::<Vec<_>>();
+
+            if !remaining.is_empty() {
+                let mut comments =
+                    vec![(node, "This matches the arguments".to_string())];
+                for (other_node, _) in remaining {
+                    comments.push((
+                        other_node,
+                        "This also matches the arguments".to_string(),
+                    ));
+                }
+                if let Some(reference) = reference {
+                    comments.push((
+                        reference,
+                        "Instantiated from here".to_string(),
+                    ));
+                }
+                state.errors.push(state.stack.error(
+                    format!("Ambiguous instantiation for {}", key),
+                    node,
+                    comments,
+                ));
+                return None;
+            }
+
+            Some((*kind, node, var_map))
+        } else {
+            let mut comments: Vec<(&'a Node<'a>, String)> = vec![];
+            for node in overloads {
+                comments.push((node, "Does not match".to_string()));
+            }
+            if let Some(reference) = &reference {
+                comments
+                    .push((reference, "Instantiated from here".to_string()));
+            }
+            state.errors.push(state.stack.error(
+                format!("No matching instantiation for {}", key),
+                reference.unwrap_or(overloads[0]),
+                comments,
+            ));
+
+            None
+        }
+    } else {
+        let mut msg = if is_variable_name(key.name) {
+            format!("Could not find variable {}", key.name)
+        } else if is_rule_name(key.name) {
+            format!("Could not find rule {}", key.name)
+        } else {
+            format!("Could not find {}", key.name)
+        };
+
+        if key.arguments.len() > 0 {
+            msg.push_str(&format!(" with {} arguments", key.arguments.len()));
+        }
+
+        state.errors.push(state.stack.error(
+            msg,
+            reference.unwrap(),
+            vec![(reference.unwrap(), "Does not exist".to_string())],
+        ));
+
+        None
+    }
+}
+
+fn interpret_variable<'a>(
+    state: &mut State<'a>,
+    collection: &DefinitionMap<'a>,
+    reference: Option<&'a Node<'a>>,
+    key: Key<'a>,
+) -> Option<Value<'a>> {
+    if state.variables.contains_key(&key) {
+        return state.variables[&key].clone();
+    }
+
+    if let Some((kind, node, var_map)) =
+        resolve_definition(state, collection, reference, &key)
+    {
+        assert!(kind == DefinitionKind::Variable);
+
+        // Detect recursive definitions
+        if state.seen_definitions.contains(&key) {
+            state.errors.push(state.stack.error(
+                format!("Variable {} is defined in terms of itself", key.name),
+                node,
+                vec![],
+            ));
+            return None;
+        }
+
+        let is_new_key = state.seen_definitions.insert(key.clone());
+        assert!(is_new_key);
+
+        if !state.stack.push(reference, node, key.arguments.clone()) {
+            state.errors.push(state.stack.error_from_str(
+                "Recursion depth limit reached",
+                reference.unwrap(), // Only none when the stack size is 1
+                vec![],
+            ));
+            return None;
+        }
+
+        let value_node = match &node.data {
+            NodeData::Variable { value, .. } => value,
+            _ => panic!(),
+        };
+
+        let value =
+            interpret_value(state, collection, &var_map, value_node, false);
+        state.variables.insert(key, value.clone());
+
+        state.stack.pop();
+
+        value
+    } else {
+        None
+    }
+}
+
+fn interpret_rule<'a, 'b>(
+    state: &mut State<'a>,
+    meta_state: &MetaState<'a, 'b>,
+    reference: Option<&'a Node<'a>>,
+    key: &Key<'a>,
+) {
+    // Nothing to do if the key has been seen before
+    if state.seen_definitions.contains(key) {
+        return;
+    }
+
+    if let Some((kind, node, var_map)) =
+        resolve_definition(state, &meta_state.collection, reference, key)
+    {
+        assert!(kind == DefinitionKind::Rule);
+
+        let is_new_key = state.seen_definitions.insert(key.clone());
+        assert!(is_new_key);
+
+        let (expression_node, options_node) =
+            if let NodeData::Rule { node, options, .. } = &node.data {
+                (node, options)
+            } else {
+                panic!()
+            };
+
+        if !state.stack.push(reference, node, key.arguments.clone()) {
+            state.errors.push(state.stack.error_from_str(
+                "Recursion depth limit reached",
+                reference.unwrap(), // Only none when the stack size is 1
+                vec![],
+            ));
+            return;
+        }
+
+        let options = parse_rule_options(
+            state,
+            meta_state,
+            &var_map,
+            key.name,
+            options_node.as_ref().map(|o| o.as_ref()),
+        );
+
+        let expression =
+            interpret_expression(state, meta_state, &var_map, expression_node);
+
+        if let Some(expression) = expression {
+            let is_new_rule =
+                state.rules.insert(key.clone(), Rule { options, expression });
+            assert!(is_new_rule.is_none());
+        }
+
+        state.stack.pop();
+    }
 }
 
 fn interpret_value<'a>(
+    state: &mut State<'a>,
+    collection: &DefinitionMap<'a>,
     var_map: &VarMap<'a>,
-    analysis: &Analysis<'a>,
     node: &'a Node<'a>,
+    is_parameter: bool,
 ) -> Option<Value<'a>> {
     match &node.data {
         NodeData::RegexTerminal { options, embed } => {
-            assert!(options.is_empty());
+            assert!(options.is_none());
             assert!(embed.is_none());
+
+            let regex =
+                interpolate_string(state, collection, var_map, node, node.text);
+
             Some(Value::String {
-                regex: node.text,
-                literal: node.text,
+                regex: regex.clone(),
+                literal: regex,
                 node: Some(node),
             })
         }
         NodeData::LiteralTerminal { regex, options, embed } => {
-            assert!(options.is_empty());
+            assert!(options.is_none());
             assert!(embed.is_none());
             Some(Value::String {
-                regex: &regex,
-                literal: node.text,
+                regex: regex.to_string(),
+                literal: node.text.to_string(),
                 node: Some(node),
             })
         }
-        NodeData::Variable { parameters } => {
-            assert!(parameters.is_empty());
+        NodeData::Reference { parameters, .. } => {
+            let arguments = if let Some(param_node) = parameters {
+                let parameters = match &param_node.data {
+                    NodeData::Parameters(params) => params,
+                    _ => panic!(),
+                };
 
-            if analysis.rules.contains_key(node.text) {
-                Some(Value::Rule { name: node.text, node: node })
-            } else if let Some(value) =
-                var_maps_get(&[var_map, &analysis.variables], node.text)
+                let arguments = parameters
+                    .iter()
+                    .filter_map(|p| {
+                        interpret_value(state, collection, var_map, p, false)
+                    })
+                    .collect::<Vec<_>>();
+
+                if arguments.len() != parameters.len() {
+                    return None;
+                }
+
+                arguments
+            } else {
+                vec![]
+            };
+
+            if arguments.is_empty() {
+                if let Some(value) = var_map.get(node.text) {
+                    return Some(value.clone());
+                }
+            }
+
+            // Don't try to resolve the definition if we're a parameter and know
+            // it doesn't exist
+            if is_parameter
+                && arguments.is_empty()
+                && !collection.contains_key(&(node.text, 0))
             {
-                Some(value.clone())
+                return None;
+            }
+
+            let key = Key { name: node.text, arguments };
+
+            if let Some((kind, ref_node, _)) =
+                resolve_definition(state, collection, Some(node), &key)
+            {
+                match kind {
+                    DefinitionKind::Variable => {
+                        interpret_variable(state, collection, Some(node), key)
+                    }
+                    DefinitionKind::Rule => Some(Value::Rule {
+                        name: key.name,
+                        arguments: key.arguments,
+                        node: ref_node,
+                    }),
+                }
             } else {
                 None
             }
@@ -396,64 +695,60 @@ fn interpret_value<'a>(
     }
 }
 
-fn interpret_expression<'a>(
+fn interpret_expression<'a, 'b>(
     state: &mut State<'a>,
+    meta_state: &MetaState<'a, 'b>,
     var_map: &VarMap<'a>,
-    analysis: &Analysis<'a>,
     node: &'a Node<'a>,
 ) -> Option<Expression<'a>> {
     match &node.data {
-        NodeData::Variable { parameters } => {
-            let name = if let Some(value) =
-                var_maps_get(&[var_map, &analysis.variables], node.text)
-            {
-                match value {
-                    Value::String { .. } => {
-                        state.errors.push(state.stack.error_from_str(
-                            "Can't mixin string as variable",
-                            node,
-                            vec![(
-                                node,
-                                format!("Use '#[{}]' here instead", node.text),
-                            )],
-                        ));
-                        return None;
-                    }
-                    Value::Rule { name, .. } => name,
-                }
-            } else {
-                node.text
-            };
+        NodeData::Reference { options: node_options, .. } => {
+            let value = interpret_value(
+                state,
+                &meta_state.collection,
+                var_map,
+                node,
+                false,
+            );
 
-            // TODO: string interpolation for arguments
-            let mut arguments = vec![];
-            for param in parameters {
-                if let Some(value) = interpret_value(var_map, analysis, param) {
-                    arguments.push(value);
-                } else {
-                    state.errors.push(state.stack.error_from_str(
-                        "Undefined variable",
-                        param,
-                        vec![(
-                                node,
-                                "wasn't declared and doesn't refer to a rule"
-                                    .to_string(),
-                            )],
-                    ));
-                }
-            }
-
-            let key = RuleKey { name, arguments };
-            interpret_rule(state, analysis, Some(node), &key);
-            Some(Expression::Variable { key, node })
-        }
-        NodeData::RegexTerminal { options: node_options, embed } => {
-            let regex =
-                interpolate_string(state, analysis, var_map, node, node.text);
             let options = parse_terminal_options(
                 state,
+                meta_state,
                 var_map,
-                analysis,
+                node_options,
+                &None,
+            );
+
+            match value {
+                Some(Value::String { regex, node, .. }) => {
+                    Some(Expression::Terminal {
+                        regex: regex.to_string(),
+                        options,
+                        node: node.unwrap(),
+                    })
+                }
+                Some(Value::Rule { name, arguments, .. }) => {
+                    assert!(node_options.is_none());
+
+                    let key = Key { name, arguments };
+                    interpret_rule(state, meta_state, Some(node), &key);
+                    Some(Expression::Variable { key, node })
+                }
+                None => None,
+            }
+        }
+        NodeData::RegexTerminal { options: node_options, embed } => {
+            let regex = interpolate_string(
+                state,
+                &meta_state.collection,
+                var_map,
+                node,
+                node.text,
+            );
+            let options = parse_terminal_options(
+                state,
+                meta_state,
+                var_map,
                 node_options,
                 embed,
             );
@@ -463,8 +758,8 @@ fn interpret_expression<'a>(
         NodeData::LiteralTerminal { regex, options: node_options, embed } => {
             let options = parse_terminal_options(
                 state,
+                meta_state,
                 var_map,
-                analysis,
                 node_options,
                 embed,
             );
@@ -472,7 +767,7 @@ fn interpret_expression<'a>(
         }
         NodeData::Passive(child) => {
             if let Some(expression) =
-                interpret_expression(state, var_map, analysis, child)
+                interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Passive {
                     expression: Box::new(expression),
@@ -484,7 +779,7 @@ fn interpret_expression<'a>(
         }
         NodeData::Repetition(child) => {
             if let Some(expression) =
-                interpret_expression(state, var_map, analysis, child)
+                interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Repetition {
                     expression: Box::new(expression),
@@ -496,7 +791,7 @@ fn interpret_expression<'a>(
         }
         NodeData::Optional(child) => {
             if let Some(expression) =
-                interpret_expression(state, var_map, analysis, child)
+                interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Optional {
                     expression: Box::new(expression),
@@ -510,7 +805,7 @@ fn interpret_expression<'a>(
             let expressions = children
                 .iter()
                 .filter_map(|child| {
-                    interpret_expression(state, var_map, analysis, child)
+                    interpret_expression(state, meta_state, var_map, child)
                 })
                 .collect::<Vec<_>>();
 
@@ -524,7 +819,7 @@ fn interpret_expression<'a>(
             let expressions = children
                 .iter()
                 .filter_map(|child| {
-                    interpret_expression(state, var_map, analysis, child)
+                    interpret_expression(state, meta_state, var_map, child)
                 })
                 .collect::<Vec<_>>();
 
@@ -538,35 +833,44 @@ fn interpret_expression<'a>(
     }
 }
 
-fn parse_terminal_options<'a>(
+fn parse_terminal_options<'a, 'b>(
     state: &mut State<'a>,
+    meta_state: &MetaState<'a, 'b>,
     var_map: &VarMap<'a>,
-    analysis: &Analysis<'a>,
-    node_options: &'a Vec<Node<'a>>,
+    node_options: &'a Option<Box<Node<'a>>>,
     node_embed: &'a Option<Box<Node<'a>>>,
 ) -> TerminalOptions<'a> {
     let mut options = TerminalOptions {
         scope: sublime_syntax::Scope::empty(),
         captures: HashMap::new(),
-        embed: parse_terminal_embed(state, var_map, analysis, node_embed),
+        embed: parse_terminal_embed(state, meta_state, var_map, node_embed),
+    };
+
+    let node_options = if let Some(opts) = node_options {
+        match &opts.data {
+            NodeData::Options(opts) => opts,
+            _ => panic!(),
+        }
+    } else {
+        return options;
     };
 
     for (i, option) in node_options.iter().enumerate() {
         match &option.data {
-            NodeData::PositionalArgument => {
+            NodeData::PositionalOption => {
                 // A positional option may only appear at the start to
                 // determine the scope
                 if i == 0 {
                     let interpolated = interpolate_string(
                         state,
-                        analysis,
+                        &meta_state.collection,
                         var_map,
                         option,
                         option.text,
                     );
 
                     options.scope =
-                        parse_scope(&analysis.metadata, &interpolated);
+                        parse_scope(meta_state.metadata, &interpolated);
                 } else {
                     state.errors.push(state.stack.error_from_str(
                         "Positional argument for terminal scope may only be the first argument",
@@ -574,13 +878,17 @@ fn parse_terminal_options<'a>(
                         vec!()));
                 }
             }
-            NodeData::KeywordArgument(value_node) => {
+            NodeData::KeywordOption(value_node) => {
                 let key = trim_ascii(option.text);
 
-                assert!(value_node.data == NodeData::KeywordArgumentValue);
+                assert!(value_node.data == NodeData::KeywordOptionValue);
                 let value_text = trim_ascii(value_node.text);
                 let value = interpolate_string(
-                    state, analysis, var_map, value_node, value_text,
+                    state,
+                    &meta_state.collection,
+                    var_map,
+                    value_node,
+                    value_text,
                 );
 
                 // The first set of keyword arguments determine captures
@@ -595,7 +903,7 @@ fn parse_terminal_options<'a>(
                     } else {
                         options.captures.insert(
                             group,
-                            parse_scope(&analysis.metadata, &value),
+                            parse_scope(meta_state.metadata, &value),
                         );
                     }
                 } else {
@@ -614,31 +922,44 @@ fn parse_terminal_options<'a>(
     options
 }
 
-fn parse_rule_options<'a>(
+fn parse_rule_options<'a, 'b>(
     state: &mut State<'a>,
+    meta_state: &MetaState<'a, 'b>,
     var_map: &VarMap<'a>,
-    analysis: &Analysis<'a>,
     name: &'a str,
-    options: &'a Vec<Node<'a>>,
+    options: Option<&'a Node<'a>>,
 ) -> RuleOptions {
     let mut scope = sublime_syntax::Scope::empty();
     let mut include_prototype: Option<(&'a Node<'a>, bool)> = None;
 
-    if analysis.debug_contexts {
+    if meta_state.options.debug_contexts {
         scope.scopes.push(format!("{}.sbnf-dbg", name));
     }
 
+    if options.is_none() {
+        return RuleOptions {
+            scope,
+            include_prototype: true,
+            capture: name == "main" || name == "prototype",
+        };
+    }
+
+    let options = match &options.unwrap().data {
+        NodeData::Options(opts) => opts,
+        _ => panic!(),
+    };
+
     for (i, argument) in options.iter().enumerate() {
-        if i == 0 && argument.data == NodeData::PositionalArgument {
+        if i == 0 && argument.data == NodeData::PositionalOption {
             let interpolated = interpolate_string(
                 state,
-                analysis,
+                &meta_state.collection,
                 var_map,
                 argument,
                 argument.text,
             );
-            scope = parse_scope(&analysis.metadata, &interpolated);
-        } else if argument.data == NodeData::PositionalArgument {
+            scope = parse_scope(meta_state.metadata, &interpolated);
+        } else if argument.data == NodeData::PositionalOption {
             state.errors.push(Error::from_str(
                 "Rules may only have one positional argument specifying the meta scope",
                 argument,
@@ -646,11 +967,15 @@ fn parse_rule_options<'a>(
                     (argument, "this argument".to_string()),
                     (&options[0], "should be used here".to_string()),
                 )));
-        } else if let NodeData::KeywordArgument(value_node) = &argument.data {
-            assert!(value_node.data == NodeData::KeywordArgumentValue);
+        } else if let NodeData::KeywordOption(value_node) = &argument.data {
+            assert!(value_node.data == NodeData::KeywordOptionValue);
             let value_text = trim_ascii(value_node.text);
             let value = interpolate_string(
-                state, analysis, var_map, value_node, value_text,
+                state,
+                &meta_state.collection,
+                var_map,
+                value_node,
+                value_text,
             );
 
             if trim_ascii(argument.text) == "include-prototype" {
@@ -699,10 +1024,10 @@ fn parse_rule_options<'a>(
     }
 }
 
-fn parse_terminal_embed<'a>(
+fn parse_terminal_embed<'a, 'b>(
     state: &mut State<'a>,
+    meta_state: &MetaState<'a, 'b>,
     var_map: &VarMap<'a>,
-    analysis: &Analysis<'a>,
     node_embed: &'a Option<Box<Node<'a>>>,
 ) -> TerminalEmbed<'a> {
     let node_embed = if let Some(n) = node_embed.as_ref() {
@@ -711,12 +1036,20 @@ fn parse_terminal_embed<'a>(
         return TerminalEmbed::None;
     };
 
-    let (parameters, options) =
-        if let NodeData::Embed { parameters, options } = &node_embed.data {
-            (parameters, options)
-        } else {
-            panic!();
-        };
+    let (parameters, options) = match &node_embed.data {
+        NodeData::Embed { parameters, options } => (parameters, options),
+        _ => panic!(),
+    };
+
+    let parameters = match &parameters.data {
+        NodeData::Parameters(p) => p,
+        _ => panic!(),
+    };
+
+    let options = match &options.data {
+        NodeData::Options(o) => o,
+        _ => panic!(),
+    };
 
     if node_embed.text == "embed" {
         // Embed takes a single string parameter for the escape regex
@@ -736,7 +1069,7 @@ fn parse_terminal_embed<'a>(
         {
             interpolate_string(
                 state,
-                analysis,
+                &meta_state.collection,
                 var_map,
                 &parameters[0],
                 parameters[0].text,
@@ -766,20 +1099,20 @@ fn parse_terminal_embed<'a>(
         }
 
         let embed = match &options[0].data {
-            NodeData::PositionalArgument => interpolate_string(
+            NodeData::PositionalOption => interpolate_string(
                 state,
-                analysis,
+                &meta_state.collection,
                 var_map,
                 &options[0],
                 options[0].text,
             ),
-            NodeData::KeywordArgument(value_node) => {
+            NodeData::KeywordOption(value_node) => {
                 let key = options[0].text;
 
-                assert!(value_node.data == NodeData::KeywordArgumentValue);
+                assert!(value_node.data == NodeData::KeywordOptionValue);
                 let value_text = interpolate_string(
                     state,
-                    analysis,
+                    &meta_state.collection,
                     var_map,
                     value_node,
                     value_node.text,
@@ -799,20 +1132,20 @@ fn parse_terminal_embed<'a>(
 
         for (i, option) in options[1..].iter().enumerate() {
             match &option.data {
-                NodeData::PositionalArgument => {
+                NodeData::PositionalOption => {
                     // A positional option may only appear at the start to
                     // determine the scope
                     if i == 0 {
                         let interpolated = interpolate_string(
                             state,
-                            analysis,
+                            &meta_state.collection,
                             var_map,
                             option,
                             option.text,
                         );
 
                         embed_scope =
-                            parse_scope(&analysis.metadata, &interpolated);
+                            parse_scope(meta_state.metadata, &interpolated);
                     } else {
                         state.errors.push(state.stack.error_from_str(
                             "Positional argument for escape scope may only be the second argument",
@@ -820,13 +1153,17 @@ fn parse_terminal_embed<'a>(
                             vec!()));
                     }
                 }
-                NodeData::KeywordArgument(value_node) => {
+                NodeData::KeywordOption(value_node) => {
                     let key = trim_ascii(option.text);
 
-                    assert!(value_node.data == NodeData::KeywordArgumentValue);
+                    assert!(value_node.data == NodeData::KeywordOptionValue);
                     let value_text = trim_ascii(value_node.text);
                     let value = interpolate_string(
-                        state, analysis, var_map, value_node, value_text,
+                        state,
+                        &meta_state.collection,
+                        var_map,
+                        value_node,
+                        value_text,
                     );
 
                     // The first set of keyword arguments determine captures
@@ -841,7 +1178,7 @@ fn parse_terminal_embed<'a>(
                         } else {
                             escape_captures.insert(
                                 group,
-                                parse_scope(&analysis.metadata, &value),
+                                parse_scope(meta_state.metadata, &value),
                             );
                         }
                     } else {
@@ -872,18 +1209,42 @@ fn parse_terminal_embed<'a>(
             return TerminalEmbed::None;
         }
 
-        let prototype = if let NodeData::Variable { .. } = parameters[0].data {
-            let name = parameters[0].text;
-            let key = RuleKey { name, arguments: vec![] };
-            interpret_rule(state, analysis, Some(&parameters[0]), &key);
-            key
-        } else {
-            state.errors.push(state.stack.error_from_str(
-                "%include can only take a variable as an argument",
-                node_embed,
-                vec![(node_embed, "Given a variable instead".to_string())],
-            ));
-            return TerminalEmbed::None;
+        let value = interpret_value(
+            state,
+            meta_state.collection,
+            var_map,
+            &parameters[0],
+            false,
+        );
+
+        let prototype = match value {
+            Some(Value::String { node, .. }) => {
+                let mut comments = vec![
+                    (
+                        node_embed.as_ref(),
+                        "Must be provided a rule".to_string(),
+                    ),
+                    (
+                        &parameters[0],
+                        "Should be a rule, but was a string".to_string(),
+                    ),
+                ];
+                if let Some(node) = node {
+                    comments.push((node, "String came from here".to_string()));
+                }
+                state.errors.push(state.stack.error_from_str(
+                    "Argument must be a rule, but was a string instead",
+                    node_embed,
+                    comments,
+                ));
+                return TerminalEmbed::None;
+            }
+            Some(Value::Rule { name, arguments, .. }) => {
+                let key = Key { name, arguments };
+                interpret_rule(state, meta_state, Some(&parameters[0]), &key);
+                key
+            }
+            None => return TerminalEmbed::None,
         };
 
         // Include takes a single option for the context to include
@@ -897,20 +1258,20 @@ fn parse_terminal_embed<'a>(
         }
 
         let context = match &options[0].data {
-            NodeData::PositionalArgument => interpolate_string(
+            NodeData::PositionalOption => interpolate_string(
                 state,
-                analysis,
+                &meta_state.collection,
                 var_map,
                 &options[0],
                 options[0].text,
             ),
-            NodeData::KeywordArgument(value_node) => {
+            NodeData::KeywordOption(value_node) => {
                 let key = options[0].text;
 
-                assert!(value_node.data == NodeData::KeywordArgumentValue);
+                assert!(value_node.data == NodeData::KeywordOptionValue);
                 let value_text = interpolate_string(
                     state,
-                    analysis,
+                    &meta_state.collection,
                     var_map,
                     value_node,
                     value_node.text,
@@ -940,21 +1301,169 @@ fn parse_terminal_embed<'a>(
     }
 }
 
-fn interpolate_string<'a>(
+// A fast way to convert an interval of iterators to a substring. Rust should
+// at least have an easy way to get byte indices from Chars :(
+fn str_from_iterators<'a>(
+    string: &'a str,
+    start: std::str::Chars<'a>,
+    end: std::str::Chars<'a>,
+) -> &'a str {
+    // Convert start and end into byte offsets
+    let bytes_start = string.as_bytes().len() - start.as_str().as_bytes().len();
+    let bytes_end = string.as_bytes().len() - end.as_str().as_bytes().len();
+
+    // SAFETY: As long as the iterators are from the string the byte offsets
+    // will always be valid.
+    unsafe {
+        std::str::from_utf8_unchecked(
+            &string.as_bytes()[bytes_start..bytes_end],
+        )
+    }
+}
+
+// TODO: Tests
+// TODO: Move to parser
+fn interpolate_string<'a, 'b>(
     state: &mut State<'a>,
-    analysis: &Analysis<'a>,
+    collection: &DefinitionMap<'a>,
     var_map: &VarMap<'a>,
     node: &'a Node<'a>,
     string: &'a str,
 ) -> String {
-    let (result, mut errors) = super::common::interpolate_string(
-        &state.stack,
-        &[var_map, &analysis.variables],
-        node,
-        string,
-    );
+    let mut result = String::new();
 
-    state.errors.append(&mut errors);
+    let mut iter = string.chars();
+
+    while let Some(chr) = iter.next() {
+        if chr == '\\' {
+            match iter.next() {
+                Some('#') => {
+                    result.push('#');
+                }
+                Some(next_chr) => {
+                    result.push('\\');
+                    result.push(next_chr);
+                }
+                _ => {
+                    break;
+                }
+            }
+        } else if chr == '#' {
+            match iter.next() {
+                Some('[') => {
+                    let start = iter.clone();
+
+                    loop {
+                        let mut peek = iter.clone();
+                        match peek.next() {
+                            Some(']') => {
+                                break;
+                            }
+                            Some(c) => {
+                                if is_identifier_char(c) {
+                                    iter.next();
+                                } else {
+                                    // TODO: Add node offset to show the error at the character
+                                    state.errors.push(state.stack.error(
+                                        format!("Unexpected character '{}' in string interpolation", c),
+                                        node,
+                                        vec!()));
+                                    return result;
+                                }
+                            }
+                            None => {
+                                state.errors.push(state.stack.error_from_str(
+                                    "Expected ']' before the end of the string to end string interpolation",
+                                    node,
+                                    vec!()));
+                                return result;
+                            }
+                        }
+                    }
+
+                    let variable =
+                        str_from_iterators(string, start, iter.clone());
+                    let end = iter.next();
+                    assert!(end.unwrap() == ']');
+
+                    let value = if let Some(value) = var_map.get(&variable) {
+                        Some(value.clone())
+                    } else {
+                        let key = Key { name: variable, arguments: vec![] };
+
+                        if let Some((kind, ref_node, _)) = resolve_definition(
+                            state,
+                            collection,
+                            Some(node),
+                            &key,
+                        ) {
+                            match kind {
+                                DefinitionKind::Variable => interpret_variable(
+                                    state,
+                                    collection,
+                                    Some(node),
+                                    key,
+                                ),
+                                DefinitionKind::Rule => Some(Value::Rule {
+                                    name: key.name,
+                                    arguments: key.arguments,
+                                    node: ref_node,
+                                }),
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(value) = value {
+                        match value {
+                            Value::Rule { node: rule_node, .. } => {
+                                state.errors.push(state.stack.error_from_str(
+                                    "Can't interpolate rule",
+                                    node,
+                                    vec![
+                                        (
+                                            node,
+                                            format!(
+                                                "{} must refer to a string",
+                                                variable
+                                            ),
+                                        ),
+                                        (
+                                            rule_node,
+                                            format!(
+                                                "{} is {}",
+                                                variable, value
+                                            ),
+                                        ),
+                                    ],
+                                ));
+                            }
+                            Value::String { regex, .. } => {
+                                result.push_str(&regex);
+                            }
+                        }
+                    } else {
+                        state.errors.push(state.stack.error_from_str(
+                            "Variable in string interpolation not found",
+                            node,
+                            vec!(
+                                (node, format!("{} must be defined as an argument to the rule", variable)),
+                            )));
+                    }
+                }
+                Some(next_chr) => {
+                    result.push('#');
+                    result.push(next_chr);
+                }
+                _ => {
+                    break;
+                }
+            }
+        } else {
+            result.push(chr);
+        }
+    }
 
     result
 }

@@ -1,11 +1,11 @@
-scope: test
+SCOPE = `test`
 
 main
-= ( ~( interpolation['a']
+: ( ~( interpolation['a']
      | interpolation['b']
      | interpolation['c']
      )
   )*
 ;
 
-interpolation[M] = 'a#[M]c'{interp.#[M]} ;
+interpolation[M] : 'a#[M]c'{interp.#[M]} ;

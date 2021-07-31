@@ -1,7 +1,7 @@
-scope: source.regexp
+SCOPE = `source.regexp`
 
-main{meta.literal.regexp} = ( ~literal )* ;
+main{meta.literal.regexp} : ( ~literal )* ;
 
-literal = `.`{keyword.other.any}
+literal : `.`{keyword.other.any}
         | `)`{invalid.illegal.unmatched-brace}
         ;
