@@ -2,90 +2,94 @@ EXTENSIONS = 'sbnf'
 
 prototype : ( ~comment )* ;
 
-comment{comment.line.number-sign} : '#+'{punctuation.definition.comment}
-                                    ~'$\n?'
-                                  ;
+comment{comment.line.number-sign} :
+  '#+'{punctuation.definition.comment}
+  ~'$\n?'
+;
 
-main : ( variable
-       | rule
-       | parameters
-       )*
-     ;
+main : ( variable | rule | parameters )* ;
 
 IDENTIFIER = '[[:alnum:]_\-\.]+'
 
-variable : IDENTIFIER{entity.name.variable}
-           `=`{keyword.operator.assignment}
-           ( literal
-           | regex
-           | IDENTIFIER{variable.function} parameters?
-           )
-         ;
+variable :
+  IDENTIFIER{entity.name.variable}
+  `=`{keyword.operator.assignment}
+  (
+    literal
+    | regex
+    | IDENTIFIER{variable.function} parameters?
+  )
+;
 
-rule : IDENTIFIER{entity.name.function}
-       parameters?
-       options?
-       `:`{keyword.operator.assignment}
-       pattern
-       `;`{punctuation.terminator.rule}
-     ;
+rule :
+  IDENTIFIER{entity.name.function}
+  parameters?
+  options?
+  `:`{keyword.operator.assignment}
+  pattern
+  `;`{punctuation.terminator.rule}
+;
 
-pattern : pattern-element (`|`{keyword.operator}? pattern)? ;
+pattern : pattern-element ( `|`{keyword.operator}? pattern )? ;
 
-pattern-element : '~|!'{keyword.operator}?
-                  pattern-item
-                  '\*|\?'{keyword.control}?
-                ;
+pattern-element :
+  '~|!'{keyword.operator}?
+  pattern-item
+  '\*|\?'{keyword.control}?
+;
 
-pattern-item : literal options? embed-include?
-             | regex options? embed-include?
-             | group
-             | IDENTIFIER{variable.function} parameters? options?
-             ;
+pattern-item :
+  literal options? embed-include?
+  | regex options? embed-include?
+  | group
+  | IDENTIFIER{variable.function} parameters? options?
+;
 
-group{meta.group} : `(`{punctuation.section.group.begin}
-                    pattern
-                    `)`{punctuation.section.group.end}
-                  ;
+group{meta.group} :
+  `(`{punctuation.section.group.begin}
+  pattern
+  `)`{punctuation.section.group.end}
+;
 
-literal{string.quoted, include-prototype: false}
-: '`'{punctuation.definition.string.begin}
+literal{string.quoted, include-prototype: false} :
+  '`'{punctuation.definition.string.begin}
   ~'`'{punctuation.definition.string.end}
 ;
 
-regex{string.quoted, include-prototype: false}
-: `'`{punctuation.definition.string.begin}
+regex{string.quoted, include-prototype: false} :
+  `'`{punctuation.definition.string.begin}
   %include[regex-prototype]{scope:source.regexp}
   `'`{punctuation.definition.string.end}
 ;
 
-regex-prototype{include-prototype: false}
-: ( ~( `\'`{constant.character.escape}
-     | interpolation
-     )
-  )*
+regex-prototype{include-prototype: false} :
+  ( ~( `\'`{constant.character.escape} | interpolation ) )*
   ~'(?=\')'
 ;
 
-options{include-prototype: false}
-: '{'
+options{include-prototype: false} :
+  '{'
   ( ~interpolation )*
   ~'}'
 ;
 
-embed-include
-: '%'
+embed-include :
+  '%'
   'embed|include'{keyword}
   parameters
   options
 ;
 
-interpolation{include-prototype: false}
-: `#[`{punctuation.definition.placeholder.begin}
+interpolation{include-prototype: false} :
+  `#[`{punctuation.definition.placeholder.begin}
   parameter
   `]`{punctuation.definition.placeholder.end}
 ;
 
-parameters : `[` parameter ( `,` parameter )* `]` ;
+parameters :
+  `[`
+  parameter ( `,` parameter )*
+  `]`
+;
 
 parameter : literal | regex | IDENTIFIER{variable.parameter} ;

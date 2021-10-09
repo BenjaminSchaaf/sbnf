@@ -1,10 +1,12 @@
 SCOPE = `test`
 
-main
-: ( ~( interpolation['a']
-     | interpolation['b']
-     | interpolation['c']
-     )
+main :
+  (
+    ~(
+      interpolation['a']
+      | interpolation['b']
+      | interpolation['c']
+    )
   )*
 ;
 

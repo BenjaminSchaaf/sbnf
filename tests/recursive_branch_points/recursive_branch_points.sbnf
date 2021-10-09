@@ -1,9 +1,8 @@
 SCOPE = `test`
 
-main
-: ( ~( recursive-a
-     | recursive-b
-     )
+main :
+  (
+    ~( recursive-a | recursive-b )
   )*
 ;
 

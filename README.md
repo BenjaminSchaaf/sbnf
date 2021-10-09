@@ -65,8 +65,8 @@ main : ( variable-declaration | function-definition )* ;
 
 IDENTIFIER = '\b[A-Za-z_]+\b'
 
-function-definition{meta.function}
-: type
+function-definition{meta.function} :
+  type
   IDENTIFIER{entity.name.function}
   `(`
   `)`
@@ -75,22 +75,22 @@ function-definition{meta.function}
 
 block{meta.block} : '{' statement* '}' ;
 
-statement : variable-declaration
-          | value ';'
-          | block
-          ;
+statement :
+  variable-declaration
+  | value ';'
+  | block
+;
 
 variable-declaration : type IDENTIFIER{variable} ( '=' value )? ';' ;
 
 type : IDENTIFIER{storage.type} ;
 
-value : '[0-9]+'{constant.numeric}
-      | function-call
-      ;
+value : '[0-9]+'{constant.numeric} | function-call ;
 
-# Function calls don't have arguments :)
-function-call{meta.function-call}
-: IDENTIFIER{variable.function meta.path} `(` `)` ;
+# Function calls don't have arguments 🙂
+function-call{meta.function-call} :
+  IDENTIFIER{variable.function meta.path} `(` `)`
+;
 ```
 
 The above grammar compiles to the following:
@@ -422,11 +422,11 @@ done inside any terminal or inside options.
 Examples:
 
 ```sbnf
-main
-: a['a'] # instantiates rule 1
-| a[a]   # instantiates rule 2
-| a['b'] # instantiates rule 3
-| b['b'] # error: Ambiguous instantiation
+main :
+  a['a'] # instantiates rule 1
+  | a[a]   # instantiates rule 2
+  | a['b'] # instantiates rule 3
+  | b['b'] # error: Ambiguous instantiation
 ;
 
 # Rule 1.
@@ -480,8 +480,8 @@ Examples:
 ```sbnf
 # This is a basic implementation of the html script tag embedding the javascript
 # syntax.
-script
-: '<script>'{tag.begin.script}
+script :
+  '<script>'{tag.begin.script}
   %embed['</script>']{scope:source.js, embedded.js, 0: tag.end.script}
 ;
 ```
@@ -505,15 +505,15 @@ script:
 # This is a basic implementation of a regex string. It has a prototype rule that
 # extends the regex syntax with an escape sequence for the string.
 
-regex-prototype{include-prototype: false}
-: ( ~`\'`{constant.character.escape} )*
+regex-prototype{include-prototype: false} :
+  ( ~`\'`{constant.character.escape} )*
   # A lookahead is required here, as otherwise we would only pop one context
   # The same is required in a sublime-syntax file
   ~'(?=\')'
 ;
 
-regex-string{string.quoted}
-: `'`{punctuation.definition.string.begin}
+regex-string{string.quoted} :
+  `'`{punctuation.definition.string.begin}
   %include[regex-prototype]{scope:source.regexp}
   `'`{punctuation.definition.string.end}
 ;

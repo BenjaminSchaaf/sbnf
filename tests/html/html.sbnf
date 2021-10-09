@@ -1,32 +1,44 @@
 main : ( ~tags )* ;
 
-tags
-: tag['p']
-| tag['h1']
-| tag['h2']
-| tag['h3']
-| tag['h4']
-| tag['h5']
-| embed-tag['script', 'Packages/tests/html/JavaScript.sublime-syntax', 'js']
+tags :
+  tag['p']
+  | tag['h1']
+  | tag['h2']
+  | tag['h3']
+  | tag['h4']
+  | tag['h5']
+  | embed-tag['script', 'Packages/tests/html/JavaScript.sublime-syntax', 'js']
 ;
 
-tag[NAME]
-: '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
-                                      2: entity.name.tag.begin.#[NAME],
-                                      3: punctuation.definition.tag.end}
+tag[NAME] :
+  '(<)(#[NAME])(>)'{
+    meta.tag.#[NAME],
+    1: punctuation.definition.tag.begin,
+    2: entity.name.tag.begin.#[NAME],
+    3: punctuation.definition.tag.end
+  }
   ( ~tags )*
-  ~'(</)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
-                                        2: entity.name.tag.end.#[NAME],
-                                        3: punctuation.definition.tag.end}
+  ~'(</)(#[NAME])(>)'{
+    meta.tag.#[NAME],
+    1: punctuation.definition.tag.begin,
+    2: entity.name.tag.end.#[NAME],
+    3: punctuation.definition.tag.end
+  }
 ;
 
-embed-tag[NAME, SYNTAX, SCOPE]
-: '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
-                                      2: entity.name.tag.begin.#[NAME],
-                                      3: punctuation.definition.tag.end}
-  %embed['(</)(#[NAME])(>)']{#[SYNTAX], source.embedded.#[SCOPE].html,
-                                        0: meta.tag.#[NAME],
-                                        1: punctuation.definition.tag.begin,
-                                        2: entity.name.tag.end.#[NAME],
-                                        3: punctuation.definition.tag.end}
+embed-tag[NAME, SYNTAX, SCOPE] :
+  '(<)(#[NAME])(>)'{
+    meta.tag.#[NAME],
+    1: punctuation.definition.tag.begin,
+    2: entity.name.tag.begin.#[NAME],
+    3: punctuation.definition.tag.end
+  }
+  %embed['(</)(#[NAME])(>)']{
+    #[SYNTAX],
+    source.embedded.#[SCOPE].html,
+    0: meta.tag.#[NAME],
+    1: punctuation.definition.tag.begin,
+    2: entity.name.tag.end.#[NAME],
+    3: punctuation.definition.tag.end
+  }
 ;

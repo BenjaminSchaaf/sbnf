@@ -8,8 +8,8 @@ main : ( variable-declaration | function-definition )* ;
 
 IDENTIFIER = '\b[A-Za-z_]+\b'
 
-function-definition{meta.function}
-: type
+function-definition{meta.function} :
+  type
   IDENTIFIER{entity.name.function}
   `(`
   `)`
@@ -18,19 +18,19 @@ function-definition{meta.function}
 
 block{meta.block} : '{' statement* '}' ;
 
-statement : variable-declaration
-          | value ';'
-          | block
-          ;
+statement :
+  variable-declaration
+  | value ';'
+  | block
+;
 
 variable-declaration : type IDENTIFIER{variable} ( '=' value )? ';' ;
 
 type : IDENTIFIER{storage.type} ;
 
-value : '[0-9]+'{constant.numeric}
-      | function-call
-      ;
+value : '[0-9]+'{constant.numeric} | function-call ;
 
-# Function calls don't have arguments :)
-function-call{meta.function-call}
-: IDENTIFIER{variable.function meta.path} `(` `)` ;
+# Function calls don't have arguments 🙂
+function-call{meta.function-call} :
+  IDENTIFIER{variable.function meta.path} `(` `)`
+;

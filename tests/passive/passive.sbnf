@@ -1,26 +1,25 @@
 prototype : ( ~comment )* ;
 
-comment{comment.line.number-sign}
-: '#+'{punctuation.definition.comment}
+comment{comment.line.number-sign} :
+  '#+'{punctuation.definition.comment}
   ~'$\n?'
 ;
 
-main
-: ( ~( test-simple-passive
-     | test-push-passive
-     )
+main :
+  (
+    ~( test-simple-passive | test-push-passive )
   )*
 ;
 
-test-simple-passive{simple-passive}
-: '\btest-simple-passive\b'
+test-simple-passive{simple-passive} :
+  '\btest-simple-passive\b'
   `"`{a}
   ( ~`foo`{b} )*
   ~`"`{c}
 ;
 
-test-push-passive{push-passive}
-: '\btest-push-passive\b'
+test-push-passive{push-passive} :
+  '\btest-push-passive\b'
   '\bfoo\b'{foo}*
   ~`;`{end}
 ;
