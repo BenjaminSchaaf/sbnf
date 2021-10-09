@@ -1,20 +1,23 @@
-name: Lisp SBNF
+NAME = `Lisp SBNF`
 
-main = ( ~( comment
+main : ( ~( comment
           | symbol
        )  )*
      ;
 
-symbol-char-must-have = '[^\s()\'"/,:;|\d.]|(\\.)'{1: constant.character.escape}; # May not be only digits or periods
-symbol-char = '\d' | `.` | symbol-char-must-have ;
+# May not be only digits or periods
+symbol-char-must-have
+: '[^\s()\'"/,:;|\d.]|(\\.)'{1: constant.character.escape} ;
 
-symbol =
-        symbol-char*
-        symbol-char-must-have
-        symbol-char*
-    ;
+symbol-char : '\d' | `.` | symbol-char-must-have ;
 
-comment{comment.line.semicolon} =
-        ';+'{punctuation.definition.comment}
-        ~'$\n?'
-    ;
+symbol
+: symbol-char*
+  symbol-char-must-have
+  symbol-char*
+;
+
+comment{comment.line.semicolon}
+: ';+'{punctuation.definition.comment}
+  ~'$\n?'
+;

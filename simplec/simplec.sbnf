@@ -1,34 +1,36 @@
-name: simplec
+NAME = `simplec`
 
-prototype = ( ~comment )* ;
+prototype : ( ~comment )* ;
 
-comment = '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
+comment : '(//+).*\n?'{comment.line, 1: punctuation.definition.comment} ;
 
-main = ( variable-declaration | function-definition )* ;
+main : ( variable-declaration | function-definition )* ;
+
+IDENTIFIER = '\b[A-Za-z_]+\b'
 
 function-definition{meta.function}
-= type
-  '\b[A-Za-z_]+\b'{entity.name.function}
+: type
+  IDENTIFIER{entity.name.function}
   `(`
   `)`
   block
 ;
 
-block{meta.block} = '{' statement* '}' ;
+block{meta.block} : '{' statement* '}' ;
 
-statement = variable-declaration
+statement : variable-declaration
           | value ';'
           | block
           ;
 
-variable-declaration = type '\b[A-Za-z_]+\b'{variable} ( '=' value )? ';' ;
+variable-declaration : type IDENTIFIER{variable} ( '=' value )? ';' ;
 
-type = '\b[A-Za-z_]+\b'{storage.type} ;
+type : IDENTIFIER{storage.type} ;
 
-value = '[0-9]+'{constant.numeric}
+value : '[0-9]+'{constant.numeric}
       | function-call
       ;
 
 # Function calls don't have arguments :)
 function-call{meta.function-call}
-= '\b[A-Za-z_]+\b'{variable.function meta.path} `(` `)` ;
+: IDENTIFIER{variable.function meta.path} `(` `)` ;

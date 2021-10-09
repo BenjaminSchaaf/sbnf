@@ -1,4 +1,4 @@
-main = ( ~( 'var'{keyword.definition.variable}
+main : ( ~( 'var'{keyword.definition.variable}
           )
        )*
      ;

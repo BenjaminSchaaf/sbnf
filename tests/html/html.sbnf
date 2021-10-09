@@ -1,7 +1,7 @@
-main = ( ~tags )* ;
+main : ( ~tags )* ;
 
 tags
-= tag['p']
+: tag['p']
 | tag['h1']
 | tag['h2']
 | tag['h3']
@@ -11,7 +11,7 @@ tags
 ;
 
 tag[NAME]
-= '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
+: '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
                                       2: entity.name.tag.begin.#[NAME],
                                       3: punctuation.definition.tag.end}
   ( ~tags )*
@@ -21,7 +21,7 @@ tag[NAME]
 ;
 
 embed-tag[NAME, SYNTAX, SCOPE]
-= '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
+: '(<)(#[NAME])(>)'{meta.tag.#[NAME], 1: punctuation.definition.tag.begin,
                                       2: entity.name.tag.begin.#[NAME],
                                       3: punctuation.definition.tag.end}
   %embed['(</)(#[NAME])(>)']{#[SYNTAX], source.embedded.#[SCOPE].html,

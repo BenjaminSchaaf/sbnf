@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::sbnf::{is_identifier_char, Node};
+use crate::sbnf::Node;
 use crate::sublime_syntax;
 
 pub struct CompileResult<'a, T> {
@@ -97,9 +97,9 @@ impl Error<'_> {
             for frame in self.traceback.iter().rev() {
                 result = format!(
                     "{}{}:{} - {}\n",
-                    result, origin, frame.rule.location, frame
+                    result, origin, frame.function.location, frame
                 );
-                if let Some(variable) = frame.variable {
+                if let Some(variable) = frame.reference {
                     result.push_str(&variable.location.fmt_source(source));
                     result.push('\n');
                 }
@@ -112,8 +112,8 @@ impl Error<'_> {
 
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
-    String { regex: &'a str, literal: &'a str, node: Option<&'a Node<'a>> },
-    Rule { name: &'a str, node: &'a Node<'a> },
+    String { regex: String, literal: String, node: Option<&'a Node<'a>> },
+    Rule { name: &'a str, arguments: Vec<Value<'a>>, node: &'a Node<'a> },
 }
 
 impl<'a> std::fmt::Display for Value<'a> {
@@ -161,16 +161,18 @@ impl<'a> std::hash::Hash for Value<'a> {
     }
 }
 
+pub type VarMap<'a> = HashMap<&'a str, Value<'a>>;
+
 #[derive(Debug, Clone)]
 pub struct StackFrame<'a> {
-    variable: Option<&'a Node<'a>>,
-    rule: &'a Node<'a>,
+    reference: Option<&'a Node<'a>>,
+    function: &'a Node<'a>,
     arguments: Vec<Value<'a>>,
 }
 
 impl<'a> std::fmt::Display for StackFrame<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.rule.text)?;
+        write!(f, "{}", self.function.text)?;
         if !self.arguments.is_empty() {
             write!(f, "[{}", self.arguments[0])?;
             for arg in &self.arguments[1..] {
@@ -182,6 +184,8 @@ impl<'a> std::fmt::Display for StackFrame<'a> {
     }
 }
 
+pub const STACK_SIZE_LIMIT: usize = 500;
+
 #[derive(Debug)]
 pub struct CallStack<'a> {
     stack: Vec<StackFrame<'a>>,
@@ -189,7 +193,9 @@ pub struct CallStack<'a> {
 
 impl<'a> CallStack<'a> {
     pub fn new() -> CallStack<'a> {
-        return CallStack { stack: vec![] };
+        let mut stack = vec![];
+        stack.reserve_exact(STACK_SIZE_LIMIT);
+        return CallStack { stack };
     }
 
     pub fn error(
@@ -217,19 +223,47 @@ impl<'a> CallStack<'a> {
 
     pub fn push(
         &mut self,
-        variable: Option<&'a Node<'a>>,
-        rule: &'a Node<'a>,
+        reference: Option<&'a Node<'a>>,
+        function: &'a Node<'a>,
         arguments: Vec<Value<'a>>,
-    ) {
-        self.stack.push(StackFrame { variable, rule, arguments });
+    ) -> bool {
+        if self.stack.len() == STACK_SIZE_LIMIT {
+            false
+        } else {
+            self.stack.push(StackFrame { reference, function, arguments });
+            true
+        }
     }
 
     pub fn pop(&mut self) {
         self.stack.pop().unwrap();
     }
 
+    pub fn run<F>(
+        &mut self,
+        reference: Option<&'a Node<'a>>,
+        function: &'a Node<'a>,
+        arguments: Vec<Value<'a>>,
+        f: F,
+    ) -> bool
+    where
+        F: Fn(),
+    {
+        if self.push(reference, function, arguments) {
+            f();
+            self.pop();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.stack.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
     }
 }
 
@@ -240,128 +274,23 @@ pub struct RuleOptions {
     pub capture: bool,
 }
 
-pub type VarMap<'a> = HashMap<&'a str, Value<'a>>;
-
-pub fn var_maps_get<'a, 'b>(
-    maps: &[&'b VarMap<'a>],
-    key: &str,
-) -> Option<&'b Value<'a>> {
-    for var_map in maps {
-        if let Some(value) = var_map.get(key) {
-            return Some(value);
-        }
-    }
-
-    None
+pub struct Metadata {
+    pub name: String,
+    pub file_extensions: Vec<String>,
+    pub first_line_match: Option<sublime_syntax::Pattern>,
+    pub scope: sublime_syntax::Scope,
+    pub scope_postfix: String,
+    pub hidden: bool,
 }
 
-// TODO: Tests
-pub fn interpolate_string<'a, 'b>(
-    stack: &CallStack<'a>,
-    var_maps: &[&'b VarMap<'a>],
-    node: &'a Node<'a>,
-    string: &'a str,
-) -> (String, Vec<Error<'a>>) {
-    let mut result = String::new();
-    let mut errors = vec![];
-
-    let mut iter = string.chars();
-
-    while let Some(chr) = iter.next() {
-        if chr == '\\' {
-            match iter.next() {
-                Some('#') => {
-                    result.push('#');
-                }
-                Some(next_chr) => {
-                    result.push('\\');
-                    result.push(next_chr);
-                }
-                _ => {
-                    break;
-                }
-            }
-        } else if chr == '#' {
-            match iter.next() {
-                Some('[') => {
-                    let mut variable = String::new();
-
-                    loop {
-                        match iter.next() {
-                            Some(']') => {
-                                break;
-                            }
-                            Some(c) => {
-                                if is_identifier_char(c) {
-                                    variable.push(c);
-                                } else {
-                                    // TODO: Add node offset to show the error at the character
-                                    errors.push(stack.error(
-                                        format!("Unexpected character '{}' in string interpolation", c),
-                                        node,
-                                        vec!()));
-                                    return (result, errors);
-                                }
-                            }
-                            None => {
-                                errors.push(stack.error_from_str(
-                                    "Expected ']' before the end of the string to end string interpolation",
-                                    node,
-                                    vec!()));
-                                return (result, errors);
-                            }
-                        }
-                    }
-
-                    if let Some(value) = var_maps_get(&var_maps, &variable) {
-                        match value {
-                            Value::Rule { node: rule_node, .. } => {
-                                errors.push(stack.error_from_str(
-                                    "Can't interpolate rule",
-                                    node,
-                                    vec![
-                                        (
-                                            node,
-                                            format!(
-                                                "{} must refer to a string",
-                                                variable
-                                            ),
-                                        ),
-                                        (
-                                            rule_node,
-                                            format!(
-                                                "{} is {}",
-                                                variable, value
-                                            ),
-                                        ),
-                                    ],
-                                ));
-                            }
-                            Value::String { regex, .. } => {
-                                result.push_str(regex);
-                            }
-                        }
-                    } else {
-                        errors.push(stack.error_from_str(
-                            "Variable in string interpolation not found",
-                            node,
-                            vec!(
-                                (node, format!("{} must be defined as an argument to the rule", variable)),
-                            )));
-                    }
-                }
-                Some(next_chr) => {
-                    result.push('#');
-                    result.push(next_chr);
-                }
-                _ => {
-                    break;
-                }
-            }
-        } else {
-            result.push(chr);
+pub fn parse_scope(metadata: &Metadata, s: &str) -> sublime_syntax::Scope {
+    let mut s = parse_top_level_scope(s);
+    for scope in &mut s.scopes {
+        let postfix = &metadata.scope_postfix;
+        if !postfix.is_empty() {
+            scope.push('.');
+            scope.push_str(postfix);
         }
     }
-
-    (result, errors)
+    s
 }

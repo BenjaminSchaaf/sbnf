@@ -57,7 +57,7 @@ fn try_main() -> Result<(), String> {
         entry_points: vec!["main", "prototype"],
     };
 
-    let result = sbnf::compiler::compile(options, &grammar);
+    let result = sbnf::compiler::compile(&options, &grammar);
 
     match &result.result {
         Err(errors) => {
