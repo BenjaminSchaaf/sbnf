@@ -68,9 +68,9 @@ regex-prototype{include-prototype: false}
 ;
 
 options{include-prototype: false}
-: '{'
+: '{'{punctuation.section.options.begin}
   ( ~interpolation )*
-  ~'}'
+  ~'}'{punctuation.section.options.end}
 ;
 
 embed-include
@@ -86,6 +86,10 @@ interpolation{include-prototype: false}
   `]`{punctuation.definition.placeholder.end}
 ;
 
-parameters : `[` parameter ( `,` parameter )* `]` ;
+parameters
+: `[`{punctuation.section.parameters.begin}
+  parameter ( `,` parameter )*
+  `]`{punctuation.section.parameters.end}
+;
 
 parameter : literal | regex | IDENTIFIER{variable.parameter} ;
