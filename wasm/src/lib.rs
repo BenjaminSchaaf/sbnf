@@ -56,7 +56,7 @@ pub fn compile(
         entry_points: vec!["main", "prototype"],
     };
 
-    let result = sbnf::compiler::compile(options, &grammar);
+    let result = sbnf::compiler::compile(&options, &grammar);
 
     let mut messages = String::new();
     let result_syntax: String;
