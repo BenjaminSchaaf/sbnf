@@ -7,17 +7,23 @@ use super::interpreter::{Expression, Interpreted, Key, TerminalEmbed};
 use crate::sublime_syntax;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct BranchPoint {
+    name: String,
+    can_fail: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ContextKey<'a> {
     rule_key: &'a Key<'a>,
     context: Context<'a>,
-    branch_point: Option<String>,
+    branch_point: Option<BranchPoint>,
 }
 
 impl<'a> std::fmt::Display for ContextKey<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.rule_key)?;
         if let Some(branch_point) = &self.branch_point {
-            write!(f, "\n For branch point '{}'", branch_point)?;
+            write!(f, "\n For branch point '{}'", branch_point.name)?;
         }
         Ok(())
     }
@@ -153,12 +159,10 @@ fn gen_contexts<'a>(
 
     let mut next_contexts: Vec<(String, ContextKey<'a>)> = vec![];
 
-    for (i, ((name, context_key), matches_map)) in
-        contexts.iter().zip(context_maps.iter()).enumerate()
+    for ((name, context_key), matches_map) in
+        contexts.iter().zip(context_maps.iter())
     {
         let rule_key = context_key.rule_key;
-
-        let is_last = i == contexts.len() - 1;
 
         let mut patterns = vec![];
 
@@ -167,8 +171,6 @@ fn gen_contexts<'a>(
 
             if matches.len() == 1 {
                 let match_ = matches[0];
-
-                // let rule_name = match_.rule(rule.name);
 
                 // Continue branch
                 if continue_branch {
@@ -233,7 +235,7 @@ fn gen_contexts<'a>(
                 }
             } else {
                 // Start a branch point or use an existing one
-                let branch_point: Option<String>;
+                let branch_point_name: String;
                 let include_context_name: String;
                 {
                     // TODO: No need for context.end, context.maybe_empty or
@@ -260,12 +262,12 @@ fn gen_contexts<'a>(
                         continue;
                     } else {
                         // Start new branch
-                        branch_point =
-                            Some(create_branch_point(state, rule_key));
+                        branch_point_name =
+                            create_branch_point_name(state, rule_key);
 
                         include_context_name =
                             create_branch_point_include_context_name(
-                                branch_point.as_ref().unwrap(),
+                                &branch_point_name,
                             );
                         assert!(!state
                             .contexts
@@ -281,7 +283,10 @@ fn gen_contexts<'a>(
 
                 let mut branches = vec![];
 
-                for match_ in matches {
+                for (i, match_) in matches.iter().enumerate() {
+                    // The last context can't fail
+                    let can_fail = i != matches.len() - 1;
+
                     // Determine if the branch is a simple repetition. If so
                     // we can ignore the repetition in the branch. This
                     // avoids context stack leaks in most cases.
@@ -307,7 +312,10 @@ fn gen_contexts<'a>(
                             end: ContextEnd::Illegal,
                             maybe_empty: false,
                         },
-                        branch_point: branch_point.clone(),
+                        branch_point: Some(BranchPoint {
+                            name: branch_point_name.clone(),
+                            can_fail,
+                        }),
                     };
 
                     let ctx_name =
@@ -320,7 +328,7 @@ fn gen_contexts<'a>(
                         let next_key = ContextKey {
                             rule_key,
                             context,
-                            branch_point: branch_point.clone(),
+                            branch_point: branch_key.branch_point.clone(),
                         };
 
                         if let Some(name) =
@@ -378,7 +386,7 @@ fn gen_contexts<'a>(
 
                 let comment = format!(
                     "Include context for branch point {}",
-                    branch_point.as_deref().unwrap()
+                    branch_point_name
                 );
 
                 state.contexts.insert(
@@ -397,7 +405,7 @@ fn gen_contexts<'a>(
                                 captures: HashMap::new(),
                                 change_context:
                                     sublime_syntax::ContextChange::Branch(
-                                        branch_point.unwrap(),
+                                        branch_point_name,
                                         branches,
                                     ),
                                 pop: 0,
@@ -448,7 +456,7 @@ fn gen_contexts<'a>(
         // }
 
         if let Some(pattern) =
-            gen_end_match(state, interpreted, context_key, is_last, capture)
+            gen_end_match(state, interpreted, context_key, capture)
         {
             patterns.push(pattern);
         }
@@ -476,7 +484,6 @@ fn gen_end_match<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted<'a>,
     context_key: &ContextKey<'a>,
-    is_last: bool,
     capture: bool,
 ) -> Option<sublime_syntax::ContextPattern> {
     match &context_key.context.end {
@@ -489,13 +496,15 @@ fn gen_end_match<'a>(
                     change_context: sublime_syntax::ContextChange::None,
                     pop: 1,
                 }
-            } else if context_key.branch_point.is_some() && !is_last {
+            } else if context_key.branch_point.is_some()
+                && context_key.branch_point.as_ref().unwrap().can_fail
+            {
                 sublime_syntax::Match {
                     pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
                     scope: sublime_syntax::Scope::empty(),
                     captures: HashMap::new(),
                     change_context: sublime_syntax::ContextChange::Fail(
-                        context_key.branch_point.as_ref().unwrap().clone(),
+                        context_key.branch_point.as_ref().unwrap().name.clone(),
                     ),
                     pop: 0,
                 }
@@ -1048,7 +1057,7 @@ fn create_uncached_context_name<'a>(
     // Add optional branch point
     if let Some(branch_point) = &key.branch_point {
         result.push('|');
-        result.push_str(&branch_point);
+        result.push_str(&branch_point.name);
     }
 
     result
@@ -1069,7 +1078,10 @@ fn create_context_name<'a>(
 }
 
 // Generate a new branch point for a rule
-fn create_branch_point<'a>(state: &mut State<'a>, key: &'a Key<'a>) -> String {
+fn create_branch_point_name<'a>(
+    state: &mut State<'a>,
+    key: &'a Key<'a>,
+) -> String {
     let index = if let Some(rule) = state.rules.get_mut(key) {
         rule.branch_point_count += 1;
         rule.branch_point_count

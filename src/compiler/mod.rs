@@ -266,4 +266,87 @@ mod tests {
             }),]
         );
     }
+
+    #[test]
+    fn compile_branch_repetition() {
+        let contexts = compile_matches(
+            "main : ( ~('start'{a} 'end' | 'start'{b} ) )* ;",
+            vec![],
+        );
+        assert_eq!(contexts.len(), 5);
+        let main = contexts.get("main").unwrap();
+        assert_eq!(
+            main.matches,
+            [sublime_syntax::ContextPattern::Include(
+                "include!main@1".to_string()
+            )]
+        );
+
+        let main_include = contexts.get("include!main@1").unwrap();
+        assert_eq!(
+            main_include.matches,
+            [sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str("(?=start)"),
+                scope: sublime_syntax::Scope::empty(),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::Branch(
+                    "main@1".to_string(),
+                    vec![
+                        "main|0|main@1".to_string(),
+                        "main|2|main@1".to_string()
+                    ]
+                ),
+                pop: 0,
+            })]
+        );
+
+        let main0 = contexts.get("main|0|main@1").unwrap();
+        assert_eq!(
+            main0.matches,
+            [sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str("start"),
+                scope: sublime_syntax::Scope::from_str(&["a.test"]),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::Push(vec![
+                    "main|1|main@1".to_string()
+                ]),
+                pop: 1,
+            })]
+        );
+
+        let main1 = contexts.get("main|1|main@1").unwrap();
+        assert_eq!(
+            main1.matches,
+            [
+                sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                    pattern: sublime_syntax::Pattern::from_str("end"),
+                    scope: sublime_syntax::Scope::empty(),
+                    captures: HashMap::new(),
+                    change_context: sublime_syntax::ContextChange::None,
+                    pop: 1,
+                }),
+                sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                    pattern: sublime_syntax::Pattern::from_str("\\S"),
+                    scope: sublime_syntax::Scope::empty(),
+                    captures: HashMap::new(),
+                    change_context: sublime_syntax::ContextChange::Fail(
+                        "main@1".to_string()
+                    ),
+                    pop: 0,
+                }),
+            ]
+        );
+
+        let main2 = contexts.get("main|2|main@1").unwrap();
+        assert_eq!(
+            main2.matches,
+            [sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                pattern: sublime_syntax::Pattern::from_str("start"),
+                scope: sublime_syntax::Scope::from_str(&["b.test"]),
+                captures: HashMap::new(),
+                change_context: sublime_syntax::ContextChange::None,
+                pop: 1,
+            })]
+        );
+    }
 }
