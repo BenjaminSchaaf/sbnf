@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "sbnf"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64",
  "indexmap",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "sbnfc"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "clap",
  "sbnf",
