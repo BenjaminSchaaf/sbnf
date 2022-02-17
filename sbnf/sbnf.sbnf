@@ -68,13 +68,13 @@ regex-prototype{include-prototype: false}
 ;
 
 options{include-prototype: false}
-: '{'{punctuation.section.options.begin}
+: `{`{punctuation.section.options.begin}
   ( ~interpolation )*
-  ~'}'{punctuation.section.options.end}
+  ~`}`{punctuation.section.options.end}
 ;
 
 embed-include
-: '%'
+: `%`
   'embed|include'{keyword}
   parameters
   options
