@@ -1,0 +1,12 @@
+{
+	"scope": "source.sbnf",
+
+	"completions": [
+		{ "trigger": "NAME", "details": "The name of the syntax.", "kind": ["keyword", "K", "Header Key"]},
+		{ "trigger": "EXTENSIONS", "details": "A space-separated list of file extensions.", "kind": ["keyword", "K", "Header Key"]},
+		{ "trigger": "FIRST_LINE", "details": "A regex for matching the first line of a file.", "kind": ["keyword", "K", "Header Key"]},
+		{ "trigger": "SCOPE", "details": "The default scope for the grammar.", "kind": ["keyword", "K", "Header Key"]},
+		{ "trigger": "SCOPE_POSTFIX", "details": "A postfix appended to all scopes in the grammar (excluding the `SCOPE` clause).", "kind": ["keyword", "K", "Header Key"]},
+		{ "trigger": "HIDDEN", "details": "Whether the syntax will be shown in the menu in Sublime Text.", "kind": ["keyword", "K", "Header Key"]},
+	]
+}
