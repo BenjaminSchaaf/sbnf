@@ -16,11 +16,12 @@ IDENTIFIER = '[[:alnum:]_\-\.]+'
 
 variable : IDENTIFIER{entity.name.variable}
            `=`{keyword.operator.assignment}
-           ( literal
-           | regex
+           ( terminal
            | IDENTIFIER{variable.function} parameters?
            )
          ;
+
+terminal: literal | regex;
 
 rule : IDENTIFIER{entity.name.function}
        parameters?
@@ -37,8 +38,7 @@ pattern-element : '~|!'{keyword.operator}?
                   '\*|\?'{keyword.control}?
                 ;
 
-pattern-item : literal options? embed-include?
-             | regex options? embed-include?
+pattern-item : terminal options? embed-include?
              | group
              | IDENTIFIER{variable.function} parameters? options?
              ;
@@ -92,4 +92,4 @@ parameters
   `]`{punctuation.section.parameters.end}
 ;
 
-parameter : literal | regex | IDENTIFIER{variable.parameter} ;
+parameter : terminal | IDENTIFIER{variable.parameter} ;
