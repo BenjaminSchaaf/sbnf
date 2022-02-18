@@ -450,11 +450,11 @@ globally, including for clauses.
 Examples:
 
 ```sbnf
-# Declares a single global argument
+# Declares a single global parameter
 [TYPE]
 
 # Can be used in clauses
-name = 'd-#[TYPE]'
+NAME = 'd-#[TYPE]'
 
 # As well as rules
 main : '#[TYPE]' ;
@@ -580,7 +580,7 @@ ARGS:
 When determining whether to create a branch point in the sublime-syntax, SBNF
 has to consider whether regexes overlap. Take the following example:
 
-```
+```sbnf
 main : 'aa?'{scope1} 'b'
      | 'a'{scope2} 'c'
      ;
@@ -592,7 +592,7 @@ here. Due to the complexities of regex, a branch point is only created with
 equivalent regexes. Rewriting the example to work as expected with SBNF yields
 the following:
 
-```
+```sbnf
 main : 'aa'{scope1} 'b'
      | 'a'{scope1} 'b'
      | 'a'{scope2} 'c'
