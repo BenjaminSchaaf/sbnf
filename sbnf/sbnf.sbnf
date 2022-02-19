@@ -50,12 +50,12 @@ group{meta.group} : `(`{punctuation.section.group.begin}
                     `)`{punctuation.section.group.end}
                   ;
 
-literal{string.quoted, include-prototype: false}
+literal{string.quoted.other, include-prototype: false}
 : '`'{punctuation.definition.string.begin}
   ~'`'{punctuation.definition.string.end}
 ;
 
-regex{string.quoted, include-prototype: false}
+regex{string.quoted.single, include-prototype: false}
 : `'`{punctuation.definition.string.begin}
   %include[regex-prototype]{scope:source.regexp}
   `'`{punctuation.definition.string.end}
@@ -90,8 +90,8 @@ interpolation{include-prototype: false}
 
 parameters
 : `[`{punctuation.section.parameters.begin}
-  parameter ( `,` parameter )*
+  parameter ( `,`{punctuation.separator.parameters} parameter )*
   `]`{punctuation.section.parameters.end}
 ;
 
-parameter : terminal | IDENTIFIER{variable.parameter} ;
+parameter{variable.parameter} : terminal | IDENTIFIER ;
