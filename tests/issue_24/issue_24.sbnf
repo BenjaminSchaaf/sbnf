@@ -1,0 +1,6 @@
+prototype : ( ~comment )* ;
+comment : '#+' ~'$\n?' ;
+
+main : (`x` (a | b))*;
+a{variable.function} : 'c'{ac} 'a';
+b{variable.parameter} : 'c'{bc} 'b';

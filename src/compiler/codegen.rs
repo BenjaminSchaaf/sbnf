@@ -351,11 +351,19 @@ fn gen_contexts<'a>(
 
                     let (exit, pop) = if let Some(name) = next_name {
                         let pop = context_key.context.end == ContextEnd::None
-                            || match_stack_is_repetition(match_);
+                            || context_key.context.end == ContextEnd::Illegal;
+
+                        let mut next = vec![];
+
+                        if !match_stack_is_repetition(&match_) {
+                            next.push(create_pop_context(state, 2));
+                        }
+
+                        next.push(name);
 
                         // Using set in branch_point is broken, so we
                         // have to use push.
-                        (sublime_syntax::ContextChange::Push(vec![name]), pop)
+                        (sublime_syntax::ContextChange::Push(next), pop)
                     } else {
                         (sublime_syntax::ContextChange::None, true)
                     };
@@ -1097,6 +1105,31 @@ fn create_branch_point_name<'a>(
 
 fn create_branch_point_include_context_name(branch_point: &str) -> String {
     format!("include!{}", branch_point)
+}
+
+fn create_pop_context<'a>(state: &mut State<'a>, amount: u16) -> String {
+    let name = format!("pop!{}", amount);
+
+    if !state.contexts.contains_key(&name) {
+        state.contexts.insert(name.clone(), sublime_syntax::Context {
+            meta_scope: sublime_syntax::Scope::empty(),
+            meta_content_scope: sublime_syntax::Scope::empty(),
+            meta_include_prototype: false,
+            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+            matches: vec![
+                sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
+                    pattern: sublime_syntax::Pattern::from_str(""),
+                    scope: sublime_syntax::Scope::empty(),
+                    captures: HashMap::new(),
+                    change_context: sublime_syntax::ContextChange::None,
+                    pop: amount,
+                }),
+            ],
+            comment: None,
+        });
+    }
+
+    return name;
 }
 
 fn match_stack_is_repetition<'a>(match_stack: &MatchStack<'a>) -> bool {

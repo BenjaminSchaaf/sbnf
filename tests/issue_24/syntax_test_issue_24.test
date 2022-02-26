@@ -1,0 +1,8 @@
+# SYNTAX TEST "Packages/tests/issue_24/issue_24.sublime-syntax"
+
+  xca
+#  ^^ variable.function
+#  ^ ac
+  xcb
+#  ^^ variable.parameter
+#  ^ bc
