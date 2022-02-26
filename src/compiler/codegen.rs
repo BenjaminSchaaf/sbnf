@@ -1111,22 +1111,25 @@ fn create_pop_context<'a>(state: &mut State<'a>, amount: u16) -> String {
     let name = format!("pop!{}", amount);
 
     if !state.contexts.contains_key(&name) {
-        state.contexts.insert(name.clone(), sublime_syntax::Context {
-            meta_scope: sublime_syntax::Scope::empty(),
-            meta_content_scope: sublime_syntax::Scope::empty(),
-            meta_include_prototype: false,
-            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-            matches: vec![
-                sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
-                    pattern: sublime_syntax::Pattern::from_str(""),
-                    scope: sublime_syntax::Scope::empty(),
-                    captures: HashMap::new(),
-                    change_context: sublime_syntax::ContextChange::None,
-                    pop: amount,
-                }),
-            ],
-            comment: None,
-        });
+        state.contexts.insert(
+            name.clone(),
+            sublime_syntax::Context {
+                meta_scope: sublime_syntax::Scope::empty(),
+                meta_content_scope: sublime_syntax::Scope::empty(),
+                meta_include_prototype: false,
+                clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+                matches: vec![sublime_syntax::ContextPattern::Match(
+                    sublime_syntax::Match {
+                        pattern: sublime_syntax::Pattern::from_str(""),
+                        scope: sublime_syntax::Scope::empty(),
+                        captures: HashMap::new(),
+                        change_context: sublime_syntax::ContextChange::None,
+                        pop: amount,
+                    },
+                )],
+                comment: None,
+            },
+        );
     }
 
     return name;
