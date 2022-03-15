@@ -1456,7 +1456,8 @@ fn interpolate_string<'a, 'b>(
                     result.push('#');
                     result.push(next_chr);
                 }
-                _ => {
+                None => {
+                    result.push('#');
                     break;
                 }
             }
@@ -1466,4 +1467,88 @@ fn interpolate_string<'a, 'b>(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sbnf::TextLocation;
+
+    fn interp<'a, 'b>(
+        collection: &DefinitionMap<'a>,
+        var_map: &VarMap<'a>,
+        node: &'a Node<'a>,
+        string: &'a str,
+    ) -> Option<String> {
+        let mut state = State {
+            seen_definitions: HashSet::new(),
+            variables: HashMap::new(),
+            rules: HashMap::new(),
+            stack: CallStack::new(),
+            errors: vec![],
+            warnings: vec![],
+        };
+
+        let result =
+            interpolate_string(&mut state, collection, var_map, node, string);
+
+        if state.errors.is_empty() {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn interpolate_string_test() {
+        let collection = DefinitionMap::new();
+        let var_map = VarMap::from([(
+            "a",
+            Value::String {
+                regex: "b".to_string(),
+                literal: "b".to_string(),
+                node: None,
+            },
+        )]);
+        let node = Node::new(
+            "",
+            TextLocation::new(0, 0),
+            NodeData::Parameters(vec![]),
+        );
+
+        assert_eq!(
+            Some("".to_string()),
+            interp(&collection, &var_map, &node, "")
+        );
+        assert_eq!(
+            Some("#".to_string()),
+            interp(&collection, &var_map, &node, "#")
+        );
+        assert_eq!(
+            Some("#!".to_string()),
+            interp(&collection, &var_map, &node, "#!")
+        );
+        assert_eq!(
+            Some("#a".to_string()),
+            interp(&collection, &var_map, &node, "#a")
+        );
+        assert_eq!(None, interp(&collection, &var_map, &node, "#["));
+        assert_eq!(None, interp(&collection, &var_map, &node, "#[]"));
+        assert_eq!(
+            Some("#]".to_string()),
+            interp(&collection, &var_map, &node, "#]")
+        );
+        assert_eq!(
+            Some("b".to_string()),
+            interp(&collection, &var_map, &node, "#[a]")
+        );
+        assert_eq!(
+            Some("aba".to_string()),
+            interp(&collection, &var_map, &node, "a#[a]a")
+        );
+        assert_eq!(
+            Some("#[a]".to_string()),
+            interp(&collection, &var_map, &node, "\\#[a]")
+        );
+    }
 }
