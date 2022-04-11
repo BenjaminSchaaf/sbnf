@@ -6,27 +6,29 @@ comment{comment.line.number-sign} : '#+'{punctuation.definition.comment}
                                     ~'$\n?'
                                   ;
 
-main : ( variable
+main : ( clause
        | rule
        | global-parameters
        )*
      ;
 
 CLAUSE = '[A-Z\d_]+'
-IDENTIFIER = '[[:alnum:]_\-\.]+'
+RULE = '[a-z\d\-]+'
 
-variable : ( '(?:EXTENSIONS|FIRST_LINE|HIDDEN|NAME|SCOPE(?:_POSTFIX)?)\b'{storage.type}
-             | IDENTIFIER{entity.name.variable}
+clause : ( '(?:EXTENSIONS|FIRST_LINE|HIDDEN|NAME|SCOPE(?:_POSTFIX)?)\b'{storage.type}
+             | CLAUSE{entity.name.variable}
            )
+           parameters?
            `=`{keyword.operator.assignment}
            ( terminal
-           | IDENTIFIER{variable.function} parameters?
+           | (( CLAUSE{constant.other} | RULE{meta.function-call variable.function})
+              parameters? )
            )
-         ;
+       ;
 
 terminal: literal | regex;
 
-rule : IDENTIFIER{entity.name.function}
+rule : RULE{meta.function entity.name.function}
        parameters?
        options?
        `:`{keyword.operator.assignment}
@@ -43,7 +45,8 @@ pattern-element : '~|!'{keyword.operator}?
 
 pattern-item : terminal options? embed-include?
              | group
-             | IDENTIFIER{variable.function} parameters? options?
+             | CLAUSE{constant.other} parameters? options?
+             | RULE{variable.function} parameters?
              ;
 
 group{meta.group} : `(`{punctuation.section.group.begin}
@@ -102,4 +105,4 @@ global-parameters{meta.function.parameters}:
   `]`{punctuation.section.parameters.end}
   ;
 
-parameter{variable.parameter} : terminal | IDENTIFIER ;
+parameter{variable.parameter} : terminal | CLAUSE | RULE;

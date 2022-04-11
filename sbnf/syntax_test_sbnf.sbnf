@@ -43,3 +43,36 @@ EXTENSIONS = `ext`
 #          ^ keyword.other.any.regexp
 #           ^ punctuation.definition.string.end.sbnf
 #             ^ punctuation.terminator.rule.sbnf
+
+ rule[a, `b`]: 'a, b';
+#^^^^ meta.function.sbnf entity.name.function.sbnf
+#    ^ punctuation.section.parameters.begin.sbnf
+#     ^ variable.parameter.sbnf
+#      ^ punctuation.separator.parameters.sbnf
+#       ^^^^ variable.parameter.sbnf
+#        ^^^ string.quoted.other.sbnf
+#           ^ punctuation.section.parameters.end.sbnf
+#            ^ keyword.operator.assignment.sbnf
+#              ^^^^^^ string.quoted.single.sbnf
+#                    ^ punctuation.terminator.rule.sbnf
+
+ CLAUSE[a, B] = literal
+#^^^^^^ entity.name.variable.sbnf
+#      ^ punctuation.section.parameters.begin.sbnf
+#       ^ variable.parameter.sbnf
+#        ^ punctuation.separator.parameters.sbnf
+#         ^^ variable.parameter.sbnf
+#           ^ punctuation.section.parameters.end.sbnf
+#             ^ keyword.operator.assignment.sbnf
+#               ^^^^^^^ meta.function-call.sbnf variable.function.sbnf
+
+ rule = 'jdf'
+#^^^^ meta.function.sbnf entity.name.function.sbnf
+#     ^ invalid.illegal.sbnf
+#       ^ invalid.illegal.sbnf
+#           ^ invalid.illegal.sbnf
+
+ UPPER : '[A-Z]+'
+#^^^^ entity.name.variable.sbnf
+#      ^ invalid.illegal.sbnf
+#        ^ invalid.illegal.sbnf
