@@ -1,5 +1,20 @@
 # SYNTAX TEST "Packages/sbnf/sbnf.sublime-syntax"
 
+ [PARAM1, PARAM2]
+#^^^^^^^^^^^^^^^^ meta.function.parameters.sbnf
+#^ punctuation.section.parameters.begin.sbnf
+# ^^^^^^ variable.parameter.sbnf
+#       ^^^^^^^^ meta.function.parameters.sbnf
+#       ^ punctuation.separator.parameters.sbnf
+#         ^^^^^^ variable.parameter.sbnf
+#               ^ punctuation.section.parameters.end.sbnf
+
+ [param1]
+#^ meta.function.parameters.sbnf punctuation.section.parameters.begin.sbnf
+# ^ invalid.illegal.sbnf
+#  ^^^^^ entity.name.function.sbnf
+#       ^ invalid.illegal.sbnf
+
  HEADER = `value`
 #^^^^^^ entity.name.variable.sbnf
 #       ^ keyword.operator.assignment.sbnf
