@@ -18,9 +18,16 @@
  HEADER = `value`
 #^^^^^^ entity.name.variable.sbnf
 #       ^ keyword.operator.assignment.sbnf
-#         ^^^^^^^ string.quoted.sbnf
+#         ^^^^^^^ string.quoted.other.sbnf
 #         ^ punctuation.definition.string.begin.sbnf
 #               ^ punctuation.definition.string.end.sbnf
+
+EXTENSIONS = `ext`
+#^^^^^^^^^ storage.type.sbnf
+#          ^ keyword.operator.assignment.sbnf
+#            ^^^^^ string.quoted.other.sbnf
+#            ^ punctuation.definition.string.begin.sbnf
+#                ^ punctuation.definition.string.end.sbnf
 
  literal : `a` ;
 #^^^^^^^ entity.name.function.sbnf
@@ -30,5 +37,9 @@
  regex : 'a.' ;
 #^^^^^ entity.name.function.sbnf
 #      ^ keyword.operator.assignment.sbnf
-#          ^ string.quoted.sbnf source.regexp keyword.other.any.regexp
+#        ^ punctuation.definition.string.begin.sbnf
+#        ^^^^ string.quoted.single.sbnf
+#         ^^ source.regexp
+#          ^ keyword.other.any.regexp
+#           ^ punctuation.definition.string.end.sbnf
 #             ^ punctuation.terminator.rule.sbnf
