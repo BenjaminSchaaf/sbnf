@@ -8,10 +8,11 @@ comment{comment.line.number-sign} : '#+'{punctuation.definition.comment}
 
 main : ( variable
        | rule
-       | parameters
+       | global-parameters
        )*
      ;
 
+CLAUSE = '[A-Z\d_]+'
 IDENTIFIER = '[[:alnum:]_\-\.]+'
 
 variable : ( '(?:EXTENSIONS|FIRST_LINE|HIDDEN|NAME|SCOPE(?:_POSTFIX)?)\b'{storage.type}
@@ -93,5 +94,12 @@ parameters
   parameter ( `,`{punctuation.separator.parameters} parameter )*
   `]`{punctuation.section.parameters.end}
 ;
+
+global-parameters{meta.function.parameters}:
+  `[`{punctuation.section.parameters.begin}
+  CLAUSE{variable.parameter}
+  ( `,`{punctuation.separator.parameters} CLAUSE{variable.parameter} )*
+  `]`{punctuation.section.parameters.end}
+  ;
 
 parameter{variable.parameter} : terminal | IDENTIFIER ;
