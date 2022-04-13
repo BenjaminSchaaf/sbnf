@@ -1,0 +1,71 @@
+# SYNTAX TEST "Packages/tests/repeating_branch_points/repeating_branch_points.sublime-syntax"
+
+ 1
+#^ constant.numeric
+
+ a
+#^ variable.other
+
+ a!
+#^ variable.function
+# ^ keyword.operator
+
+ a..
+#^ variable.other
+# ^^ punctuation
+
+ a!..
+#^ variable.function
+# ^ keyword.operator
+#  ^^ punctuation
+
+ a = 1
+#^ variable.other
+#  ^ keyword.operator
+#    ^ constant.numeric
+
+ b! = 2
+#^ variable.function
+# ^ keyword.operator
+#   ^ keyword.operator
+#     ^ constant.numeric
+
+ c. = 2
+#^ variable.other
+# ^ punctuation
+#   ^ keyword.operator
+#     ^ constant.numeric
+
+ d!. = 2
+#^ variable.function
+# ^ keyword.operator
+#  ^ punctuation
+#    ^ keyword.operator
+#      ^ constant.numeric
+
+ a
+#^ variable.other
+
+ 1
+#^ constant.numeric
+
+ b
+#^ variable.other
+
+ 2
+#^ constant.numeric
+
+ a! = 2 = 3 = b = a!
+#^ variable.function
+# ^ keyword.operator
+#   ^ keyword.operator
+#     ^ constant.numeric
+#       ^ keyword.operator
+#         ^ constant.numeric
+#           ^ keyword.operator
+#             ^ variable.other
+#               ^ keyword.operator
+#                 ^ variable.function
+#                  ^ keyword.operator
+
+

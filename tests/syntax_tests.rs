@@ -3,18 +3,19 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4094;
 
-const LANGUAGES: [&str; 11] = [
-    "regexp",
+const LANGUAGES: [&str; 2] = [
+    // "regexp",
     "sbnf",
-    "simplec",
-    "tests/html",
-    "tests/issue_6",
-    "tests/issue_18",
-    "tests/issue_24",
-    "tests/meta_scopes",
-    "tests/passive",
-    "tests/recursive_branch_points",
-    "tests/simple_interpreter",
+    // "simplec",
+    // "tests/html",
+    // "tests/issue_6",
+    // "tests/issue_18",
+    "tests/issue_19",
+    // "tests/issue_24",
+    // "tests/meta_scopes",
+    // "tests/passive",
+    // "tests/recursive_branch_points",
+    // "tests/simple_interpreter",
 ];
 
 fn main() -> std::io::Result<()> {

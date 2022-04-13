@@ -1,0 +1,26 @@
+%YAML 1.2
+---
+# http://www.sublimetext.com/docs/syntax.html
+version: 2
+name: issue_19
+scope: source.issue_19
+contexts:
+  # Rule: main
+  main:
+    - meta_content_scope: main.sbnf-dbg
+    - match: '"'
+      scope: main.sbnf-dbg string.quoted.issue_19 punctuation.definition.string.begin.issue_19
+      push: [main|meta, string|0]
+  # Meta scope context for main
+  main|meta:
+    - meta_content_scope: main.sbnf-dbg
+    - match: ''
+      pop: true
+  # Rule: string
+  string|0:
+    - meta_content_scope: string.quoted.issue_19
+    - match: '\\t'
+      scope: string.quoted.issue_19 constant.character.escape.issue_19
+    - match: '"'
+      scope: string.quoted.issue_19 punctuation.definition.string.end.issue_19
+      pop: true

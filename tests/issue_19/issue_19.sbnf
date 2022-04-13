@@ -1,0 +1,6 @@
+main : (~string)*;
+
+string{string.quoted} :
+  '"'{punctuation.definition.string.begin}
+    (~`\t`{constant.character.escape})*
+    ~'"'{punctuation.definition.string.end};

@@ -1,0 +1,20 @@
+%YAML 1.2
+---
+# http://www.sublimetext.com/docs/syntax.html
+version: 2
+name: issue_19
+scope: source.issue_19
+contexts:
+  # Rule: main
+  main:
+    - match: '"'
+      scope: punctuation.definition.string.begin.issue_19
+      push: string|0
+  # Rule: string
+  string|0:
+    - meta_content_scope: string.quoted.issue_19
+    - match: '\\t'
+      scope: constant.character.escape.issue_19
+    - match: '"'
+      scope: punctuation.definition.string.end.issue_19
+      pop: true

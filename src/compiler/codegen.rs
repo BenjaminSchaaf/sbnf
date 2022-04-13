@@ -218,11 +218,16 @@ fn gen_contexts<'a>(
                 } else {
                     // End points of branch points need to use the current
                     // rule as a scope.
-                    let scope = scope_for_match_stack(
-                        interpreted,
-                        Some(rule_key),
-                        match_,
-                    );
+                    let scope = if branch_point.is_some() {
+                        scope_for_match_stack(
+                                interpreted,
+                                Some(rule_key),
+                                match_,
+                            )
+                    } else {
+                        top_scope_for_match_stack(match_)
+                    };
+                    println!("{:?} {:?}", scope, match_);
 
                     patterns.push(gen_simple_match(
                         state,
@@ -1161,6 +1166,16 @@ fn rule_for_match_stack<'a>(
     }
 
     rule_key
+}
+
+fn top_scope_for_match_stack<'a>(
+    match_stack: &[Match<'a>]
+) -> sublime_syntax::Scope {
+    if let Some(Expression::Terminal { options, .. }) = &match_stack[0].expression {
+        options.scope.clone()
+    } else {
+        panic!();
+    }
 }
 
 fn scope_for_match_stack<'a>(

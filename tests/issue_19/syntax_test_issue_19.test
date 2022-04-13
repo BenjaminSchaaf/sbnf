@@ -1,0 +1,4 @@
+# SYNTAX TEST "Packages/tests/issue_19/issue_19.sublime-syntax"
+
+ "\t"
+# ^^ string.quoted.issue_19 constant.character.escape.issue_19
