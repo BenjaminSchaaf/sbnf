@@ -56,7 +56,7 @@ EXTENSIONS = `ext`
 #              ^^^^^^ string.quoted.single.sbnf
 #                    ^ punctuation.terminator.rule.sbnf
 
- CLAUSE[a, B] = literal
+ CLAUSE[a, B] = foo[a, B, `c`, 'd']
 #^^^^^^ entity.name.variable.sbnf
 #      ^ punctuation.section.parameters.begin.sbnf
 #       ^ variable.parameter.sbnf
@@ -64,7 +64,10 @@ EXTENSIONS = `ext`
 #         ^^ variable.parameter.sbnf
 #           ^ punctuation.section.parameters.end.sbnf
 #             ^ keyword.operator.assignment.sbnf
-#               ^^^^^^^ meta.function-call.sbnf variable.function.sbnf
+#               ^^^ meta.function-call.sbnf variable.function.sbnf
+#                  ^ meta.function-call.sbnf punctuation.section.arguments.begin.sbnf
+#                  ^^^^^^^^^^^^^^^^ meta.function-call.sbnf
+#                      ^ meta.function-call.sbnf constant.other.sbnf
 
  rule = 'jdf'
 #^^^^ meta.function.sbnf entity.name.function.sbnf

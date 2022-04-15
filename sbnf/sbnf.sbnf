@@ -22,7 +22,7 @@ clause : ( '(?:EXTENSIONS|FIRST_LINE|HIDDEN|NAME|SCOPE(?:_POSTFIX)?)\b'{storage.
            `=`{keyword.operator.assignment}
            ( terminal
            | (( CLAUSE{constant.other} | RULE{meta.function-call variable.function})
-              parameters? )
+              arguments? )
            )
        ;
 
@@ -45,8 +45,8 @@ pattern-element : '~|!'{keyword.operator}?
 
 pattern-item : terminal options? embed-include?
              | group
-             | CLAUSE{constant.other} parameters? options?
-             | RULE{variable.function} parameters?
+             | CLAUSE{constant.other} arguments? options?
+             | RULE{variable.function} arguments?
              ;
 
 group{meta.group} : `(`{punctuation.section.group.begin}
@@ -82,7 +82,7 @@ options{include-prototype: false}
 embed-include
 : `%`
   'embed|include'{keyword}
-  parameters
+  arguments
   options
 ;
 
@@ -106,3 +106,11 @@ global-parameters{meta.function.parameters}:
   ;
 
 parameter{variable.parameter} : terminal | CLAUSE | RULE;
+
+arguments{meta.function-call}
+: `[`{punctuation.section.arguments.begin}
+  argument ( `,`{punctuation.separator.arguments} argument )*
+  `]`{punctuation.section.arguments.end}
+;
+
+argument: terminal | CLAUSE{constant.other} | RULE;
