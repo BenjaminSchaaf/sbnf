@@ -22,12 +22,12 @@
 #         ^ punctuation.definition.string.begin.sbnf
 #               ^ punctuation.definition.string.end.sbnf
 
-EXTENSIONS = `ext`
-#^^^^^^^^^ storage.type.sbnf
-#          ^ keyword.operator.assignment.sbnf
-#            ^^^^^ string.quoted.other.sbnf
-#            ^ punctuation.definition.string.begin.sbnf
-#                ^ punctuation.definition.string.end.sbnf
+ EXTENSIONS = `ext`
+#^^^^^^^^^^ storage.type.sbnf
+#           ^ keyword.operator.assignment.sbnf
+#             ^^^^^ string.quoted.other.sbnf
+#             ^ punctuation.definition.string.begin.sbnf
+#                 ^ punctuation.definition.string.end.sbnf
 
  SCOPES =
 #^^^^^^ entity.name.variable.sbnf
@@ -39,21 +39,6 @@ EXTENSIONS = `ext`
 #       ^ keyword.other.any.regexp
 #        ^ keyword.operator.quantifier.regexp
 #         ^ punctuation.definition.string.end.sbnf
-
- literal : `a` ;
-#^^^^^^^ entity.name.function.sbnf
-#        ^ keyword.operator.assignment.sbnf
-#              ^ punctuation.terminator.rule.sbnf
-
- regex : 'a.' ;
-#^^^^^ entity.name.function.sbnf
-#      ^ keyword.operator.assignment.sbnf
-#        ^ punctuation.definition.string.begin.sbnf
-#        ^^^^ string.quoted.single.sbnf
-#         ^^ source.regexp
-#          ^ keyword.other.any.regexp
-#           ^ punctuation.definition.string.end.sbnf
-#             ^ punctuation.terminator.rule.sbnf
 
  rule[A, `b`]: '#[A], b';
 #^^^^ meta.function.sbnf entity.name.function.sbnf
