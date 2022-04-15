@@ -88,7 +88,7 @@ embed-include
 
 interpolation{include-prototype: false}
 : `#[`{punctuation.definition.placeholder.begin}
-  parameter
+  '#[CLAUSE]|#[RULE]'{variable.other.placeholder}
   `]`{punctuation.definition.placeholder.end}
 ;
 
