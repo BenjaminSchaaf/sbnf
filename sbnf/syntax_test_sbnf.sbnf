@@ -44,7 +44,7 @@ EXTENSIONS = `ext`
 #           ^ punctuation.definition.string.end.sbnf
 #             ^ punctuation.terminator.rule.sbnf
 
- rule[a, `b`]: 'a, b';
+ rule[A, `b`]: '#[A], b';
 #^^^^ meta.function.sbnf entity.name.function.sbnf
 #    ^ punctuation.section.parameters.begin.sbnf
 #     ^ variable.parameter.sbnf
@@ -53,8 +53,11 @@ EXTENSIONS = `ext`
 #        ^^^ string.quoted.other.sbnf
 #           ^ punctuation.section.parameters.end.sbnf
 #            ^ keyword.operator.assignment.sbnf
-#              ^^^^^^ string.quoted.single.sbnf
-#                    ^ punctuation.terminator.rule.sbnf
+#              ^^^^^^^^^ string.quoted.single.sbnf
+#               ^^ punctuation.definition.placeholder.begin.sbnf
+#                 ^ variable.other.placeholder.sbnf
+#                  ^ punctuation.definition.placeholder.end.sbnf
+#                       ^ punctuation.terminator.rule.sbnf
 
  CLAUSE[a, B] = foo[a, B, `c`, 'd']
 #^^^^^^ entity.name.variable.sbnf
