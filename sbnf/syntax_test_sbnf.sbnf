@@ -40,7 +40,7 @@
 #        ^ keyword.operator.quantifier.regexp
 #         ^ punctuation.definition.string.end.sbnf
 
- rule[A, `b`]: '#[A], b';
+ rule[A, `b`]{some.scope, include-prototype: false}: '#[A], b';
 #^^^^ meta.function.sbnf entity.name.function.sbnf
 #    ^ punctuation.section.parameters.begin.sbnf
 #     ^ variable.parameter.sbnf
@@ -48,12 +48,19 @@
 #       ^^^^ variable.parameter.sbnf
 #        ^^^ string.quoted.other.sbnf
 #           ^ punctuation.section.parameters.end.sbnf
-#            ^ keyword.operator.assignment.sbnf
-#              ^^^^^^^^^ string.quoted.single.sbnf
-#               ^^ punctuation.definition.placeholder.begin.sbnf
-#                 ^ variable.other.placeholder.sbnf
-#                  ^ punctuation.definition.placeholder.end.sbnf
-#                       ^ punctuation.terminator.rule.sbnf
+#            ^ punctuation.section.options.begin.sbnf
+#                 ^ punctuation.separator.scope-segments.sbnf
+#                       ^ punctuation.separator.options.sbnf
+#                         ^^^^^^^^^^^^^^^^^ keyword.control.flow.sbnf
+#                                          ^ punctuation.separator.options.sbnf
+#                                            ^^^^^ constant.language.sbnf
+#                                                 ^ punctuation.section.options.end.sbnf
+#                                                  ^ keyword.operator.assignment.sbnf
+#                                                    ^^^^^^^^^ string.quoted.single.sbnf
+#                                                     ^^ punctuation.definition.placeholder.begin.sbnf
+#                                                       ^ variable.other.placeholder.sbnf
+#                                                        ^ punctuation.definition.placeholder.end.sbnf
+#                                                             ^ punctuation.terminator.rule.sbnf
 
  CLAUSE[a, B] = foo[a, B, `c`, 'd']
 #^^^^^^ entity.name.variable.sbnf
@@ -78,3 +85,10 @@
 #^^^^ entity.name.variable.sbnf
 #      ^ invalid.illegal.sbnf
 #        ^ invalid.illegal.sbnf
+
+ INV{some.scope} = ''
+#^^^ entity.name.variable.sbnf
+#   ^ invalid.illegal.sbnf
+#        ^ invalid.illegal.sbnf
+#              ^ invalid.illegal.sbnf
+#                ^ invalid.illegal.sbnf
