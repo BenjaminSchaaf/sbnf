@@ -30,7 +30,7 @@ terminal: literal | regex;
 
 rule : RULE{meta.function entity.name.function}
        parameters?
-       options?
+       rule-options?
        `:`{keyword.operator.assignment}
        pattern
        `;`{punctuation.terminator.rule}
@@ -77,6 +77,36 @@ options{include-prototype: false}
 : `{`{punctuation.section.options.begin}
   ( ~interpolation )*
   ~`}`{punctuation.section.options.end}
+;
+
+rule-options{include-prototype: false}:
+  `{`{punctuation.section.options.begin}
+  (include-prototype
+  | scope (`,`{punctuation.separator.options} include-prototype)?
+  )?
+  `}`{punctuation.section.options.end}
+;
+
+include-prototype{include-prototype: false}:
+  `include-prototype`{keyword.control.flow}
+  `:`{punctuation.separator.options}
+  ('true|false'{constant.language}
+   | '(?=[^\s,:.}])' (~interpolation)* ~'(?=[\s,:.}])')
+;
+
+scope{include-prototype: false}:
+  '(?=[^\s,:.}])'
+  (~( interpolation | `.`{punctuation.separator.scope-segments} ))*
+  ~'(?=\s*[,:.}])'
+;
+
+include-scope{include-prototype: false}:
+  '(?:scope(:))?(?=[^\s,:.}])'{
+    0: support.type.include,
+    1: punctuation.definition.scope-include
+  }
+  ( ~(interpolation | `.`{punctuation.separator.scope-segments}) )*
+  ~'(?=[\s,:}])'
 ;
 
 embed-include
