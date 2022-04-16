@@ -40,7 +40,7 @@
 #        ^ keyword.operator.quantifier.regexp
 #         ^ punctuation.definition.string.end.sbnf
 
- rule[A, `b`]{some.scope, include-prototype: false}: '#[A], b';
+ rule[A, `b`]{some.scope, include-prototype: false}: '(#[A]), b'{1: some.other.scope};
 #^^^^ meta.function.sbnf entity.name.function.sbnf
 #    ^ punctuation.section.parameters.begin.sbnf
 #     ^ variable.parameter.sbnf
@@ -56,11 +56,16 @@
 #                                            ^^^^^ constant.language.sbnf
 #                                                 ^ punctuation.section.options.end.sbnf
 #                                                  ^ keyword.operator.assignment.sbnf
-#                                                    ^^^^^^^^^ string.quoted.single.sbnf
-#                                                     ^^ punctuation.definition.placeholder.begin.sbnf
-#                                                       ^ variable.other.placeholder.sbnf
-#                                                        ^ punctuation.definition.placeholder.end.sbnf
-#                                                             ^ punctuation.terminator.rule.sbnf
+#                                                    ^^^^^^^^^^^ string.quoted.single.sbnf
+#                                                      ^^ punctuation.definition.placeholder.begin.sbnf
+#                                                        ^ variable.other.placeholder.sbnf
+#                                                         ^ punctuation.definition.placeholder.end.sbnf
+#                                                               ^ punctuation.section.options.begin.sbnf
+#                                                                ^ constant.numeric.integer.sbnf
+#                                                                 ^ punctuation.separator.key-value.sbnf
+#                                                                       ^ punctuation.separator.scope-segments.sbnf
+#                                                                                   ^ punctuation.section.options.end.sbnf
+#                                                                                    ^ punctuation.terminator.rule.sbnf
 
  CLAUSE[a, B] = foo[a, B, `c`, 'd']
 #^^^^^^ entity.name.variable.sbnf

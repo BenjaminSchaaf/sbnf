@@ -43,9 +43,9 @@ pattern-element : '~|!'{keyword.operator}?
                   '\*|\?'{keyword.control}?
                 ;
 
-pattern-item : terminal options? embed-include?
+pattern-item : terminal terminal-options? embed-include?
              | group
-             | CLAUSE{constant.other} arguments? options?
+             | CLAUSE{constant.other} arguments? terminal-options?
              | RULE{variable.function} arguments?
              ;
 
@@ -92,6 +92,19 @@ include-prototype{include-prototype: false}:
   `:`{punctuation.separator.options}
   ('true|false'{constant.language}
    | '(?=[^\s,:.}])' (~interpolation)* ~'(?=[\s,:.}])')
+;
+
+terminal-options{include-prototype: false}:
+  `{`{punctuation.section.options.begin}
+  (captures | scope (`,`{punctuation.separator.options} captures)?)?
+  `}`{punctuation.section.options.end}
+;
+
+captures:
+  '\d+'{constant.numeric.integer}
+  `:`{punctuation.separator.key-value}
+  scope
+  (`,`{punctuation.separator.options} captures)?
 ;
 
 scope{include-prototype: false}:
