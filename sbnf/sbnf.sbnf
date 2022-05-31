@@ -122,11 +122,31 @@ include-scope{include-prototype: false}:
   ~'(?=[\s,:}])'
 ;
 
-embed-include
-: `%`
-  'embed|include'{keyword}
-  arguments
-  options
+embed-include: `%`{keyword.control} ( embed | include ) ;
+
+embed:
+  `embed`{keyword.control}
+  `[`{punctuation.section.arguments.begin}
+  terminal
+  `]`{punctuation.section.arguments.end}
+  `{`{punctuation.definition.options.begin}
+  include-scope
+  (`,`{punctuation.separator.options}
+    ( captures
+    | scope (`,`{punctuation.separator.options} captures )?
+    )
+  )?
+  `}`{punctuation.definition.options.end}
+;
+
+include:
+  `include`{keyword.control}
+  `[`{punctuation.section.arguments.begin}
+  (CLAUSE{constant.other} | RULE)
+  `]`{punctuation.section.arguments.end}
+  `{`{punctuation.definition.options.begin}
+  include-scope
+  `}`{punctuation.definition.options.end}
 ;
 
 interpolation{include-prototype: false}
