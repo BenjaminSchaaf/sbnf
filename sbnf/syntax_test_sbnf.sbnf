@@ -97,3 +97,30 @@
 #        ^ invalid.illegal.sbnf
 #              ^ invalid.illegal.sbnf
 #                ^ invalid.illegal.sbnf
+
+ script
+#^^^^^^ entity.name.function.sbnf
+: '<script>'{tag.begin.script}
+# ^^^^^^^^^^ string.quoted.single.sbnf
+#           ^ punctuation.section.options.begin.sbnf
+#                            ^ punctuation.section.options.end.sbnf
+  %embed['</script>']{scope:source.js, embedded.js, 0: tag.end.script}
+# ^^^^^^ keyword.control.sbnf
+#                                    ^ punctuation.separator.options
+#                                                   ^ constant.numeric.integer.sbnf
+#                                                    ^ punctuation.separator.key-value.sbnf
+;
+
+regex-string{string.quoted}
+: `'`{punctuation.definition.string.begin}
+  %include[regex-prototype]{scope:source.regexp}
+# ^^^^^^^^ keyword.control.sbnf
+#         ^ punctuation.section.arguments.begin.sbnf
+#                         ^ punctuation.section.arguments.end.sbnf
+#                          ^ punctuation.definition.options.begin.sbnf
+#                           ^^^^^^ support.type.include.sbnf
+#                                ^ punctuation.definition.scope-include.sbnf
+#                                       ^ punctuation.separator.scope-segments.sbnf
+#                                              ^ punctuation.definition.options.end.sbnf
+  `'`{punctuation.definition.string.end}
+;
