@@ -6,36 +6,38 @@ pub mod common;
 pub mod interpreter;
 
 use crate::sbnf::Grammar;
-pub use common::{CompileOptions, CompileResult, Error};
+pub use common::{CompileOptions, CompileResult, Compiler, Error};
 
-pub fn compile<'a>(
-    options: &'a CompileOptions<'a>,
-    grammar: &'a Grammar<'a>,
-) -> CompileResult<'a, sublime_syntax::Syntax> {
-    let collection = collector::collect(&options, grammar);
+impl Compiler {
+    pub fn compile<'a>(
+        &mut self,
+        options: &'a CompileOptions<'a>,
+        grammar: &'a Grammar<'a>,
+    ) -> CompileResult<sublime_syntax::Syntax> {
+        let collection = collector::collect(self, options, grammar);
 
-    let (mut warnings, collected) = match collection {
-        CompileResult { result: Err(errors), warnings } => {
-            return CompileResult::new(Err(errors), warnings);
+        let (mut warnings, collected) = match collection {
+            CompileResult { result: Err(errors), warnings } => {
+                return CompileResult::err(errors, warnings);
+            }
+            CompileResult { result: Ok(col), warnings } => (warnings, col),
+        };
+
+        let mut interpreter_result =
+            interpreter::interpret(self, options, collected);
+
+        warnings.append(&mut interpreter_result.warnings);
+
+        if let Err(errors) = interpreter_result.result {
+            return CompileResult::err(errors, warnings);
         }
-        CompileResult { result: Ok(col), warnings } => (warnings, col),
-    };
 
-    let mut interpreter_result = interpreter::interpret(&options, collected);
+        let interpreted = interpreter_result.result.unwrap();
 
-    warnings.append(&mut interpreter_result.warnings);
+        let syntax = codegen::codegen(self, interpreted);
 
-    if let Err(errors) = interpreter_result.result {
-        return CompileResult::new(Err(errors), warnings);
+        CompileResult::new(syntax, vec![], warnings)
     }
-
-    let interpreted = interpreter_result.result.unwrap();
-
-    let mut codegen_result = codegen::codegen(&options, interpreted);
-
-    warnings.append(&mut codegen_result.warnings);
-
-    CompileResult::new(codegen_result.result, warnings)
 }
 
 #[cfg(test)]
@@ -57,18 +59,29 @@ mod tests {
             debug_contexts: false,
             entry_points: vec!["main"],
         };
-        let result = compile(&options, &grammar);
+        let mut compiler = Compiler::new();
+        let result = compiler.compile(&options, &grammar);
 
         if result.is_err() {
             for error in result.result.as_ref().unwrap_err() {
-                println!("{}", error.fmt("ERROR", "test", source));
+                println!(
+                    "{}",
+                    error.with_compiler_and_source(
+                        &compiler, "ERROR", "test", source
+                    )
+                );
             }
         }
         assert!(result.is_ok());
 
         if !result.warnings.is_empty() {
             for warning in &result.warnings {
-                println!("{}", warning.fmt("WARNING", "test", source));
+                println!(
+                    "{}",
+                    warning.with_compiler_and_source(
+                        &compiler, "WARNING", "test", source
+                    )
+                );
             }
         }
         assert!(result.warnings.is_empty());

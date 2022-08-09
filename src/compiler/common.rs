@@ -1,19 +1,46 @@
 use std::collections::HashMap;
 
-use crate::sbnf::Node;
+use string_interner::{DefaultSymbol, StringInterner};
+
+use crate::sbnf::TextLocation;
 use crate::sublime_syntax;
 
-pub struct CompileResult<'a, T> {
-    pub result: Result<T, Vec<Error<'a>>>,
-    pub warnings: Vec<Error<'a>>,
+pub struct Compiler {
+    interner: StringInterner,
 }
 
-impl<'a, T> CompileResult<'a, T> {
-    pub fn new(
-        result: Result<T, Vec<Error<'a>>>,
-        warnings: Vec<Error<'a>>,
-    ) -> CompileResult<'a, T> {
-        CompileResult { result, warnings }
+pub type Symbol = DefaultSymbol;
+
+impl Compiler {
+    pub fn new() -> Compiler {
+        Compiler { interner: StringInterner::new() }
+    }
+
+    pub fn get_symbol(&mut self, s: &str) -> Symbol {
+        self.interner.get_or_intern(s)
+    }
+
+    pub fn resolve_symbol(&self, s: Symbol) -> &str {
+        self.interner.resolve(s).unwrap()
+    }
+}
+
+pub struct CompileResult<T> {
+    pub result: Result<T, Vec<Error>>,
+    pub warnings: Vec<Error>,
+}
+
+impl<T> CompileResult<T> {
+    pub fn new(value: T, errors: Vec<Error>, warnings: Vec<Error>) -> Self {
+        if errors.is_empty() {
+            CompileResult { result: Ok(value), warnings }
+        } else {
+            CompileResult { result: Err(errors), warnings }
+        }
+    }
+
+    pub fn err(errors: Vec<Error>, warnings: Vec<Error>) -> Self {
+        CompileResult { result: Err(errors), warnings }
     }
 
     pub fn is_ok(&self) -> bool {
@@ -44,94 +71,105 @@ pub fn trim_ascii<'a>(s: &'a str) -> &'a str {
 }
 
 #[derive(Debug)]
-pub struct Error<'a> {
-    error: String,
-    node: Option<&'a Node<'a>>,
-    comments: Vec<(&'a Node<'a>, String)>,
-    traceback: Vec<StackFrame<'a>>,
+pub struct Error {
+    message: String,
+    location: Option<TextLocation>,
+    comments: Vec<(TextLocation, String)>,
+    traceback: CallStack,
 }
 
-impl Error<'_> {
-    pub fn new<'a>(
-        error: String,
-        node: &'a Node<'a>,
-        comments: Vec<(&'a Node<'a>, String)>,
-    ) -> Error<'a> {
-        Error { error, node: Some(node), comments, traceback: vec![] }
+impl Error {
+    pub fn new(
+        message: String,
+        location: Option<TextLocation>,
+        comments: Vec<(TextLocation, String)>,
+    ) -> Error {
+        Error { message, location, comments, traceback: CallStack::empty() }
     }
 
-    pub fn from_str<'a>(
-        err: &str,
-        node: &'a Node<'a>,
-        comments: Vec<(&'a Node<'a>, String)>,
-    ) -> Error<'a> {
-        Error::new(err.to_string(), node, comments)
+    pub fn from_str(
+        message: &str,
+        location: Option<TextLocation>,
+        comments: Vec<(TextLocation, String)>,
+    ) -> Error {
+        Error::new(message.to_string(), location, comments)
     }
 
-    pub fn without_node<'a>(
-        error: String,
-        comments: Vec<(&'a Node<'a>, String)>,
-    ) -> Error<'a> {
-        Error { error, node: None, comments, traceback: vec![] }
+    pub fn with_traceback(mut self, stack: CallStack) -> Error {
+        self.traceback = stack;
+        self
     }
 
-    pub fn fmt(&self, typ: &str, origin: &str, source: &str) -> String {
-        let mut result = if let Some(node) = self.node {
-            format!("{}: {} ({}:{})\n", typ, self.error, origin, node.location)
-        } else {
-            format!("{}: {} ({})\n", typ, self.error, origin)
-        };
+    pub fn with_compiler_and_source<'a>(
+        &'a self,
+        compiler: &'a Compiler,
+        error_type: &'a str,
+        origin: &'a str,
+        source: &'a str,
+    ) -> ErrorWithCompilerAndSource {
+        ErrorWithCompilerAndSource {
+            error: self,
+            compiler,
+            error_type,
+            origin,
+            source,
+        }
+    }
+}
 
-        for (node, comment) in &self.comments {
-            result = format!(
-                "{}{} {}\n",
-                result,
-                node.location.fmt_source(source),
-                comment
-            );
+pub struct ErrorWithCompilerAndSource<'a> {
+    error: &'a Error,
+    compiler: &'a Compiler,
+    error_type: &'a str,
+    origin: &'a str,
+    source: &'a str,
+}
+
+impl std::fmt::Display for ErrorWithCompilerAndSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: {} ({}",
+            self.error_type, self.error.message, self.origin
+        )?;
+        if let Some(loc) = self.error.location {
+            write!(f, ":{}", loc)?;
+        }
+        write!(f, ")\n")?;
+
+        for (loc, comment) in &self.error.comments {
+            write!(f, "{} {}\n", loc.with_source(self.source), comment)?;
         }
 
-        if !self.traceback.is_empty() {
-            result.push_str("TRACEBACK:\n");
+        if !self.error.traceback.is_empty() {
+            write!(f, "TRACEBACK:\n")?;
 
-            for frame in self.traceback.iter().rev() {
-                result = format!(
-                    "{}{}:{} - {}\n",
-                    result, origin, frame.function.location, frame
-                );
-                if let Some(variable) = frame.reference {
-                    result.push_str(&variable.location.fmt_source(source));
-                    result.push('\n');
+            for frame in self.error.traceback.iter().rev() {
+                write!(
+                    f,
+                    "{}:{} - {}\n",
+                    self.origin,
+                    frame.function_loc,
+                    frame.with_compiler(self.compiler)
+                )?;
+
+                if let Some(loc) = frame.reference_loc {
+                    write!(f, "{}\n", loc.with_source(self.source))?;
                 }
             }
         }
 
-        result
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Value<'a> {
-    String { regex: String, literal: String, node: Option<&'a Node<'a>> },
-    Rule { name: &'a str, arguments: Vec<Value<'a>>, node: &'a Node<'a> },
+pub enum Value {
+    String { regex: Symbol, literal: Symbol, location: Option<TextLocation> },
+    Rule { name: Symbol, arguments: Vec<Value>, location: TextLocation },
 }
 
-impl<'a> std::fmt::Display for Value<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::String { regex, literal, .. } => {
-                if regex == literal {
-                    write!(f, "'{}'", regex)
-                } else {
-                    write!(f, "`{}`", literal)
-                }
-            }
-            Value::Rule { name, .. } => write!(f, "{}", name),
-        }
-    }
-}
-
-impl<'a> PartialEq for Value<'a> {
+impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -145,9 +183,9 @@ impl<'a> PartialEq for Value<'a> {
         }
     }
 }
-impl<'a> Eq for Value<'a> {}
+impl Eq for Value {}
 
-impl<'a> std::hash::Hash for Value<'a> {
+impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Value::String { regex, literal, .. } => {
@@ -161,22 +199,76 @@ impl<'a> std::hash::Hash for Value<'a> {
     }
 }
 
-pub type VarMap<'a> = HashMap<&'a str, Value<'a>>;
-
-#[derive(Debug, Clone)]
-pub struct StackFrame<'a> {
-    reference: Option<&'a Node<'a>>,
-    function: &'a Node<'a>,
-    arguments: Vec<Value<'a>>,
+impl Value {
+    pub fn with_compiler<'a>(
+        &'a self,
+        compiler: &'a Compiler,
+    ) -> ValueWithCompiler {
+        ValueWithCompiler { value: self, compiler }
+    }
 }
 
-impl<'a> std::fmt::Display for StackFrame<'a> {
+pub struct ValueWithCompiler<'a> {
+    value: &'a Value,
+    compiler: &'a Compiler,
+}
+
+impl<'a> std::fmt::Display for ValueWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.function.text)?;
-        if !self.arguments.is_empty() {
-            write!(f, "[{}", self.arguments[0])?;
-            for arg in &self.arguments[1..] {
-                write!(f, ", {}", arg)?;
+        match self.value {
+            Value::String { regex, literal, .. } => {
+                if regex == literal {
+                    write!(f, "'{}'", self.compiler.resolve_symbol(*regex))
+                } else {
+                    write!(f, "`{}`", self.compiler.resolve_symbol(*literal))
+                }
+            }
+            Value::Rule { name, .. } => {
+                write!(f, "{}", self.compiler.resolve_symbol(*name))
+            }
+        }
+    }
+}
+
+pub type VarMap = HashMap<Symbol, Value>;
+
+#[derive(Debug, Clone)]
+pub struct StackFrame {
+    reference_loc: Option<TextLocation>,
+    function: Symbol,
+    function_loc: TextLocation,
+    arguments: Vec<Value>,
+}
+
+impl StackFrame {
+    pub fn with_compiler<'a>(
+        &'a self,
+        compiler: &'a Compiler,
+    ) -> StackFrameWithCompiler {
+        StackFrameWithCompiler { stack_frame: self, compiler }
+    }
+}
+
+pub struct StackFrameWithCompiler<'a> {
+    stack_frame: &'a StackFrame,
+    compiler: &'a Compiler,
+}
+
+impl<'a> std::fmt::Display for StackFrameWithCompiler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.compiler.resolve_symbol(self.stack_frame.function)
+        )?;
+        if !self.stack_frame.arguments.is_empty() {
+            write!(
+                f,
+                "[{}",
+                self.stack_frame.arguments[0].with_compiler(self.compiler)
+            )?;
+            for arg in &self.stack_frame.arguments[1..] {
+                write!(f, ", {}", arg.with_compiler(self.compiler))?;
             }
             write!(f, "]")?;
         }
@@ -186,70 +278,56 @@ impl<'a> std::fmt::Display for StackFrame<'a> {
 
 pub const STACK_SIZE_LIMIT: usize = 500;
 
-#[derive(Debug)]
-pub struct CallStack<'a> {
-    stack: Vec<StackFrame<'a>>,
-}
+#[derive(Debug, Clone)]
+pub struct CallStack(Vec<StackFrame>);
 
-impl<'a> CallStack<'a> {
-    pub fn new() -> CallStack<'a> {
+impl CallStack {
+    pub fn new() -> CallStack {
         let mut stack = vec![];
         stack.reserve_exact(STACK_SIZE_LIMIT);
-        return CallStack { stack };
+        return CallStack(stack);
     }
 
-    pub fn error(
-        &self,
-        error: String,
-        node: &'a Node<'a>,
-        comments: Vec<(&'a Node<'a>, String)>,
-    ) -> Error<'a> {
-        Error {
-            error,
-            node: Some(node),
-            comments,
-            traceback: self.stack.clone(),
-        }
-    }
-
-    pub fn error_from_str(
-        &self,
-        err: &str,
-        node: &'a Node<'a>,
-        comments: Vec<(&'a Node<'a>, String)>,
-    ) -> Error<'a> {
-        self.error(err.to_string(), node, comments)
+    pub fn empty() -> CallStack {
+        CallStack(vec![])
     }
 
     pub fn push(
         &mut self,
-        reference: Option<&'a Node<'a>>,
-        function: &'a Node<'a>,
-        arguments: Vec<Value<'a>>,
+        reference_loc: Option<TextLocation>,
+        function: Symbol,
+        function_loc: TextLocation,
+        arguments: Vec<Value>,
     ) -> bool {
-        if self.stack.len() == STACK_SIZE_LIMIT {
+        if self.0.len() == STACK_SIZE_LIMIT {
             false
         } else {
-            self.stack.push(StackFrame { reference, function, arguments });
+            self.0.push(StackFrame {
+                reference_loc,
+                function,
+                function_loc,
+                arguments,
+            });
             true
         }
     }
 
     pub fn pop(&mut self) {
-        self.stack.pop().unwrap();
+        self.0.pop().unwrap();
     }
 
     pub fn run<F>(
         &mut self,
-        reference: Option<&'a Node<'a>>,
-        function: &'a Node<'a>,
-        arguments: Vec<Value<'a>>,
+        reference_loc: Option<TextLocation>,
+        function: Symbol,
+        function_loc: TextLocation,
+        arguments: Vec<Value>,
         f: F,
     ) -> bool
     where
         F: Fn(),
     {
-        if self.push(reference, function, arguments) {
+        if self.push(reference_loc, function, function_loc, arguments) {
             f();
             self.pop();
             true
@@ -259,11 +337,15 @@ impl<'a> CallStack<'a> {
     }
 
     pub fn len(&self) -> usize {
-        self.stack.len()
+        self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.stack.is_empty()
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, StackFrame> {
+        self.0.iter()
     }
 }
 
