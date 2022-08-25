@@ -1,14 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ST_BUILD: u32 = 4094;
+const ST_BUILD: u32 = 4138;
 
-const LANGUAGES: [&str; 11] = [
+const LANGUAGES: [&str; 12] = [
     "regexp",
     "sbnf",
     "simplec",
     "tests/html",
     "tests/issue_6",
+    "tests/issue_13",
     "tests/issue_18",
     "tests/issue_24",
     "tests/meta_scopes",
@@ -39,6 +40,13 @@ fn main() -> std::io::Result<()> {
         );
     }
 
+    // Make sure sbnfc is compiled
+    let status = Command::new("cargo")
+        .args(&["build"])
+        .status()
+        .expect("Failed to run cargo");
+    assert!(status.success(), "Failed to compile sbnf");
+
     // Copy all the tests cleanly from the test languages
     for language in &LANGUAGES {
         let mut sbnfs: Vec<PathBuf> = vec![];
@@ -68,23 +76,21 @@ fn main() -> std::io::Result<()> {
         })?;
 
         if !sbnfs.is_empty() {
-            for sbnf in sbnfs {
+            for sbnf_path in sbnfs {
                 let target = PathBuf::from("target/test/Data/Packages")
-                    .join(sbnf.with_extension("sublime-syntax"));
+                    .join(sbnf_path.with_extension("sublime-syntax"));
                 std::fs::create_dir_all(target.parent().unwrap()).unwrap();
 
                 // Compile syntax to target
-                let status = Command::new("cargo")
+                let status = Command::new("target/debug/sbnf")
                     .args(&[
-                        "run",
-                        "--",
-                        sbnf.to_str().unwrap(),
+                        sbnf_path.to_str().unwrap(),
                         "-o",
                         target.to_str().unwrap(),
                     ])
                     .status()
-                    .expect("Failed run exec cargo");
-                assert!(status.success(), "Failed to compile {:?}", sbnf);
+                    .expect("Failed run sbnf");
+                assert!(status.success(), "Failed to compile {:?}", sbnf_path);
             }
 
             // Copy syntax tests

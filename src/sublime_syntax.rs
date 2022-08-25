@@ -151,8 +151,13 @@ impl Scope {
         Scope { scopes: scopes }
     }
 
-    pub fn from_str(scopes: &[&str]) -> Scope {
-        Scope { scopes: scopes.iter().map(|s| s.to_string()).collect() }
+    pub fn parse(scopes: &str) -> Scope {
+        Scope::new(
+            scopes
+                .split_ascii_whitespace()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        )
     }
 
     pub fn len(&self) -> usize {
@@ -435,7 +440,7 @@ mod tests {
             name: "Empty Lang".to_string(),
             file_extensions: vec!["tes".to_string(), "test".to_string()],
             first_line_match: Some(Pattern::from_str(".*\\bfoo\\b")),
-            scope: Scope::from_str(&["source.empty"]),
+            scope: Scope::parse("source.empty"),
             hidden: true,
             variables: HashMap::new(),
             contexts: HashMap::new(),
@@ -466,7 +471,7 @@ hidden: true\n"
             name: "Vars".to_string(),
             file_extensions: vec![],
             first_line_match: None,
-            scope: Scope::from_str(&["source.vars", "text.vars"]),
+            scope: Scope::parse("source.vars text.vars"),
             hidden: false,
             variables: hashmap! {
                 "foo".to_string() => Pattern::from_str("^foo\\b.*$"),
@@ -498,13 +503,13 @@ variables:
             name: "Ctx".to_string(),
             file_extensions: vec!["ctx".to_string()],
             first_line_match: None,
-            scope: Scope::from_str(&["source.ctx"]),
+            scope: Scope::parse("source.ctx"),
             hidden: false,
             variables: HashMap::new(),
             contexts: hashmap! {
                 "foo".to_string() => Context {
                     meta_scope: Scope::empty(),
-                    meta_content_scope: Scope::from_str(&["a", "b"]),
+                    meta_content_scope: Scope::parse("a b"),
                     meta_include_prototype: true,
                     clear_scopes: ScopeClear::All,
                     matches: vec!(
@@ -513,13 +518,13 @@ variables:
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("\\ba(b)\\b"),
                             scope: Scope::empty(),
-                            captures: hashmap!{ 1 => Scope::from_str(&["b"]) },
+                            captures: hashmap!{ 1 => Scope::parse("b") },
                             change_context: ContextChange::None,
                             pop: 0,
                         }),
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("(?=\\()"),
-                            scope: Scope::from_str(&["a", "b"]),
+                            scope: Scope::parse("a b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
                                 vec!("foo".to_string())),
@@ -527,7 +532,7 @@ variables:
                         }),
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("(?={)"),
-                            scope: Scope::from_str(&["a.b"]),
+                            scope: Scope::parse("a.b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
                                 vec!("foo".to_string(), "bar".to_string())),
@@ -551,10 +556,10 @@ variables:
                     matches: vec!(
                         ContextPattern::Match(Match {
                             pattern: Pattern::from_str("//"),
-                            scope: Scope::from_str(&["b"]),
+                            scope: Scope::parse("b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::SetEmbed(Context {
-                                meta_scope: Scope::from_str(&["c"]),
+                                meta_scope: Scope::parse("c"),
                                 meta_content_scope: Scope::empty(),
                                 meta_include_prototype: true,
                                 clear_scopes: ScopeClear::Amount(2),
@@ -568,7 +573,7 @@ variables:
                                             embed_scope: Scope::empty(),
                                             escape: Some(Pattern::from_str("</(p)>")),
                                             escape_captures: hashmap!{
-                                                2 => Scope::from_str(&["c"]),
+                                                2 => Scope::parse("c"),
                                             },
                                         }),
                                         pop: 0,
@@ -584,7 +589,7 @@ variables:
                                             with_prototype: vec!(
                                                 ContextPattern::Match(Match {
                                                     pattern: Pattern::from_str("c"),
-                                                    scope: Scope::from_str(&["c"]),
+                                                    scope: Scope::parse("c"),
                                                     captures: HashMap::new(),
                                                     change_context:
                                                         ContextChange::None,

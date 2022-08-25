@@ -226,7 +226,7 @@ pub struct TextLocation {
 }
 
 impl TextLocation {
-    const INITIAL: TextLocation = TextLocation { line: 0, column: 0 };
+    pub const INITIAL: TextLocation = TextLocation { line: 0, column: 0 };
 
     pub fn new(line: u32, column: u32) -> TextLocation {
         TextLocation { line: line, column: column }

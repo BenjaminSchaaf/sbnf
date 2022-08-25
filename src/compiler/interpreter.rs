@@ -5,13 +5,13 @@ use super::collector::{
     DefinitionMap,
 };
 use super::common::{
-    parse_scope, parse_top_level_scope, trim_ascii, CallStack, CompileOptions,
-    CompileResult, Compiler, Error, Metadata, RuleOptions, Symbol, Value,
-    VarMap,
+    parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
+    Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
 };
 use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
 use crate::sublime_syntax;
 
+#[derive(Debug, Clone)]
 pub struct Interpreted {
     pub rules: HashMap<Key, Rule>,
     pub entry_points: Vec<Key>,
@@ -38,7 +38,7 @@ pub struct KeyWithCompiler<'a> {
     compiler: &'a Compiler,
 }
 
-impl<'a> std::fmt::Display for KeyWithCompiler<'a> {
+impl<'a> std::fmt::Debug for KeyWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.compiler.resolve_symbol(self.key.name))?;
         if !self.key.arguments.is_empty() {
@@ -56,20 +56,36 @@ impl<'a> std::fmt::Display for KeyWithCompiler<'a> {
     }
 }
 
-#[derive(Debug)]
+impl<'a> std::fmt::Display for KeyWithCompiler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Rule {
     pub options: RuleOptions,
     pub expression: Expression,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalOptions {
     pub scope: sublime_syntax::Scope,
     pub captures: HashMap<u16, sublime_syntax::Scope>,
     pub embed: TerminalEmbed,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl TerminalOptions {
+    pub fn new() -> TerminalOptions {
+        TerminalOptions {
+            scope: sublime_syntax::Scope::empty(),
+            captures: HashMap::new(),
+            embed: TerminalEmbed::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalEmbed {
     Embed {
         embed: String,
@@ -84,7 +100,7 @@ pub enum TerminalEmbed {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Variable { key: Key, location: TextLocation },
     Terminal { regex: Symbol, options: TerminalOptions, location: TextLocation },
@@ -328,7 +344,7 @@ fn collect_metadata<'a>(
                     ),
                 )])
             },
-            |s| parse_top_level_scope(&s.1),
+            |s| sublime_syntax::Scope::parse(&s.1),
         );
 
     let scope_postfix =
@@ -1661,9 +1677,56 @@ fn interpolate_string<'a, 'b>(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::sbnf::TextLocation;
+
+    pub fn expr_var(key: Key) -> Expression {
+        Expression::Variable { key, location: TextLocation::INITIAL }
+    }
+
+    pub fn expr_trm(regex: Symbol, options: TerminalOptions) -> Expression {
+        Expression::Terminal { regex, options, location: TextLocation::INITIAL }
+    }
+
+    pub fn expr_trm_noopt(regex: Symbol) -> Expression {
+        expr_trm(regex, TerminalOptions::new())
+    }
+
+    pub fn expr_pas(expr: Expression) -> Expression {
+        Expression::Passive {
+            expression: Box::new(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_rep(expr: Expression) -> Expression {
+        Expression::Repetition {
+            expression: Box::new(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_opt(expr: Expression) -> Expression {
+        Expression::Optional {
+            expression: Box::new(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_alt(exprs: &[Expression]) -> Expression {
+        Expression::Alternation {
+            expressions: exprs.into_iter().cloned().collect(),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_cat(exprs: &[Expression]) -> Expression {
+        Expression::Concatenation {
+            expressions: exprs.into_iter().cloned().collect(),
+            location: TextLocation::INITIAL,
+        }
+    }
 
     fn interp<'a, 'b>(
         compiler: &mut Compiler,

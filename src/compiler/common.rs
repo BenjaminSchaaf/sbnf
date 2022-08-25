@@ -58,14 +58,6 @@ pub struct CompileOptions<'a> {
     pub entry_points: Vec<&'a str>,
 }
 
-pub fn parse_top_level_scope(s: &str) -> sublime_syntax::Scope {
-    sublime_syntax::Scope::new(
-        s.split_ascii_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>(),
-    )
-}
-
 pub fn trim_ascii<'a>(s: &'a str) -> &'a str {
     s.trim_matches(|c: char| c.is_ascii_whitespace())
 }
@@ -356,6 +348,7 @@ pub struct RuleOptions {
     pub capture: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct Metadata {
     pub name: String,
     pub file_extensions: Vec<String>,
@@ -366,7 +359,7 @@ pub struct Metadata {
 }
 
 pub fn parse_scope(metadata: &Metadata, s: &str) -> sublime_syntax::Scope {
-    let mut s = parse_top_level_scope(s);
+    let mut s = sublime_syntax::Scope::parse(s);
     for scope in &mut s.scopes {
         let postfix = &metadata.scope_postfix;
         if !postfix.is_empty() {
