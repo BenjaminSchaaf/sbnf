@@ -100,7 +100,7 @@ terminal-options{include-prototype: false}:
   `}`{punctuation.section.options.end}
 ;
 
-captures:
+captures{include-prototype: false}:
   '\d+'{constant.numeric.integer}
   `:`{punctuation.separator.key-value}
   scope
