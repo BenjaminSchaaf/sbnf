@@ -35,7 +35,7 @@
  'source.*'
 #^^^^^^^^^^ string.quoted.single.sbnf
 #^ punctuation.definition.string.begin.sbnf
-# ^^^^^^^^ source.regexp meta.mode.basic.regexp
+# ^^^^^^^^ source.regexp
 #       ^ keyword.other.any.regexp
 #        ^ keyword.operator.quantifier.regexp
 #         ^ punctuation.definition.string.end.sbnf
