@@ -22,10 +22,12 @@ This produces the following stacks:
 The expression may also be empty.
 */
 
+use std::collections::HashMap;
 use super::super::common::{Compiler, Symbol};
 use super::super::interpreter::{
     Expression, Interpreted, Key, TerminalOptions,
 };
+use crate::sbnf::TextLocation;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackEntryData<'a> {
@@ -81,13 +83,14 @@ impl<'a> std::fmt::Debug for StackEntryWithCompiler<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Terminal<'a> {
     pub regex: Symbol,
-    pub options: &'a TerminalOptions,
+    // Only None for sentinel terminals used to track left recursion
+    pub options: Option<&'a TerminalOptions>,
     pub remaining: Vec<&'a Expression>,
     pub stack: Vec<StackEntry<'a>>,
 }
 
 impl<'a> Terminal<'a> {
-    fn new(regex: Symbol, options: &'a TerminalOptions) -> Terminal {
+    fn new(regex: Symbol, options: Option<&'a TerminalOptions>) -> Terminal {
         Terminal { regex, options, remaining: vec![], stack: vec![] }
     }
 
@@ -373,16 +376,114 @@ impl<'a> std::fmt::Debug for LookaheadWithCompiler<'a> {
     }
 }
 
+pub struct LookaheadState<'a> {
+    visited_variables: HashMap<&'a Key, bool>,
+
+    // Not strictly needed, but very convenient for debugging
+    pub compiler: &'a Compiler,
+}
+
+impl<'a> LookaheadState<'a> {
+    pub fn new(compiler: &'a Compiler) -> LookaheadState<'a> {
+        LookaheadState {
+            visited_variables: HashMap::new(),
+            compiler,
+        }
+    }
+
+    pub fn push_variable(&mut self, key: &'a Key) -> Option<Lookahead<'a>> {
+        // If we're already in the stack of variables then we've got left recursion
+        if let Some(left_recursion) = self.visited_variables.get_mut(key) {
+            *left_recursion = true;
+
+            // Create a sentinel terminal with no terminal options
+            Some(Lookahead {
+                terminals: vec![
+                    Terminal::new(key.name, None),
+                ],
+                end: End::Illegal,
+                empty: false,
+            })
+        } else {
+            self.visited_variables.insert(key, false);
+            None
+        }
+    }
+
+    pub fn pop_variable(&mut self, key: &Key, lookahead: &mut Lookahead<'a>) {
+        // Check if we have left recursion
+        if self.visited_variables.remove(key).unwrap() {
+            // Extract terminals that follow a left recursion
+            let left_recursion_terminals = {
+                let mut result = vec![];
+                let mut i = 0;
+                while i < lookahead.terminals.len() {
+                    if lookahead.terminals[i].options.is_none() {
+                        result.push(lookahead.terminals.remove(i));
+                    } else {
+                        i += 1;
+                    }
+                }
+                result
+            };
+
+            // Build expressions for the terminals following a left recursion as
+            // a repetition of an alternation of concatenations.
+            // TODO: This doesn't seem right, but waiting on examples to work on
+            // this further.
+            let expressions = left_recursion_terminals.into_iter()
+                .filter_map(|rt| {
+                    if rt.remaining.len() > 1 {
+                        Some(Expression::Concatenation {
+                            expressions: rt.remaining.iter().map(|e| (*e).clone()).collect(),
+                            location: TextLocation::invalid(),
+                        })
+                    } else if rt.remaining.len() == 1 {
+                        Some((*rt.remaining[0]).clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if !expressions.is_empty() {
+                let expr = if expressions.len() > 1 {
+                        Expression::Alternation {
+                            expressions,
+                            location: TextLocation::invalid(),
+                        }
+                    } else {
+                        expressions.into_iter().next().unwrap()
+                    };
+                let rep = Box::leak(Box::new(Expression::Repetition { expression: Box::new(expr), location: TextLocation::invalid() }));
+
+                for term in &mut lookahead.terminals {
+                    term.remaining.insert(0, rep);
+                }
+            } else {
+                lookahead.empty = true;
+            }
+        }
+    }
+}
+
 // Transform and collect matches that the context for the expression needs to match
 pub fn lookahead<'a>(
     interpreted: &'a Interpreted,
     expression: &'a Expression,
+    state: &mut LookaheadState<'a>,
 ) -> Lookahead<'a> {
     match expression {
         Expression::Variable { key, .. } => {
+            if let Some(lookahead) = state.push_variable(key) {
+                return lookahead;
+            }
+
             let rule = interpreted.rules.get(key).unwrap();
 
-            let mut la = lookahead(interpreted, &rule.expression);
+            let mut la = lookahead(interpreted, &rule.expression, state);
+
+            state.pop_variable(key, &mut la);
 
             // Add the variable to the stacks
             for term in &mut la.terminals {
@@ -395,17 +496,17 @@ pub fn lookahead<'a>(
             la
         }
         Expression::Terminal { regex, options, .. } => Lookahead {
-            terminals: vec![Terminal::new(*regex, options)],
+            terminals: vec![Terminal::new(*regex, Some(options))],
             end: End::Illegal,
             empty: false,
         },
         Expression::Passive { expression, .. } => {
-            let mut la = lookahead(interpreted, &expression);
+            let mut la = lookahead(interpreted, &expression, state);
             la.end = End::None;
             la
         }
         Expression::Repetition { expression: child, .. } => {
-            let mut la = lookahead(interpreted, &child);
+            let mut la = lookahead(interpreted, &child, state);
 
             // Add the repetition to the front of each match stack
             for term in &mut la.terminals {
@@ -421,7 +522,7 @@ pub fn lookahead<'a>(
             la
         }
         Expression::Optional { expression: child, .. } => {
-            let la = lookahead(interpreted, &child);
+            let la = lookahead(interpreted, &child, state);
 
             match la.end {
                 End::Illegal => Lookahead {
@@ -444,13 +545,13 @@ pub fn lookahead<'a>(
             };
 
             for expression in expressions {
-                la.append(lookahead(interpreted, &expression));
+                la.append(lookahead(interpreted, &expression, state));
             }
 
             la
         }
         Expression::Concatenation { expressions, .. } => {
-            lookahead_concatenation(interpreted, expressions.iter())
+            lookahead_concatenation(interpreted, expressions.iter(), state)
         }
     }
 }
@@ -460,13 +561,14 @@ pub fn lookahead<'a>(
 pub fn lookahead_concatenation<'a, I>(
     interpreted: &'a Interpreted,
     mut expressions: I,
+    state: &mut LookaheadState<'a>,
 ) -> Lookahead<'a>
 where
     I: std::iter::Iterator<Item = &'a Expression>,
     I: std::clone::Clone,
 {
-    let f = |expr, remaining: I| {
-        let mut l = lookahead(interpreted, expr);
+    let mut f = |expr, remaining: I| {
+        let mut l = lookahead(interpreted, expr, state);
 
         for terminal in &mut l.terminals {
             terminal.get_last_remaining().extend(remaining.clone());
@@ -497,6 +599,7 @@ where
 pub fn advance_terminal<'a>(
     interpreted: &'a Interpreted,
     terminal: &Terminal<'a>,
+    compiler: &'a Compiler,
 ) -> Option<Lookahead<'a>> {
     let mut iter = terminal.iter();
 
@@ -507,6 +610,8 @@ pub fn advance_terminal<'a>(
             continue;
         }
 
+        let mut las = LookaheadState::new(compiler);
+
         let mut la = match &entry.data {
             Some(StackEntryData::Repetition { expression }) => {
                 lookahead_concatenation(
@@ -516,11 +621,13 @@ pub fn advance_terminal<'a>(
                         .cloned()
                         .chain(entry.remaining.iter())
                         .cloned(),
+                    &mut las,
                 )
             }
             _ => lookahead_concatenation(
                 interpreted,
                 entry.remaining.iter().cloned(),
+                &mut las,
             ),
         };
 
@@ -609,12 +716,21 @@ mod tests {
 
             let interpreted = interpreter_result.result.as_ref().unwrap();
 
-            let rule = &interpreted.rules[&interpreter::Key {
+            let key = interpreter::Key {
                 name: self.symbol(rule_name),
                 arguments: vec![],
-            }];
-            let cn = lookahead(interpreted, &rule.expression);
-            fun(cn);
+            };
+            let rule = &interpreted.rules[&key];
+
+            let mut lookahead_state = LookaheadState::new(&self.compiler);
+            assert!(lookahead_state.push_variable(&key).is_none());
+
+            let mut la = lookahead(interpreted, &rule.expression, &mut lookahead_state);
+
+            lookahead_state.pop_variable(&key, &mut la);
+
+            println!("{:?}", la.with_compiler(&self.compiler));
+            fun(la);
         }
     }
 
@@ -1067,6 +1183,57 @@ mod tests {
             assert_eq!(term1.regex, sym_b);
             assert_eq!(term1.remaining.len(), 0);
             assert_eq!(term1.stack.len(), 0);
+        });
+    }
+
+    #[test]
+    fn collect_left_recursion() {
+        let mut harness = Harness::new();
+        let sym_a = harness.symbol("a");
+        let sym_b = harness.symbol("b");
+        let sym_c = harness.symbol("c");
+        let m_key = Key { name: harness.symbol("m"), arguments: vec![] };
+        let r_key = Key { name: harness.symbol("r"), arguments: vec![] };
+
+        harness.lookahead("m : m ;", "m", |lookahead| {
+            assert_matches!(lookahead.end, End::Illegal);
+            assert!(lookahead.empty);
+            assert_eq!(lookahead.terminals.len(), 0);
+        });
+
+        harness.lookahead("m : m 'a' | 'b';", "m", |lookahead| {
+            assert_matches!(lookahead.end, End::Illegal);
+            assert!(!lookahead.empty);
+            assert_eq!(lookahead.terminals.len(), 1);
+            let term0 = &lookahead.terminals[0];
+            assert_eq!(term0.regex, sym_b);
+            assert_eq!(term0.remaining.len(), 1);
+            assert_eq!(term0.remaining[0], &expr_rep(expr_trm_noopt(sym_a)));
+            assert_eq!(term0.stack.len(), 0);
+        });
+
+        harness.lookahead("m : m 'a' | m 'b' | 'c';", "m", |lookahead| {
+            assert_matches!(lookahead.end, End::Illegal);
+            assert!(!lookahead.empty);
+            assert_eq!(lookahead.terminals.len(), 1);
+            let term0 = &lookahead.terminals[0];
+            assert_eq!(term0.regex, sym_c);
+            assert_eq!(term0.remaining.len(), 1);
+            assert_eq!(term0.remaining[0], &expr_rep(expr_alt(&[expr_trm_noopt(sym_a), expr_trm_noopt(sym_b)])));
+            assert_eq!(term0.stack.len(), 0);
+        });
+
+        harness.lookahead("m : r? m ; r : 'a' ;", "m", |lookahead| {
+            assert_matches!(lookahead.end, End::Illegal);
+            assert!(lookahead.empty);
+            assert_eq!(lookahead.terminals.len(), 1);
+            let term0 = &lookahead.terminals[0];
+            assert_eq!(term0.regex, sym_a);
+            assert_eq!(term0.remaining.len(), 0);
+            assert_eq!(term0.stack.len(), 1);
+            assert_eq!(term0.stack[0].data, sed_var(&r_key));
+            assert_eq!(term0.stack[0].remaining.len(), 1);
+            assert_eq!(term0.stack[0].remaining[0], &expr_var(m_key.clone()));
         });
     }
 }

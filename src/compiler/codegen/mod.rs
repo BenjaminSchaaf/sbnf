@@ -111,14 +111,29 @@ pub fn codegen<'a>(
     syntax
 }
 
+fn lookahead_rule<'a>(
+    state: &mut State<'a>,
+    interpreted: &'a Interpreted,
+    rule_key: &'a Key,
+) -> lookahead::Lookahead<'a> {
+    let rule = &interpreted.rules[rule_key];
+
+    let mut lookahead_state = lookahead::LookaheadState::new(state.compiler);
+    lookahead_state.push_variable(rule_key);
+
+    let mut lookahead = lookahead::lookahead(interpreted, &rule.expression, &mut lookahead_state);
+
+    lookahead_state.pop_variable(rule_key, &mut lookahead);
+
+    lookahead
+}
+
 fn gen_rule<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted,
     rule_key: &'a Key,
 ) {
-    let rule = &interpreted.rules[rule_key];
-
-    let lookahead = lookahead::lookahead(interpreted, &rule.expression);
+    let lookahead = lookahead_rule(state, interpreted, rule_key);
 
     let context_key = ContextKey {
         rule_key,
@@ -229,7 +244,7 @@ fn gen_contexts<'a>(
                     );
 
                     let exit = if let Some(lookahead) =
-                        lookahead::advance_terminal(interpreted, terminal)
+                        lookahead::advance_terminal(interpreted, terminal, state.compiler)
                     {
                         let next_key = ContextKey {
                             rule_key,
@@ -390,7 +405,7 @@ fn gen_contexts<'a>(
                     branches.push(ctx_name.clone());
 
                     let next_name = if let Some(lookahead) =
-                        lookahead::advance_terminal(interpreted, terminal)
+                        lookahead::advance_terminal(interpreted, terminal, state.compiler)
                     {
                         let next_key = ContextKey {
                             rule_key,
@@ -626,7 +641,7 @@ fn gen_terminal<'a>(
     mut exit: sublime_syntax::ContextChange,
     mut pop_amount: u16,
 ) -> sublime_syntax::ContextPattern {
-    match &terminal.options.embed {
+    match &terminal.options.unwrap().embed {
         TerminalEmbed::Embed {
             embed,
             embed_scope,
@@ -687,10 +702,7 @@ fn gen_terminal<'a>(
         TerminalEmbed::Include { context: path, prototype } => {
             // Generate the prototype context
             let prototype_context = {
-                let rule = &interpreted.rules[prototype];
-
-                let lookahead =
-                    lookahead::lookahead(interpreted, &rule.expression);
+                let lookahead = lookahead_rule(state, interpreted, prototype);
 
                 let prototype_key = ContextKey {
                     rule_key: prototype,
@@ -801,7 +813,7 @@ fn gen_terminal<'a>(
             state.compiler.resolve_symbol(terminal.regex).to_string(),
         ),
         scope,
-        captures: terminal.options.captures.clone(),
+        captures: terminal.options.unwrap().captures.clone(),
         change_context: exit,
         pop: pop_amount,
     })
@@ -831,6 +843,7 @@ fn gen_simple_match<'a>(
                 .cloned()
                 .cloned()
                 .chain(remaining.iter().cloned()),
+            &mut lookahead::LookaheadState::new(state.compiler),
         );
 
         let is_top_level = false;
@@ -975,6 +988,7 @@ fn gen_simple_match_contexts<'a>(
             let lookahead = lookahead::lookahead_concatenation(
                 interpreted,
                 entry.remaining.iter().cloned(),
+                &mut lookahead::LookaheadState::new(state.compiler),
             );
 
             contexts.extend(gen_simple_match_remaining_context(
@@ -1014,6 +1028,7 @@ fn gen_simple_match_contexts<'a>(
         let lookahead = lookahead::lookahead_concatenation(
             interpreted,
             remaining.iter().cloned(),
+            &mut lookahead::LookaheadState::new(state.compiler),
         );
 
         contexts.extend(gen_simple_match_remaining_context(
@@ -1260,7 +1275,7 @@ fn scope_for_match_stack<'a>(
         }
     }
 
-    scopes.extend(terminal.options.scope.scopes.iter().cloned());
+    scopes.extend(terminal.options.unwrap().scope.scopes.iter().cloned());
 
     sublime_syntax::Scope::new(scopes)
 }

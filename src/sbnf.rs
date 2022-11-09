@@ -236,6 +236,10 @@ impl TextLocation {
         TextLocation::new(line, column)
     }
 
+    pub fn invalid() -> TextLocation {
+        TextLocation::new(u32::MAX, u32::MAX)
+    }
+
     fn increment(&mut self, chr: char) {
         if chr == '\n' {
             self.line += 1;
