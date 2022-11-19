@@ -121,7 +121,11 @@ fn lookahead_rule<'a>(
     let mut lookahead_state = lookahead::LookaheadState::new(state.compiler);
     lookahead_state.push_variable(rule_key);
 
-    let mut lookahead = lookahead::lookahead(interpreted, &rule.expression, &mut lookahead_state);
+    let mut lookahead = lookahead::lookahead(
+        interpreted,
+        &rule.expression,
+        &mut lookahead_state,
+    );
 
     lookahead_state.pop_variable(rule_key, &mut lookahead);
 
@@ -244,8 +248,11 @@ fn gen_contexts<'a>(
                     );
 
                     let exit = if let Some(lookahead) =
-                        lookahead::advance_terminal(interpreted, terminal, state.compiler)
-                    {
+                        lookahead::advance_terminal(
+                            interpreted,
+                            terminal,
+                            state.compiler,
+                        ) {
                         let next_key = ContextKey {
                             rule_key,
                             is_top_level,
@@ -405,8 +412,11 @@ fn gen_contexts<'a>(
                     branches.push(ctx_name.clone());
 
                     let next_name = if let Some(lookahead) =
-                        lookahead::advance_terminal(interpreted, terminal, state.compiler)
-                    {
+                        lookahead::advance_terminal(
+                            interpreted,
+                            terminal,
+                            state.compiler,
+                        ) {
                         let next_key = ContextKey {
                             rule_key,
                             is_top_level, // TODO: correctness

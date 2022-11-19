@@ -770,7 +770,9 @@ fn interpret_value<'a>(
 
                 let mut arguments = vec![];
                 for p in parameters {
-                    if let Some(v) = interpret_value(state, collection, var_map, p, false) {
+                    if let Some(v) =
+                        interpret_value(state, collection, var_map, p, false)
+                    {
                         arguments.push(v);
                     }
                 }
@@ -953,11 +955,16 @@ fn interpret_expression<'a, 'b>(
         NodeData::Alternation(children) => {
             let mut expressions = vec![];
             for child in children {
-                if let Some(e) = interpret_expression(state, meta_state, var_map, child) {
+                if let Some(e) =
+                    interpret_expression(state, meta_state, var_map, child)
+                {
                     expressions.push(e);
                 }
             }
-            let expressions = state.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
+            let expressions = state
+                .compiler
+                .allocator
+                .alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
@@ -971,11 +978,16 @@ fn interpret_expression<'a, 'b>(
         NodeData::Concatenation(children) => {
             let mut expressions = vec![];
             for child in children {
-                if let Some(e) = interpret_expression(state, meta_state, var_map, child) {
+                if let Some(e) =
+                    interpret_expression(state, meta_state, var_map, child)
+                {
                     expressions.push(e);
                 }
             }
-            let expressions = state.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
+            let expressions = state
+                .compiler
+                .allocator
+                .alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
@@ -1689,7 +1701,10 @@ pub mod tests {
         Expression::Variable { key, location: TextLocation::INITIAL }
     }
 
-    pub fn expr_trm<'a>(regex: Symbol, options: TerminalOptions) -> Expression<'a> {
+    pub fn expr_trm<'a>(
+        regex: Symbol,
+        options: TerminalOptions,
+    ) -> Expression<'a> {
         Expression::Terminal { regex, options, location: TextLocation::INITIAL }
     }
 
@@ -1697,35 +1712,50 @@ pub mod tests {
         expr_trm(regex, TerminalOptions::new())
     }
 
-    pub fn expr_pas<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
+    pub fn expr_pas<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
         Expression::Passive {
             expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_rep<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
+    pub fn expr_rep<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
         Expression::Repetition {
             expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_opt<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
+    pub fn expr_opt<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
         Expression::Optional {
             expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_alt<'a>(c: &'a Compiler, exprs: &[Expression<'a>]) -> Expression<'a> {
+    pub fn expr_alt<'a>(
+        c: &'a Compiler,
+        exprs: &[Expression<'a>],
+    ) -> Expression<'a> {
         Expression::Alternation {
             expressions: c.allocator.alloc_slice_clone(exprs),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_cat<'a>(c: &'a Compiler, exprs: &[Expression<'a>]) -> Expression<'a> {
+    pub fn expr_cat<'a>(
+        c: &'a Compiler,
+        exprs: &[Expression<'a>],
+    ) -> Expression<'a> {
         Expression::Concatenation {
             expressions: c.allocator.alloc_slice_clone(exprs),
             location: TextLocation::INITIAL,

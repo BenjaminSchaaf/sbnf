@@ -22,12 +22,12 @@ This produces the following stacks:
 The expression may also be empty.
 */
 
-use std::collections::HashMap;
 use super::super::common::{Compiler, Symbol};
 use super::super::interpreter::{
     Expression, Interpreted, Key, TerminalOptions,
 };
 use crate::sbnf::TextLocation;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackEntryData<'a> {
@@ -98,7 +98,10 @@ impl<'a> Terminal<'a> {
         self.get_mut_remaining(self.stack.len())
     }
 
-    fn get_mut_remaining(&mut self, index: usize) -> &mut Vec<&'a Expression<'a>> {
+    fn get_mut_remaining(
+        &mut self,
+        index: usize,
+    ) -> &mut Vec<&'a Expression<'a>> {
         if index == 0 {
             &mut self.remaining
         } else {
@@ -383,10 +386,7 @@ pub struct LookaheadState<'a> {
 
 impl<'a> LookaheadState<'a> {
     pub fn new(compiler: &'a Compiler) -> LookaheadState<'a> {
-        LookaheadState {
-            visited_variables: HashMap::new(),
-            compiler,
-        }
+        LookaheadState { visited_variables: HashMap::new(), compiler }
     }
 
     pub fn push_variable(&mut self, key: &'a Key) -> Option<Lookahead<'a>> {
@@ -396,9 +396,7 @@ impl<'a> LookaheadState<'a> {
 
             // Create a sentinel terminal with no terminal options
             Some(Lookahead {
-                terminals: vec![
-                    Terminal::new(key.name, None),
-                ],
+                terminals: vec![Terminal::new(key.name, None)],
                 end: End::Illegal,
                 empty: false,
             })
@@ -429,11 +427,17 @@ impl<'a> LookaheadState<'a> {
             // a repetition of an alternation of concatenations.
             // TODO: This doesn't seem right, but waiting on examples to work on
             // this further.
-            let expressions = left_recursion_terminals.into_iter()
+            let expressions = left_recursion_terminals
+                .into_iter()
                 .filter_map(|rt| {
                     if rt.remaining.len() > 1 {
                         Some(Expression::Concatenation {
-                            expressions: self.compiler.allocator.alloc_slice_fill_iter(rt.remaining.iter().map(|e| (*e).clone())),
+                            expressions: self
+                                .compiler
+                                .allocator
+                                .alloc_slice_fill_iter(
+                                    rt.remaining.iter().map(|e| (*e).clone()),
+                                ),
                             location: TextLocation::invalid(),
                         })
                     } else if rt.remaining.len() == 1 {
@@ -443,18 +447,25 @@ impl<'a> LookaheadState<'a> {
                     }
                 })
                 .collect::<Vec<_>>();
-            let expressions = self.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
+            let expressions = self
+                .compiler
+                .allocator
+                .alloc_slice_fill_iter(expressions.into_iter());
 
             if !expressions.is_empty() {
                 let expression = if expressions.len() > 1 {
-                        self.compiler.allocator.alloc(Expression::Alternation {
-                            expressions,
-                            location: TextLocation::invalid(),
-                        })
-                    } else {
-                        expressions.into_iter().next().unwrap()
-                    };
-                let rep = self.compiler.allocator.alloc(Expression::Repetition { expression, location: TextLocation::invalid() });
+                    self.compiler.allocator.alloc(Expression::Alternation {
+                        expressions,
+                        location: TextLocation::invalid(),
+                    })
+                } else {
+                    expressions.into_iter().next().unwrap()
+                };
+                let rep =
+                    self.compiler.allocator.alloc(Expression::Repetition {
+                        expression,
+                        location: TextLocation::invalid(),
+                    });
 
                 for term in &mut lookahead.terminals {
                     term.remaining.insert(0, rep);
@@ -706,11 +717,8 @@ mod tests {
 
             let collection = collection.result.unwrap();
 
-            let interpreter_result = interpreter::interpret(
-                &self.compiler,
-                &options,
-                collection,
-            );
+            let interpreter_result =
+                interpreter::interpret(&self.compiler, &options, collection);
             assert!(interpreter_result.warnings.is_empty());
 
             let interpreted = interpreter_result.result.as_ref().unwrap();
@@ -724,7 +732,8 @@ mod tests {
             let mut lookahead_state = LookaheadState::new(&self.compiler);
             assert!(lookahead_state.push_variable(&key).is_none());
 
-            let mut la = lookahead(interpreted, &rule.expression, &mut lookahead_state);
+            let mut la =
+                lookahead(interpreted, &rule.expression, &mut lookahead_state);
 
             lookahead_state.pop_variable(&key, &mut la);
 
@@ -870,7 +879,10 @@ mod tests {
                     assert_eq!(term0.stack.len(), 1);
                     assert_eq!(
                         term0.stack[0].data,
-                        sed_rep(&expr_rep(c, expr_pas(c, expr_trm_noopt(sym_a))))
+                        sed_rep(&expr_rep(
+                            c,
+                            expr_pas(c, expr_trm_noopt(sym_a))
+                        ))
                     );
                     assert_eq!(term0.stack[0].remaining.len(), 1);
                     assert_eq!(
@@ -948,13 +960,22 @@ mod tests {
         });
 
         harness.lookahead("m : ('a'? 'b' | 'c')*;", "m", |lookahead, c| {
-            let rep = expr_rep(c, expr_alt(c, &[
-                expr_cat(c, &[
-                    expr_opt(c, expr_trm_noopt(sym_a)),
-                    expr_trm_noopt(sym_b),
-                ]),
-                expr_trm_noopt(sym_c),
-            ]));
+            let rep = expr_rep(
+                c,
+                expr_alt(
+                    c,
+                    &[
+                        expr_cat(
+                            c,
+                            &[
+                                expr_opt(c, expr_trm_noopt(sym_a)),
+                                expr_trm_noopt(sym_b),
+                            ],
+                        ),
+                        expr_trm_noopt(sym_c),
+                    ],
+                ),
+            );
 
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
@@ -1167,22 +1188,26 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : r? 'b' ; r : 'a' r? 'b' ;", "m", |lookahead, _c| {
-            assert_matches!(lookahead.end, End::Illegal);
-            assert!(!lookahead.empty);
-            assert_eq!(lookahead.terminals.len(), 2);
-            let term0 = &lookahead.terminals[0];
-            assert_eq!(term0.regex, sym_a);
-            assert_eq!(term0.remaining.len(), 2);
-            assert_eq!(term0.stack.len(), 1);
-            assert_eq!(term0.stack[0].data, sed_var(&r_key));
-            assert_eq!(term0.stack[0].remaining.len(), 1);
-            assert_eq!(term0.stack[0].remaining[0], &expr_trm_noopt(sym_b));
-            let term1 = &lookahead.terminals[1];
-            assert_eq!(term1.regex, sym_b);
-            assert_eq!(term1.remaining.len(), 0);
-            assert_eq!(term1.stack.len(), 0);
-        });
+        harness.lookahead(
+            "m : r? 'b' ; r : 'a' r? 'b' ;",
+            "m",
+            |lookahead, _c| {
+                assert_matches!(lookahead.end, End::Illegal);
+                assert!(!lookahead.empty);
+                assert_eq!(lookahead.terminals.len(), 2);
+                let term0 = &lookahead.terminals[0];
+                assert_eq!(term0.regex, sym_a);
+                assert_eq!(term0.remaining.len(), 2);
+                assert_eq!(term0.stack.len(), 1);
+                assert_eq!(term0.stack[0].data, sed_var(&r_key));
+                assert_eq!(term0.stack[0].remaining.len(), 1);
+                assert_eq!(term0.stack[0].remaining[0], &expr_trm_noopt(sym_b));
+                let term1 = &lookahead.terminals[1];
+                assert_eq!(term1.regex, sym_b);
+                assert_eq!(term1.remaining.len(), 0);
+                assert_eq!(term1.stack.len(), 0);
+            },
+        );
     }
 
     #[test]
@@ -1218,7 +1243,16 @@ mod tests {
             let term0 = &lookahead.terminals[0];
             assert_eq!(term0.regex, sym_c);
             assert_eq!(term0.remaining.len(), 1);
-            assert_eq!(term0.remaining[0], &expr_rep(c, expr_alt(c, &[expr_trm_noopt(sym_a), expr_trm_noopt(sym_b)])));
+            assert_eq!(
+                term0.remaining[0],
+                &expr_rep(
+                    c,
+                    expr_alt(
+                        c,
+                        &[expr_trm_noopt(sym_a), expr_trm_noopt(sym_b)]
+                    )
+                )
+            );
             assert_eq!(term0.stack.len(), 0);
         });
 

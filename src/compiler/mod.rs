@@ -789,8 +789,7 @@ mod tests {
 
     #[test]
     fn compile_simple_left_recursion() {
-        let contexts = compile_matches(
-            "main : a ; a : a 'a' | 'b' ;", vec![]);
+        let contexts = compile_matches("main : a ; a : a 'a' | 'b' ;", vec![]);
         // Gets rewritten as: main : 'b' main|lr0 ; main|lr0 : 'a' main|lr0 ;
         assert_eq!(contexts.len(), 2);
         let main = contexts.get("main").unwrap();
@@ -813,7 +812,8 @@ mod tests {
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
-            ]);
+            ]
+        );
         let a0 = contexts.get("a|0").unwrap();
         assert_eq!(
             a0.matches,
@@ -832,6 +832,7 @@ mod tests {
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
-            ])
+            ]
+        )
     }
 }

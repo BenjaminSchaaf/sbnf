@@ -15,10 +15,7 @@ pub type Symbol = symbol_table::Symbol;
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler {
-            interner: SymbolTable::new(),
-            allocator: Bump::new(),
-        }
+        Compiler { interner: SymbolTable::new(), allocator: Bump::new() }
     }
 
     pub fn get_symbol(&self, s: &str) -> Symbol {
