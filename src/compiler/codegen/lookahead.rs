@@ -32,13 +32,13 @@ use crate::sbnf::TextLocation;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackEntryData<'a> {
     Variable { key: &'a Key },
-    Repetition { expression: &'a Expression },
+    Repetition { expression: &'a Expression<'a> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StackEntry<'a> {
     pub data: StackEntryData<'a>,
-    pub remaining: Vec<&'a Expression>,
+    pub remaining: Vec<&'a Expression<'a>>,
 }
 
 impl<'a> StackEntry<'a> {
@@ -85,7 +85,7 @@ pub struct Terminal<'a> {
     pub regex: Symbol,
     // Only None for sentinel terminals used to track left recursion
     pub options: Option<&'a TerminalOptions>,
-    pub remaining: Vec<&'a Expression>,
+    pub remaining: Vec<&'a Expression<'a>>,
     pub stack: Vec<StackEntry<'a>>,
 }
 
@@ -94,11 +94,11 @@ impl<'a> Terminal<'a> {
         Terminal { regex, options, remaining: vec![], stack: vec![] }
     }
 
-    fn get_last_remaining(&mut self) -> &mut Vec<&'a Expression> {
+    fn get_last_remaining(&mut self) -> &mut Vec<&'a Expression<'a>> {
         self.get_mut_remaining(self.stack.len())
     }
 
-    fn get_mut_remaining(&mut self, index: usize) -> &mut Vec<&'a Expression> {
+    fn get_mut_remaining(&mut self, index: usize) -> &mut Vec<&'a Expression<'a>> {
         if index == 0 {
             &mut self.remaining
         } else {
@@ -106,7 +106,7 @@ impl<'a> Terminal<'a> {
         }
     }
 
-    pub fn get_remaining(&self, index: usize) -> &Vec<&'a Expression> {
+    pub fn get_remaining(&self, index: usize) -> &Vec<&'a Expression<'a>> {
         if index == 0 {
             &self.remaining
         } else {
@@ -161,7 +161,7 @@ pub struct TerminalStackIterator<'a, 'b> {
 #[derive(Debug, Clone)]
 pub struct TerminalStackIteratorItem<'a, 'b> {
     pub data: Option<&'b StackEntryData<'a>>,
-    pub remaining: &'b Vec<&'a Expression>,
+    pub remaining: &'b Vec<&'a Expression<'a>>,
 }
 
 impl<'a, 'b> TerminalStackIteratorItem<'a, 'b> {
@@ -378,8 +378,6 @@ impl<'a> std::fmt::Debug for LookaheadWithCompiler<'a> {
 
 pub struct LookaheadState<'a> {
     visited_variables: HashMap<&'a Key, bool>,
-
-    // Not strictly needed, but very convenient for debugging
     pub compiler: &'a Compiler,
 }
 
@@ -435,7 +433,7 @@ impl<'a> LookaheadState<'a> {
                 .filter_map(|rt| {
                     if rt.remaining.len() > 1 {
                         Some(Expression::Concatenation {
-                            expressions: rt.remaining.iter().map(|e| (*e).clone()).collect(),
+                            expressions: self.compiler.allocator.alloc_slice_fill_iter(rt.remaining.iter().map(|e| (*e).clone())),
                             location: TextLocation::invalid(),
                         })
                     } else if rt.remaining.len() == 1 {
@@ -445,17 +443,18 @@ impl<'a> LookaheadState<'a> {
                     }
                 })
                 .collect::<Vec<_>>();
+            let expressions = self.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
 
             if !expressions.is_empty() {
-                let expr = if expressions.len() > 1 {
-                        Expression::Alternation {
+                let expression = if expressions.len() > 1 {
+                        self.compiler.allocator.alloc(Expression::Alternation {
                             expressions,
                             location: TextLocation::invalid(),
-                        }
+                        })
                     } else {
                         expressions.into_iter().next().unwrap()
                     };
-                let rep = Box::leak(Box::new(Expression::Repetition { expression: Box::new(expr), location: TextLocation::invalid() }));
+                let rep = self.compiler.allocator.alloc(Expression::Repetition { expression, location: TextLocation::invalid() });
 
                 for term in &mut lookahead.terminals {
                     term.remaining.insert(0, rep);
@@ -544,7 +543,7 @@ pub fn lookahead<'a>(
                 empty: false,
             };
 
-            for expression in expressions {
+            for expression in *expressions {
                 la.append(lookahead(interpreted, &expression, state));
             }
 
@@ -564,11 +563,11 @@ pub fn lookahead_concatenation<'a, I>(
     state: &mut LookaheadState<'a>,
 ) -> Lookahead<'a>
 where
-    I: std::iter::Iterator<Item = &'a Expression>,
+    I: std::iter::Iterator<Item = &'a Expression<'a>>,
     I: std::clone::Clone,
 {
     let mut f = |expr, remaining: I| {
-        let mut l = lookahead(interpreted, expr, state);
+        let mut l: Lookahead<'a> = lookahead(interpreted, expr, state);
 
         for terminal in &mut l.terminals {
             terminal.get_last_remaining().extend(remaining.clone());
@@ -684,13 +683,13 @@ mod tests {
             Harness { compiler: Compiler::new() }
         }
 
-        fn symbol(&mut self, name: &str) -> Symbol {
+        fn symbol(&self, name: &str) -> Symbol {
             self.compiler.get_symbol(name)
         }
 
         fn lookahead<F>(&mut self, source: &str, rule_name: &str, fun: F)
         where
-            F: Fn(Lookahead) -> (),
+            F: Fn(Lookahead, &Compiler) -> (),
         {
             let grammar = sbnf::parse(source).unwrap();
 
@@ -708,7 +707,7 @@ mod tests {
             let collection = collection.result.unwrap();
 
             let interpreter_result = interpreter::interpret(
-                &mut self.compiler,
+                &self.compiler,
                 &options,
                 collection,
             );
@@ -730,7 +729,7 @@ mod tests {
             lookahead_state.pop_variable(&key, &mut la);
 
             println!("{:?}", la.with_compiler(&self.compiler));
-            fun(la);
+            fun(la, &self.compiler);
         }
     }
 
@@ -749,7 +748,7 @@ mod tests {
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
 
-        harness.lookahead("m : ~'a';", "m", |lookahead| {
+        harness.lookahead("m : ~'a';", "m", |lookahead, _c| {
             assert_eq!(lookahead.end, End::None);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -758,7 +757,7 @@ mod tests {
             assert_eq!(lookahead.terminals[0].stack.len(), 0);
         });
 
-        harness.lookahead("m : ~'a' 'b';", "m", |lookahead| {
+        harness.lookahead("m : ~'a' 'b';", "m", |lookahead, _c| {
             assert_eq!(lookahead.end, End::None);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -769,7 +768,7 @@ mod tests {
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : ~'a'* ~'b';", "m", |lookahead| {
+        harness.lookahead("m : ~'a'* ~'b';", "m", |lookahead, c| {
             assert_eq!(lookahead.end, End::None);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -779,12 +778,12 @@ mod tests {
             assert_eq!(term0.stack.len(), 1);
             assert_eq!(
                 term0.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_a)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_a)))
             );
             assert_eq!(term0.stack[0].remaining.len(), 1);
             assert_eq!(
                 term0.stack[0].remaining[0],
-                &expr_pas(expr_trm_noopt(sym_b))
+                &expr_pas(c, expr_trm_noopt(sym_b))
             );
             let term1 = &lookahead.terminals[1];
             assert_eq!(term1.regex, sym_b);
@@ -792,7 +791,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : (~'a')* ~'b';", "m", |lookahead| {
+        harness.lookahead("m : (~'a')* ~'b';", "m", |lookahead, c| {
             assert_eq!(lookahead.end, End::None);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -802,12 +801,12 @@ mod tests {
             assert_eq!(term0.stack.len(), 1);
             assert_eq!(
                 term0.stack[0].data,
-                sed_rep(&expr_rep(expr_pas(expr_trm_noopt(sym_a))))
+                sed_rep(&expr_rep(c, expr_pas(c, expr_trm_noopt(sym_a))))
             );
             assert_eq!(term0.stack[0].remaining.len(), 1);
             assert_eq!(
                 term0.stack[0].remaining[0],
-                &expr_pas(expr_trm_noopt(sym_b))
+                &expr_pas(c, expr_trm_noopt(sym_b))
             );
             let term1 = &lookahead.terminals[1];
             assert_eq!(term1.regex, sym_b);
@@ -815,7 +814,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : ~('a' | 'b') 'c';", "m", |lookahead| {
+        harness.lookahead("m : ~('a' | 'b') 'c';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::None);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -831,7 +830,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : ~'a'?;", "m", |lookahead| {
+        harness.lookahead("m : ~'a'?;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::None);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -841,7 +840,7 @@ mod tests {
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : (~'a')?;", "m", |lookahead| {
+        harness.lookahead("m : (~'a')?;", "m", |lookahead, _c| {
             match lookahead.end {
                 End::Push(lookahead) => {
                     assert_matches!(lookahead.end, End::None);
@@ -859,7 +858,7 @@ mod tests {
             assert!(lookahead.terminals.is_empty());
         });
 
-        harness.lookahead("m : (~'a')* 'b';", "m", |lookahead| {
+        harness.lookahead("m : (~'a')* 'b';", "m", |lookahead, c| {
             match lookahead.end {
                 End::Push(lookahead) => {
                     assert_matches!(lookahead.end, End::None);
@@ -871,7 +870,7 @@ mod tests {
                     assert_eq!(term0.stack.len(), 1);
                     assert_eq!(
                         term0.stack[0].data,
-                        sed_rep(&expr_rep(expr_pas(expr_trm_noopt(sym_a))))
+                        sed_rep(&expr_rep(c, expr_pas(c, expr_trm_noopt(sym_a))))
                     );
                     assert_eq!(term0.stack[0].remaining.len(), 1);
                     assert_eq!(
@@ -889,7 +888,7 @@ mod tests {
             assert_eq!(term0.stack.len(), 1);
             assert_eq!(
                 term0.stack[0].data,
-                sed_rep(&expr_rep(expr_pas(expr_trm_noopt(sym_a))))
+                sed_rep(&expr_rep(c, expr_pas(c, expr_trm_noopt(sym_a))))
             );
             assert_eq!(term0.stack[0].remaining.len(), 1);
             assert_eq!(term0.stack[0].remaining[0], &expr_trm_noopt(sym_b));
@@ -899,7 +898,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : 'a'? ~'b';", "m", |lookahead| {
+        harness.lookahead("m : 'a'? ~'b';", "m", |lookahead, c| {
             match lookahead.end {
                 End::Push(lookahead) => {
                     assert_matches!(lookahead.end, End::None);
@@ -917,7 +916,7 @@ mod tests {
             let term0 = &lookahead.terminals[0];
             assert_eq!(term0.regex, sym_a);
             assert_eq!(term0.remaining.len(), 1);
-            assert_eq!(term0.remaining[0], &expr_pas(expr_trm_noopt(sym_b)));
+            assert_eq!(term0.remaining[0], &expr_pas(c, expr_trm_noopt(sym_b)));
             assert_eq!(term0.stack.len(), 0);
             let term1 = &lookahead.terminals[1];
             assert_eq!(term1.regex, sym_b);
@@ -933,7 +932,7 @@ mod tests {
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
 
-        harness.lookahead("m : 'a'*;", "m", |lookahead| {
+        harness.lookahead("m : 'a'*;", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -943,15 +942,15 @@ mod tests {
             assert_eq!(term0.stack.len(), 1);
             assert_eq!(
                 term0.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_a)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_a)))
             );
             assert_eq!(term0.stack[0].remaining.len(), 0);
         });
 
-        harness.lookahead("m : ('a'? 'b' | 'c')*;", "m", |lookahead| {
-            let rep = expr_rep(expr_alt(&[
-                expr_cat(&[
-                    expr_opt(expr_trm_noopt(sym_a)),
+        harness.lookahead("m : ('a'? 'b' | 'c')*;", "m", |lookahead, c| {
+            let rep = expr_rep(c, expr_alt(c, &[
+                expr_cat(c, &[
+                    expr_opt(c, expr_trm_noopt(sym_a)),
                     expr_trm_noopt(sym_b),
                 ]),
                 expr_trm_noopt(sym_c),
@@ -989,7 +988,7 @@ mod tests {
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
 
-        harness.lookahead("m : 'a'?;", "m", |lookahead| {
+        harness.lookahead("m : 'a'?;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -999,7 +998,7 @@ mod tests {
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : ('a' | 'b'* 'c')?;", "m", |lookahead| {
+        harness.lookahead("m : ('a' | 'b'* 'c')?;", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 3);
@@ -1013,7 +1012,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 1);
             assert_eq!(
                 term1.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_b)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_b)))
             );
             assert_eq!(term1.stack[0].remaining.len(), 1);
             assert_eq!(term1.stack[0].remaining[0], &expr_trm_noopt(sym_c));
@@ -1031,7 +1030,7 @@ mod tests {
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
 
-        harness.lookahead("m : 'a' | 'b';", "m", |lookahead| {
+        harness.lookahead("m : 'a' | 'b';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -1045,7 +1044,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : 'a' | 'b' 'c';", "m", |lookahead| {
+        harness.lookahead("m : 'a' | 'b' 'c';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -1060,7 +1059,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : 'a'? | 'b' | 'c'*;", "m", |lookahead| {
+        harness.lookahead("m : 'a'? | 'b' | 'c'*;", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 3);
@@ -1078,7 +1077,7 @@ mod tests {
             assert_eq!(term2.stack.len(), 1);
             assert_eq!(
                 term2.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_c)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_c)))
             );
             assert_eq!(term2.stack[0].remaining.len(), 0);
         });
@@ -1092,7 +1091,7 @@ mod tests {
         let sym_c = harness.symbol("c");
         let r_key = Key { name: harness.symbol("r"), arguments: vec![] };
 
-        harness.lookahead("m : 'a' 'b';", "m", |lookahead| {
+        harness.lookahead("m : 'a' 'b';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
@@ -1103,7 +1102,7 @@ mod tests {
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : ('a' | 'b') 'c';", "m", |lookahead| {
+        harness.lookahead("m : ('a' | 'b') 'c';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -1119,14 +1118,14 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : 'a'? 'b'* 'c';", "m", |lookahead| {
+        harness.lookahead("m : 'a'? 'b'* 'c';", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 3);
             let term0 = &lookahead.terminals[0];
             assert_eq!(term0.regex, sym_a);
             assert_eq!(term0.remaining.len(), 2);
-            assert_eq!(term0.remaining[0], &expr_rep(expr_trm_noopt(sym_b)));
+            assert_eq!(term0.remaining[0], &expr_rep(c, expr_trm_noopt(sym_b)));
             assert_eq!(term0.remaining[1], &expr_trm_noopt(sym_c));
             assert_eq!(term0.stack.len(), 0);
             let term1 = &lookahead.terminals[1];
@@ -1135,7 +1134,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 1);
             assert_eq!(
                 term1.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_b)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_b)))
             );
             assert_eq!(term1.stack[0].remaining.len(), 1);
             assert_eq!(term1.stack[0].remaining[0], &expr_trm_noopt(sym_c));
@@ -1145,7 +1144,7 @@ mod tests {
             assert_eq!(term2.stack.len(), 0);
         });
 
-        harness.lookahead("m : 'a'* 'b'?;", "m", |lookahead| {
+        harness.lookahead("m : 'a'* 'b'?;", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -1155,12 +1154,12 @@ mod tests {
             assert_eq!(term0.stack.len(), 1);
             assert_eq!(
                 term0.stack[0].data,
-                sed_rep(&expr_rep(expr_trm_noopt(sym_a)))
+                sed_rep(&expr_rep(c, expr_trm_noopt(sym_a)))
             );
             assert_eq!(term0.stack[0].remaining.len(), 1);
             assert_eq!(
                 term0.stack[0].remaining[0],
-                &expr_opt(expr_trm_noopt(sym_b))
+                &expr_opt(c, expr_trm_noopt(sym_b))
             );
             let term1 = &lookahead.terminals[1];
             assert_eq!(term1.regex, sym_b);
@@ -1168,7 +1167,7 @@ mod tests {
             assert_eq!(term1.stack.len(), 0);
         });
 
-        harness.lookahead("m : r? 'b' ; r : 'a' r? 'b' ;", "m", |lookahead| {
+        harness.lookahead("m : r? 'b' ; r : 'a' r? 'b' ;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 2);
@@ -1195,35 +1194,35 @@ mod tests {
         let m_key = Key { name: harness.symbol("m"), arguments: vec![] };
         let r_key = Key { name: harness.symbol("r"), arguments: vec![] };
 
-        harness.lookahead("m : m ;", "m", |lookahead| {
+        harness.lookahead("m : m ;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 0);
         });
 
-        harness.lookahead("m : m 'a' | 'b';", "m", |lookahead| {
+        harness.lookahead("m : m 'a' | 'b';", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
             let term0 = &lookahead.terminals[0];
             assert_eq!(term0.regex, sym_b);
             assert_eq!(term0.remaining.len(), 1);
-            assert_eq!(term0.remaining[0], &expr_rep(expr_trm_noopt(sym_a)));
+            assert_eq!(term0.remaining[0], &expr_rep(c, expr_trm_noopt(sym_a)));
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : m 'a' | m 'b' | 'c';", "m", |lookahead| {
+        harness.lookahead("m : m 'a' | m 'b' | 'c';", "m", |lookahead, c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(!lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);
             let term0 = &lookahead.terminals[0];
             assert_eq!(term0.regex, sym_c);
             assert_eq!(term0.remaining.len(), 1);
-            assert_eq!(term0.remaining[0], &expr_rep(expr_alt(&[expr_trm_noopt(sym_a), expr_trm_noopt(sym_b)])));
+            assert_eq!(term0.remaining[0], &expr_rep(c, expr_alt(c, &[expr_trm_noopt(sym_a), expr_trm_noopt(sym_b)])));
             assert_eq!(term0.stack.len(), 0);
         });
 
-        harness.lookahead("m : r? m ; r : 'a' ;", "m", |lookahead| {
+        harness.lookahead("m : r? m ; r : 'a' ;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
             assert!(lookahead.empty);
             assert_eq!(lookahead.terminals.len(), 1);

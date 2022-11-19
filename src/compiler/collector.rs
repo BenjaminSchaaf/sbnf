@@ -25,7 +25,7 @@ pub struct Collection<'a> {
 }
 
 struct State<'a, 'b> {
-    compiler: &'b mut Compiler,
+    compiler: &'b Compiler,
     options: &'a CompileOptions<'a>,
     variables: VarMap,
     definitions: DefinitionMap<'a>,
@@ -34,7 +34,7 @@ struct State<'a, 'b> {
 }
 
 pub fn collect<'a, 'b>(
-    compiler: &'b mut Compiler,
+    compiler: &'b Compiler,
     options: &'a CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
 ) -> CompileResult<Collection<'a>> {

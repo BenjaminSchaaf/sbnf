@@ -12,8 +12,8 @@ use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
 use crate::sublime_syntax;
 
 #[derive(Debug, Clone)]
-pub struct Interpreted {
-    pub rules: HashMap<Key, Rule>,
+pub struct Interpreted<'a> {
+    pub rules: HashMap<Key, Rule<'a>>,
     pub entry_points: Vec<Key>,
     pub metadata: Metadata,
 }
@@ -63,9 +63,9 @@ impl<'a> std::fmt::Display for KeyWithCompiler<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Rule {
+pub struct Rule<'a> {
     pub options: RuleOptions,
-    pub expression: Expression,
+    pub expression: &'a Expression<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,17 +101,17 @@ pub enum TerminalEmbed {
 }
 
 #[derive(Debug, Clone)]
-pub enum Expression {
+pub enum Expression<'a> {
     Variable { key: Key, location: TextLocation },
     Terminal { regex: Symbol, options: TerminalOptions, location: TextLocation },
-    Passive { expression: Box<Expression>, location: TextLocation },
-    Repetition { expression: Box<Expression>, location: TextLocation },
-    Optional { expression: Box<Expression>, location: TextLocation },
-    Alternation { expressions: Vec<Expression>, location: TextLocation },
-    Concatenation { expressions: Vec<Expression>, location: TextLocation },
+    Passive { expression: &'a Expression<'a>, location: TextLocation },
+    Repetition { expression: &'a Expression<'a>, location: TextLocation },
+    Optional { expression: &'a Expression<'a>, location: TextLocation },
+    Alternation { expressions: &'a [Expression<'a>], location: TextLocation },
+    Concatenation { expressions: &'a [Expression<'a>], location: TextLocation },
 }
 
-impl PartialEq for Expression {
+impl PartialEq for Expression<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -146,9 +146,9 @@ impl PartialEq for Expression {
         }
     }
 }
-impl Eq for Expression {}
+impl Eq for Expression<'_> {}
 
-impl std::hash::Hash for Expression {
+impl std::hash::Hash for Expression<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Expression::Variable { key, .. } => key.hash(state),
@@ -177,8 +177,8 @@ impl std::hash::Hash for Expression {
     }
 }
 
-impl Expression {
-    pub fn with_compiler<'a>(
+impl<'a> Expression<'a> {
+    pub fn with_compiler(
         &'a self,
         compiler: &'a Compiler,
     ) -> ExpressionWithCompiler {
@@ -187,7 +187,7 @@ impl Expression {
 }
 
 pub struct ExpressionWithCompiler<'a> {
-    expression: &'a Expression,
+    expression: &'a Expression<'a>,
     compiler: &'a Compiler,
 }
 
@@ -244,11 +244,11 @@ impl<'a> std::fmt::Debug for ExpressionWithCompiler<'a> {
 }
 
 struct State<'a> {
-    compiler: &'a mut Compiler,
+    compiler: &'a Compiler,
     options: &'a CompileOptions<'a>,
     seen_definitions: HashSet<Key>,
     variables: HashMap<Key, Option<Value>>,
-    rules: HashMap<Key, Rule>,
+    rules: HashMap<Key, Rule<'a>>,
     stack: CallStack,
     errors: Vec<Error>,
     warnings: Vec<Error>,
@@ -259,11 +259,11 @@ struct MetaState<'a, 'b> {
     metadata: &'b Metadata,
 }
 
-pub fn interpret<'a, 'b>(
-    compiler: &'a mut Compiler,
+pub fn interpret<'a>(
+    compiler: &'a Compiler,
     options: &'a CompileOptions<'a>,
     collection: Collection<'a>,
-) -> CompileResult<Interpreted> {
+) -> CompileResult<Interpreted<'a>> {
     let mut state = State {
         compiler,
         options,
@@ -309,8 +309,8 @@ pub fn interpret<'a, 'b>(
     )
 }
 
-fn collect_metadata<'a>(
-    state: &mut State<'a>,
+fn collect_metadata<'a, 'b>(
+    state: &'b mut State<'a>,
     collection: &DefinitionMap<'a>,
 ) -> Metadata {
     let name = interpret_metadata_variable(state, collection, "NAME", true)
@@ -714,6 +714,8 @@ fn interpret_rule<'a, 'b>(
             interpret_expression(state, meta_state, &var_map, expression_node);
 
         if let Some(expression) = expression {
+            let expression = state.compiler.allocator.alloc(expression);
+
             let is_new_rule =
                 state.rules.insert(key.clone(), Rule { options, expression });
             assert!(is_new_rule.is_none());
@@ -766,12 +768,12 @@ fn interpret_value<'a>(
                     _ => panic!(),
                 };
 
-                let arguments = parameters
-                    .iter()
-                    .filter_map(|p| {
-                        interpret_value(state, collection, var_map, p, false)
-                    })
-                    .collect::<Vec<_>>();
+                let mut arguments = vec![];
+                for p in parameters {
+                    if let Some(v) = interpret_value(state, collection, var_map, p, false) {
+                        arguments.push(v);
+                    }
+                }
 
                 if arguments.len() != parameters.len() {
                     return None;
@@ -832,7 +834,7 @@ fn interpret_expression<'a, 'b>(
     meta_state: &MetaState<'a, 'b>,
     var_map: &VarMap,
     node: &'a Node<'a>,
-) -> Option<Expression> {
+) -> Option<Expression<'a>> {
     match &node.data {
         NodeData::Reference { options: node_options, .. } => {
             let value = interpret_value(
@@ -917,7 +919,7 @@ fn interpret_expression<'a, 'b>(
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Passive {
-                    expression: Box::new(expression),
+                    expression: state.compiler.allocator.alloc(expression),
                     location: node.location,
                 })
             } else {
@@ -929,7 +931,7 @@ fn interpret_expression<'a, 'b>(
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Repetition {
-                    expression: Box::new(expression),
+                    expression: state.compiler.allocator.alloc(expression),
                     location: node.location,
                 })
             } else {
@@ -941,7 +943,7 @@ fn interpret_expression<'a, 'b>(
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Optional {
-                    expression: Box::new(expression),
+                    expression: state.compiler.allocator.alloc(expression),
                     location: node.location,
                 })
             } else {
@@ -949,12 +951,13 @@ fn interpret_expression<'a, 'b>(
             }
         }
         NodeData::Alternation(children) => {
-            let expressions = children
-                .iter()
-                .filter_map(|child| {
-                    interpret_expression(state, meta_state, var_map, child)
-                })
-                .collect::<Vec<_>>();
+            let mut expressions = vec![];
+            for child in children {
+                if let Some(e) = interpret_expression(state, meta_state, var_map, child) {
+                    expressions.push(e);
+                }
+            }
+            let expressions = state.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
@@ -966,12 +969,13 @@ fn interpret_expression<'a, 'b>(
             }
         }
         NodeData::Concatenation(children) => {
-            let expressions = children
-                .iter()
-                .filter_map(|child| {
-                    interpret_expression(state, meta_state, var_map, child)
-                })
-                .collect::<Vec<_>>();
+            let mut expressions = vec![];
+            for child in children {
+                if let Some(e) = interpret_expression(state, meta_state, var_map, child) {
+                    expressions.push(e);
+                }
+            }
+            let expressions = state.compiler.allocator.alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
@@ -1681,49 +1685,49 @@ pub mod tests {
     use super::*;
     use crate::sbnf::TextLocation;
 
-    pub fn expr_var(key: Key) -> Expression {
+    pub fn expr_var<'a>(key: Key) -> Expression<'a> {
         Expression::Variable { key, location: TextLocation::INITIAL }
     }
 
-    pub fn expr_trm(regex: Symbol, options: TerminalOptions) -> Expression {
+    pub fn expr_trm<'a>(regex: Symbol, options: TerminalOptions) -> Expression<'a> {
         Expression::Terminal { regex, options, location: TextLocation::INITIAL }
     }
 
-    pub fn expr_trm_noopt(regex: Symbol) -> Expression {
+    pub fn expr_trm_noopt<'a>(regex: Symbol) -> Expression<'a> {
         expr_trm(regex, TerminalOptions::new())
     }
 
-    pub fn expr_pas(expr: Expression) -> Expression {
+    pub fn expr_pas<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
         Expression::Passive {
-            expression: Box::new(expr),
+            expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_rep(expr: Expression) -> Expression {
+    pub fn expr_rep<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
         Expression::Repetition {
-            expression: Box::new(expr),
+            expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_opt(expr: Expression) -> Expression {
+    pub fn expr_opt<'a>(c: &'a Compiler, expr: Expression<'a>) -> Expression<'a> {
         Expression::Optional {
-            expression: Box::new(expr),
+            expression: c.allocator.alloc(expr),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_alt(exprs: &[Expression]) -> Expression {
+    pub fn expr_alt<'a>(c: &'a Compiler, exprs: &[Expression<'a>]) -> Expression<'a> {
         Expression::Alternation {
-            expressions: exprs.into_iter().cloned().collect(),
+            expressions: c.allocator.alloc_slice_clone(exprs),
             location: TextLocation::INITIAL,
         }
     }
 
-    pub fn expr_cat(exprs: &[Expression]) -> Expression {
+    pub fn expr_cat<'a>(c: &'a Compiler, exprs: &[Expression<'a>]) -> Expression<'a> {
         Expression::Concatenation {
-            expressions: exprs.into_iter().cloned().collect(),
+            expressions: c.allocator.alloc_slice_clone(exprs),
             location: TextLocation::INITIAL,
         }
     }

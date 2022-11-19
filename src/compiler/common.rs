@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 
-use string_interner::{DefaultSymbol, StringInterner};
+use bumpalo::Bump;
+use symbol_table::SymbolTable;
 
 use crate::sbnf::TextLocation;
 use crate::sublime_syntax;
 
 pub struct Compiler {
-    interner: StringInterner,
+    interner: SymbolTable,
+    pub allocator: Bump,
 }
 
-pub type Symbol = DefaultSymbol;
+pub type Symbol = symbol_table::Symbol;
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler { interner: StringInterner::new() }
+        Compiler {
+            interner: SymbolTable::new(),
+            allocator: Bump::new(),
+        }
     }
 
-    pub fn get_symbol(&mut self, s: &str) -> Symbol {
-        self.interner.get_or_intern(s)
+    pub fn get_symbol(&self, s: &str) -> Symbol {
+        self.interner.intern(s)
     }
 
     pub fn resolve_symbol(&self, s: Symbol) -> &str {
-        self.interner.resolve(s).unwrap()
+        self.interner.resolve(s)
     }
 }
 
