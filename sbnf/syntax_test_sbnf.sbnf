@@ -45,8 +45,7 @@
 #    ^ punctuation.section.parameters.begin.sbnf
 #     ^ variable.parameter.sbnf
 #      ^ punctuation.separator.parameters.sbnf
-#       ^^^^ variable.parameter.sbnf
-#        ^^^ string.quoted.other.sbnf
+#        ^^^ variable.parameter.sbnf string.quoted.other.sbnf
 #           ^ punctuation.section.parameters.end.sbnf
 #            ^ punctuation.section.options.begin.sbnf
 #                 ^ punctuation.separator.scope-segments.sbnf
@@ -72,7 +71,7 @@
 #      ^ punctuation.section.parameters.begin.sbnf
 #       ^ variable.parameter.sbnf
 #        ^ punctuation.separator.parameters.sbnf
-#         ^^ variable.parameter.sbnf
+#          ^ variable.parameter.sbnf
 #           ^ punctuation.section.parameters.end.sbnf
 #             ^ keyword.operator.assignment.sbnf
 #               ^^^ meta.function-call.sbnf variable.function.sbnf
@@ -80,23 +79,19 @@
 #                  ^^^^^^^^^^^^^^^^ meta.function-call.sbnf
 #                      ^ meta.function-call.sbnf constant.other.sbnf
 
- rule = 'jdf'
+ rule =
 #^^^^ meta.function.sbnf entity.name.function.sbnf
 #     ^ invalid.illegal.sbnf
-#       ^ invalid.illegal.sbnf
-#           ^ invalid.illegal.sbnf
 
- UPPER : '[A-Z]+'
+ UPPER :
 #^^^^ entity.name.variable.sbnf
 #      ^ invalid.illegal.sbnf
-#        ^ invalid.illegal.sbnf
 
  INV{some.scope} = ''
 #^^^ entity.name.variable.sbnf
 #   ^ invalid.illegal.sbnf
 #        ^ invalid.illegal.sbnf
 #              ^ invalid.illegal.sbnf
-#                ^ invalid.illegal.sbnf
 
  script
 #^^^^^^ entity.name.function.sbnf

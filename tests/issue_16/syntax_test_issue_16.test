@@ -1,0 +1,7 @@
+# SYNTAX TEST "Packages/tests/issue_16/issue_16.sublime-syntax"
+
+ foo bar foo bar
+#^^^ identifier.issue_16
+#    ^^^ identifier.issue_16
+#        ^^^ identifier.issue_16
+#            ^^^ identifier.issue_16

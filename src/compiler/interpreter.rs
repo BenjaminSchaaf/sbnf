@@ -5,31 +5,50 @@ use super::collector::{
     DefinitionMap,
 };
 use super::common::{
-    parse_scope, parse_top_level_scope, trim_ascii, CallStack, CompileOptions,
-    CompileResult, Error, Metadata, RuleOptions, Value, VarMap,
+    parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
+    Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
 };
-use crate::sbnf::{is_identifier_char, Node, NodeData};
+use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
 use crate::sublime_syntax;
 
+#[derive(Debug, Clone)]
 pub struct Interpreted<'a> {
-    pub rules: HashMap<Key<'a>, Rule<'a>>,
-    pub entry_points: Vec<Key<'a>>,
+    pub rules: HashMap<Key, Rule<'a>>,
+    pub entry_points: Vec<Key>,
     pub metadata: Metadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Key<'a> {
-    pub name: &'a str,
-    pub arguments: Vec<Value<'a>>,
+pub struct Key {
+    pub name: Symbol,
+    pub arguments: Vec<Value>,
 }
 
-impl<'a> std::fmt::Display for Key<'a> {
+impl Key {
+    pub fn with_compiler<'a>(
+        &'a self,
+        compiler: &'a Compiler,
+    ) -> KeyWithCompiler {
+        KeyWithCompiler { key: self, compiler }
+    }
+}
+
+pub struct KeyWithCompiler<'a> {
+    key: &'a Key,
+    compiler: &'a Compiler,
+}
+
+impl<'a> std::fmt::Debug for KeyWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)?;
-        if !self.arguments.is_empty() {
-            write!(f, "[{}", self.arguments[0])?;
-            for arg in &self.arguments[1..] {
-                write!(f, ", {}", arg)?;
+        write!(f, "{}", self.compiler.resolve_symbol(self.key.name))?;
+        if !self.key.arguments.is_empty() {
+            write!(
+                f,
+                "[{}",
+                self.key.arguments[0].with_compiler(self.compiler)
+            )?;
+            for arg in &self.key.arguments[1..] {
+                write!(f, ", {}", arg.with_compiler(self.compiler))?;
             }
             write!(f, "]")?;
         }
@@ -37,21 +56,37 @@ impl<'a> std::fmt::Display for Key<'a> {
     }
 }
 
-#[derive(Debug)]
+impl<'a> std::fmt::Display for KeyWithCompiler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Rule<'a> {
     pub options: RuleOptions,
-    pub expression: Expression<'a>,
+    pub expression: &'a Expression<'a>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct TerminalOptions<'a> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalOptions {
     pub scope: sublime_syntax::Scope,
     pub captures: HashMap<u16, sublime_syntax::Scope>,
-    pub embed: TerminalEmbed<'a>,
+    pub embed: TerminalEmbed,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TerminalEmbed<'a> {
+impl TerminalOptions {
+    pub fn new() -> TerminalOptions {
+        TerminalOptions {
+            scope: sublime_syntax::Scope::empty(),
+            captures: HashMap::new(),
+            embed: TerminalEmbed::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalEmbed {
     Embed {
         embed: String,
         embed_scope: sublime_syntax::Scope,
@@ -60,22 +95,23 @@ pub enum TerminalEmbed<'a> {
     },
     Include {
         context: String,
-        prototype: Key<'a>,
+        prototype: Key,
     },
     None,
 }
 
+#[derive(Debug, Clone)]
 pub enum Expression<'a> {
-    Variable { key: Key<'a>, node: &'a Node<'a> },
-    Terminal { regex: String, options: TerminalOptions<'a>, node: &'a Node<'a> },
-    Passive { expression: Box<Expression<'a>>, node: &'a Node<'a> },
-    Repetition { expression: Box<Expression<'a>>, node: &'a Node<'a> },
-    Optional { expression: Box<Expression<'a>>, node: &'a Node<'a> },
-    Alternation { expressions: Vec<Expression<'a>>, node: &'a Node<'a> },
-    Concatenation { expressions: Vec<Expression<'a>>, node: &'a Node<'a> },
+    Variable { key: Key, location: TextLocation },
+    Terminal { regex: Symbol, options: TerminalOptions, location: TextLocation },
+    Passive { expression: &'a Expression<'a>, location: TextLocation },
+    Repetition { expression: &'a Expression<'a>, location: TextLocation },
+    Optional { expression: &'a Expression<'a>, location: TextLocation },
+    Alternation { expressions: &'a [Expression<'a>], location: TextLocation },
+    Concatenation { expressions: &'a [Expression<'a>], location: TextLocation },
 }
 
-impl<'a> PartialEq for Expression<'a> {
+impl PartialEq for Expression<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -110,9 +146,9 @@ impl<'a> PartialEq for Expression<'a> {
         }
     }
 }
-impl<'a> Eq for Expression<'a> {}
+impl Eq for Expression<'_> {}
 
-impl<'a> std::hash::Hash for Expression<'a> {
+impl std::hash::Hash for Expression<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Expression::Variable { key, .. } => key.hash(state),
@@ -141,31 +177,65 @@ impl<'a> std::hash::Hash for Expression<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for Expression<'a> {
+impl<'a> Expression<'a> {
+    pub fn with_compiler(
+        &'a self,
+        compiler: &'a Compiler,
+    ) -> ExpressionWithCompiler {
+        ExpressionWithCompiler { expression: self, compiler }
+    }
+}
+
+pub struct ExpressionWithCompiler<'a> {
+    expression: &'a Expression<'a>,
+    compiler: &'a Compiler,
+}
+
+impl<'a> std::fmt::Debug for ExpressionWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Expression::Variable { key, .. } => write!(f, "{}", key),
-            Expression::Terminal { regex, .. } => write!(f, "'{}'", regex),
+        match self.expression {
+            Expression::Variable { key, .. } => {
+                write!(f, "{}", key.with_compiler(self.compiler))
+            }
+            Expression::Terminal { regex, .. } => {
+                write!(f, "'{}'", self.compiler.resolve_symbol(*regex))
+            }
             Expression::Passive { expression, .. } => {
-                write!(f, "~{:?}", expression)
+                write!(f, "~{:?}", expression.with_compiler(self.compiler))
             }
             Expression::Repetition { expression, .. } => {
-                write!(f, "{:?}*", expression)
+                write!(f, "{:?}*", expression.with_compiler(self.compiler))
             }
             Expression::Optional { expression, .. } => {
-                write!(f, "{:?}?", expression)
+                write!(f, "{:?}?", expression.with_compiler(self.compiler))
             }
             Expression::Alternation { expressions, .. } => {
-                write!(f, "({:?}", expressions[0])?;
+                write!(
+                    f,
+                    "({:?}",
+                    expressions[0].with_compiler(self.compiler)
+                )?;
                 for expression in &expressions[1..] {
-                    write!(f, " | {:?}", expression)?;
+                    write!(
+                        f,
+                        " | {:?}",
+                        expression.with_compiler(self.compiler)
+                    )?;
                 }
                 write!(f, ")")
             }
             Expression::Concatenation { expressions, .. } => {
-                write!(f, "({:?}", expressions[0])?;
+                write!(
+                    f,
+                    "({:?}",
+                    expressions[0].with_compiler(self.compiler)
+                )?;
                 for expression in &expressions[1..] {
-                    write!(f, " {:?}", expression)?;
+                    write!(
+                        f,
+                        " {:?}",
+                        expression.with_compiler(self.compiler)
+                    )?;
                 }
                 write!(f, ")")
             }
@@ -174,25 +244,29 @@ impl<'a> std::fmt::Debug for Expression<'a> {
 }
 
 struct State<'a> {
-    seen_definitions: HashSet<Key<'a>>,
-    variables: HashMap<Key<'a>, Option<Value<'a>>>,
-    rules: HashMap<Key<'a>, Rule<'a>>,
-    stack: CallStack<'a>,
-    errors: Vec<Error<'a>>,
-    warnings: Vec<Error<'a>>,
+    compiler: &'a Compiler,
+    options: &'a CompileOptions<'a>,
+    seen_definitions: HashSet<Key>,
+    variables: HashMap<Key, Option<Value>>,
+    rules: HashMap<Key, Rule<'a>>,
+    stack: CallStack,
+    errors: Vec<Error>,
+    warnings: Vec<Error>,
 }
 
 struct MetaState<'a, 'b> {
-    options: &'a CompileOptions<'a>,
     collection: &'b DefinitionMap<'a>,
     metadata: &'b Metadata,
 }
 
-pub fn interpret<'a, 'b>(
+pub fn interpret<'a>(
+    compiler: &'a Compiler,
     options: &'a CompileOptions<'a>,
     collection: Collection<'a>,
-) -> CompileResult<'a, Interpreted<'a>> {
+) -> CompileResult<Interpreted<'a>> {
     let mut state = State {
+        compiler,
+        options,
         variables: HashMap::new(),
         seen_definitions: HashSet::new(),
         rules: HashMap::new(),
@@ -207,18 +281,17 @@ pub fn interpret<'a, 'b>(
 
     let definitions = &collection.definitions;
 
-    let metadata = collect_metadata(&mut state, &definitions, options);
+    let metadata = collect_metadata(&mut state, &definitions);
 
     let mut entry_points = vec![];
 
     {
         let meta_state =
-            MetaState { options, collection: definitions, metadata: &metadata };
+            MetaState { collection: definitions, metadata: &metadata };
 
         for entry_point in &options.entry_points {
-            if let Some(((name, _), _)) =
-                meta_state.collection.get_key_value(&(*entry_point, 0))
-            {
+            let name = state.compiler.get_symbol(entry_point);
+            if meta_state.collection.get_key_value(&(name, 0)).is_some() {
                 let key = Key { name, arguments: vec![] };
 
                 assert!(state.stack.is_empty());
@@ -230,28 +303,25 @@ pub fn interpret<'a, 'b>(
     }
 
     CompileResult::new(
-        if state.errors.is_empty() {
-            Ok(Interpreted { rules: state.rules, entry_points, metadata })
-        } else {
-            Err(state.errors)
-        },
+        Interpreted { rules: state.rules, entry_points, metadata },
+        state.errors,
         state.warnings,
     )
 }
 
-fn collect_metadata<'a>(
-    state: &mut State<'a>,
+fn collect_metadata<'a, 'b>(
+    state: &'b mut State<'a>,
     collection: &DefinitionMap<'a>,
-    options: &CompileOptions<'a>,
 ) -> Metadata {
     let name = interpret_metadata_variable(state, collection, "NAME", true)
         .map(|s| s.1.to_string())
-        .or_else(|| options.name_hint.map(|s| trim_ascii(s).to_string()));
+        .or_else(|| state.options.name_hint.map(|s| trim_ascii(s).to_string()));
 
     // A name is required, either from a variable or the name hint
     if name.is_none() {
-        state.errors.push(Error::without_node(
-            "No syntax name provided. Use a 'NAME' variable to specify the name of the syntax".to_string(),
+        state.errors.push(Error::from_str(
+            "No syntax name provided. Use a 'NAME' variable to specify the name of the syntax",
+            None,
             vec!()));
     }
 
@@ -274,7 +344,7 @@ fn collect_metadata<'a>(
                     ),
                 )])
             },
-            |s| parse_top_level_scope(&s.1),
+            |s| sublime_syntax::Scope::parse(&s.1),
         );
 
     let scope_postfix =
@@ -295,8 +365,8 @@ fn collect_metadata<'a>(
         if value != "false" && value != "true" {
             state.errors.push(Error::from_str(
                 "HIDDEN must be either `true` or `false`",
-                node,
-                vec![(node, format!("was `{}` instead", value))],
+                Some(node.location),
+                vec![(node.location, format!("was `{}` instead", value))],
             ));
         }
 
@@ -327,12 +397,14 @@ fn interpret_metadata_variable<'a>(
     name: &'a str,
     is_literal: bool,
 ) -> Option<(&'a Node<'a>, String)> {
-    if let Some(definition) = collection.get(&(name, 0)) {
+    let symbol = state.compiler.get_symbol(name);
+
+    if let Some(definition) = collection.get(&(symbol, 0)) {
         assert!(definition.kind == DefinitionKind::Variable);
 
         let overloads = &definition.overloads;
 
-        let key = Key { name, arguments: vec![] };
+        let key = Key { name: symbol, arguments: vec![] };
 
         let value = interpret_variable(state, collection, None, key);
 
@@ -340,18 +412,18 @@ fn interpret_metadata_variable<'a>(
             Some(Value::String { literal, regex, .. }) => Some((
                 overloads[0],
                 if is_literal {
-                    literal.to_string()
+                    state.compiler.resolve_symbol(literal).to_string()
                 } else {
-                    regex.to_string()
+                    state.compiler.resolve_symbol(regex).to_string()
                 },
             )),
-            Some(Value::Rule { node, .. }) => {
+            Some(Value::Rule { location, .. }) => {
                 state.errors.push(Error::new(
                     format!("'{}' must be a string, not a rule", name),
-                    overloads[0],
+                    Some(overloads[0].location),
                     vec![
-                        (overloads[0], "must be a string".to_string()),
-                        (node, "was this instead".to_string()),
+                        (overloads[0].location, "must be a string".to_string()),
+                        (location, "was this instead".to_string()),
                     ],
                 ));
 
@@ -368,8 +440,8 @@ fn match_rule<'a, 'b>(
     state: &mut State<'a>,
     collection: &'b DefinitionMap<'a>,
     def_node: &'a Node<'a>,
-    arguments: &Vec<Value<'a>>,
-) -> Option<(&'a Node<'a>, VarMap<'a>)> {
+    arguments: &Vec<Value>,
+) -> Option<(&'a Node<'a>, VarMap)> {
     let parameters = match &def_node.data {
         NodeData::Rule { parameters, .. }
         | NodeData::Variable { parameters, .. } => {
@@ -405,7 +477,7 @@ fn match_rule<'a, 'b>(
                 return None;
             }
         } else {
-            var_map.insert(param.text, arg.clone());
+            var_map.insert(state.compiler.get_symbol(param.text), arg.clone());
         }
     }
 
@@ -415,9 +487,9 @@ fn match_rule<'a, 'b>(
 fn resolve_definition<'a>(
     state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
-    reference: Option<&'a Node<'a>>,
-    key: &Key<'a>,
-) -> Option<(DefinitionKind, &'a Node<'a>, VarMap<'a>)> {
+    reference_loc: Option<TextLocation>,
+    key: &Key,
+) -> Option<(DefinitionKind, &'a Node<'a>, VarMap)> {
     if let Some(Definition { kind, overloads }) =
         collection.get(&(key.name, key.arguments.len() as u8))
     {
@@ -429,64 +501,87 @@ fn resolve_definition<'a>(
             let remaining = matching.collect::<Vec<_>>();
 
             if !remaining.is_empty() {
-                let mut comments =
-                    vec![(node, "This matches the arguments".to_string())];
+                let mut comments = vec![(
+                    node.location,
+                    "This matches the arguments".to_string(),
+                )];
                 for (other_node, _) in remaining {
                     comments.push((
-                        other_node,
+                        other_node.location,
                         "This also matches the arguments".to_string(),
                     ));
                 }
-                if let Some(reference) = reference {
-                    comments.push((
-                        reference,
-                        "Instantiated from here".to_string(),
-                    ));
+                if let Some(loc) = reference_loc {
+                    comments.push((loc, "Instantiated from here".to_string()));
                 }
-                state.errors.push(state.stack.error(
-                    format!("Ambiguous instantiation for {}", key),
-                    node,
-                    comments,
-                ));
+                state.errors.push(
+                    Error::new(
+                        format!(
+                            "Ambiguous instantiation for {}",
+                            key.with_compiler(state.compiler)
+                        ),
+                        Some(node.location),
+                        comments,
+                    )
+                    .with_traceback(state.stack.clone()),
+                );
                 return None;
             }
 
             Some((*kind, node, var_map))
         } else {
-            let mut comments: Vec<(&'a Node<'a>, String)> = vec![];
+            let mut comments: Vec<(TextLocation, String)> = vec![];
             for node in overloads {
-                comments.push((node, "Does not match".to_string()));
+                comments.push((node.location, "Does not match".to_string()));
             }
-            if let Some(reference) = &reference {
-                comments
-                    .push((reference, "Instantiated from here".to_string()));
+            if let Some(loc) = reference_loc {
+                comments.push((loc, "Instantiated from here".to_string()));
             }
-            state.errors.push(state.stack.error(
-                format!("No matching instantiation for {}", key),
-                reference.unwrap_or(overloads[0]),
-                comments,
-            ));
+            state.errors.push(
+                Error::new(
+                    format!(
+                        "No matching instantiation for {}",
+                        key.with_compiler(state.compiler)
+                    ),
+                    reference_loc.or(Some(overloads[0].location)),
+                    comments,
+                )
+                .with_traceback(state.stack.clone()),
+            );
 
             None
         }
     } else {
-        let mut msg = if is_variable_name(key.name) {
-            format!("Could not find variable {}", key.name)
-        } else if is_rule_name(key.name) {
-            format!("Could not find rule {}", key.name)
-        } else {
-            format!("Could not find {}", key.name)
-        };
+        let mut msg =
+            if is_variable_name(state.compiler.resolve_symbol(key.name)) {
+                format!(
+                    "Could not find variable {}",
+                    state.compiler.resolve_symbol(key.name)
+                )
+            } else if is_rule_name(state.compiler.resolve_symbol(key.name)) {
+                format!(
+                    "Could not find rule {}",
+                    state.compiler.resolve_symbol(key.name)
+                )
+            } else {
+                format!(
+                    "Could not find {}",
+                    state.compiler.resolve_symbol(key.name)
+                )
+            };
 
         if key.arguments.len() > 0 {
             msg.push_str(&format!(" with {} arguments", key.arguments.len()));
         }
 
-        state.errors.push(state.stack.error(
-            msg,
-            reference.unwrap(),
-            vec![(reference.unwrap(), "Does not exist".to_string())],
-        ));
+        state.errors.push(
+            Error::new(
+                msg,
+                reference_loc,
+                vec![(reference_loc.unwrap(), "Does not exist".to_string())],
+            )
+            .with_traceback(state.stack.clone()),
+        );
 
         None
     }
@@ -495,37 +590,53 @@ fn resolve_definition<'a>(
 fn interpret_variable<'a>(
     state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
-    reference: Option<&'a Node<'a>>,
-    key: Key<'a>,
-) -> Option<Value<'a>> {
+    reference_loc: Option<TextLocation>,
+    key: Key,
+) -> Option<Value> {
     if state.variables.contains_key(&key) {
         return state.variables[&key].clone();
     }
 
     if let Some((kind, node, var_map)) =
-        resolve_definition(state, collection, reference, &key)
+        resolve_definition(state, collection, reference_loc, &key)
     {
         assert!(kind == DefinitionKind::Variable);
 
         // Detect recursive definitions
         if state.seen_definitions.contains(&key) {
-            state.errors.push(state.stack.error(
-                format!("Variable {} is defined in terms of itself", key.name),
-                node,
-                vec![],
-            ));
+            state.errors.push(
+                Error::new(
+                    format!(
+                        "Variable {} is defined in terms of itself",
+                        state.compiler.resolve_symbol(key.name)
+                    ),
+                    Some(node.location),
+                    vec![],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return None;
         }
 
         let is_new_key = state.seen_definitions.insert(key.clone());
         assert!(is_new_key);
 
-        if !state.stack.push(reference, node, key.arguments.clone()) {
-            state.errors.push(state.stack.error_from_str(
-                "Recursion depth limit reached",
-                reference.unwrap(), // Only none when the stack size is 1
-                vec![],
-            ));
+        let symbol = state.compiler.get_symbol(node.text);
+
+        if !state.stack.push(
+            reference_loc,
+            symbol,
+            node.location,
+            key.arguments.clone(),
+        ) {
+            state.errors.push(
+                Error::from_str(
+                    "Recursion depth limit reached",
+                    reference_loc, // Only none when the stack size is 1
+                    vec![],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return None;
         }
 
@@ -549,8 +660,8 @@ fn interpret_variable<'a>(
 fn interpret_rule<'a, 'b>(
     state: &mut State<'a>,
     meta_state: &MetaState<'a, 'b>,
-    reference: Option<&'a Node<'a>>,
-    key: &Key<'a>,
+    reference_loc: Option<TextLocation>,
+    key: &Key,
 ) {
     // Nothing to do if the key has been seen before
     if state.seen_definitions.contains(key) {
@@ -558,7 +669,7 @@ fn interpret_rule<'a, 'b>(
     }
 
     if let Some((kind, node, var_map)) =
-        resolve_definition(state, &meta_state.collection, reference, key)
+        resolve_definition(state, &meta_state.collection, reference_loc, key)
     {
         assert!(kind == DefinitionKind::Rule);
 
@@ -572,12 +683,22 @@ fn interpret_rule<'a, 'b>(
                 panic!()
             };
 
-        if !state.stack.push(reference, node, key.arguments.clone()) {
-            state.errors.push(state.stack.error_from_str(
-                "Recursion depth limit reached",
-                reference.unwrap(), // Only none when the stack size is 1
-                vec![],
-            ));
+        let symbol = state.compiler.get_symbol(node.text);
+
+        if !state.stack.push(
+            reference_loc,
+            symbol,
+            node.location,
+            key.arguments.clone(),
+        ) {
+            state.errors.push(
+                Error::from_str(
+                    "Recursion depth limit reached",
+                    reference_loc, // Only none when the stack size is 1
+                    vec![],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return;
         }
 
@@ -593,6 +714,8 @@ fn interpret_rule<'a, 'b>(
             interpret_expression(state, meta_state, &var_map, expression_node);
 
         if let Some(expression) = expression {
+            let expression = state.compiler.allocator.alloc(expression);
+
             let is_new_rule =
                 state.rules.insert(key.clone(), Rule { options, expression });
             assert!(is_new_rule.is_none());
@@ -605,31 +728,37 @@ fn interpret_rule<'a, 'b>(
 fn interpret_value<'a>(
     state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
-    var_map: &VarMap<'a>,
+    var_map: &VarMap,
     node: &'a Node<'a>,
     is_parameter: bool,
-) -> Option<Value<'a>> {
+) -> Option<Value> {
     match &node.data {
         NodeData::RegexTerminal { options, embed } => {
             assert!(options.is_none());
             assert!(embed.is_none());
 
-            let regex =
-                interpolate_string(state, collection, var_map, node, node.text);
+            let regex = interpolate_string(
+                state,
+                collection,
+                var_map,
+                node.location,
+                node.text,
+            );
 
+            let regex = state.compiler.get_symbol(&regex);
             Some(Value::String {
-                regex: regex.clone(),
+                regex,
                 literal: regex,
-                node: Some(node),
+                location: Some(node.location),
             })
         }
         NodeData::LiteralTerminal { regex, options, embed } => {
             assert!(options.is_none());
             assert!(embed.is_none());
             Some(Value::String {
-                regex: regex.to_string(),
-                literal: node.text.to_string(),
-                node: Some(node),
+                regex: state.compiler.get_symbol(regex),
+                literal: state.compiler.get_symbol(node.text),
+                location: Some(node.location),
             })
         }
         NodeData::Reference { parameters, .. } => {
@@ -639,12 +768,14 @@ fn interpret_value<'a>(
                     _ => panic!(),
                 };
 
-                let arguments = parameters
-                    .iter()
-                    .filter_map(|p| {
+                let mut arguments = vec![];
+                for p in parameters {
+                    if let Some(v) =
                         interpret_value(state, collection, var_map, p, false)
-                    })
-                    .collect::<Vec<_>>();
+                    {
+                        arguments.push(v);
+                    }
+                }
 
                 if arguments.len() != parameters.len() {
                     return None;
@@ -655,8 +786,10 @@ fn interpret_value<'a>(
                 vec![]
             };
 
+            let name = state.compiler.get_symbol(node.text);
+
             if arguments.is_empty() {
-                if let Some(value) = var_map.get(node.text) {
+                if let Some(value) = var_map.get(&name) {
                     return Some(value.clone());
                 }
             }
@@ -665,24 +798,27 @@ fn interpret_value<'a>(
             // it doesn't exist
             if is_parameter
                 && arguments.is_empty()
-                && !collection.contains_key(&(node.text, 0))
+                && !collection.contains_key(&(name, 0))
             {
                 return None;
             }
 
-            let key = Key { name: node.text, arguments };
+            let key = Key { name, arguments };
 
             if let Some((kind, ref_node, _)) =
-                resolve_definition(state, collection, Some(node), &key)
+                resolve_definition(state, collection, Some(node.location), &key)
             {
                 match kind {
-                    DefinitionKind::Variable => {
-                        interpret_variable(state, collection, Some(node), key)
-                    }
+                    DefinitionKind::Variable => interpret_variable(
+                        state,
+                        collection,
+                        Some(node.location),
+                        key,
+                    ),
                     DefinitionKind::Rule => Some(Value::Rule {
                         name: key.name,
                         arguments: key.arguments,
-                        node: ref_node,
+                        location: ref_node.location,
                     }),
                 }
             } else {
@@ -698,7 +834,7 @@ fn interpret_value<'a>(
 fn interpret_expression<'a, 'b>(
     state: &mut State<'a>,
     meta_state: &MetaState<'a, 'b>,
-    var_map: &VarMap<'a>,
+    var_map: &VarMap,
     node: &'a Node<'a>,
 ) -> Option<Expression<'a>> {
     match &node.data {
@@ -720,19 +856,24 @@ fn interpret_expression<'a, 'b>(
             );
 
             match value {
-                Some(Value::String { regex, node, .. }) => {
+                Some(Value::String { regex, location, .. }) => {
                     Some(Expression::Terminal {
-                        regex: regex.to_string(),
+                        regex,
                         options,
-                        node: node.unwrap(),
+                        location: location.unwrap(),
                     })
                 }
                 Some(Value::Rule { name, arguments, .. }) => {
                     assert!(node_options.is_none());
 
                     let key = Key { name, arguments };
-                    interpret_rule(state, meta_state, Some(node), &key);
-                    Some(Expression::Variable { key, node })
+                    interpret_rule(
+                        state,
+                        meta_state,
+                        Some(node.location),
+                        &key,
+                    );
+                    Some(Expression::Variable { key, location: node.location })
                 }
                 None => None,
             }
@@ -742,7 +883,7 @@ fn interpret_expression<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                node,
+                node.location,
                 node.text,
             );
             let options = parse_terminal_options(
@@ -753,7 +894,12 @@ fn interpret_expression<'a, 'b>(
                 embed,
             );
 
-            Some(Expression::Terminal { regex, options, node })
+            let regex = state.compiler.get_symbol(&regex);
+            Some(Expression::Terminal {
+                regex,
+                options,
+                location: node.location,
+            })
         }
         NodeData::LiteralTerminal { regex, options: node_options, embed } => {
             let options = parse_terminal_options(
@@ -763,15 +909,20 @@ fn interpret_expression<'a, 'b>(
                 node_options,
                 embed,
             );
-            Some(Expression::Terminal { regex: regex.clone(), options, node })
+            let regex = state.compiler.get_symbol(&regex);
+            Some(Expression::Terminal {
+                regex,
+                options,
+                location: node.location,
+            })
         }
         NodeData::Passive(child) => {
             if let Some(expression) =
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Passive {
-                    expression: Box::new(expression),
-                    node,
+                    expression: state.compiler.allocator.alloc(expression),
+                    location: node.location,
                 })
             } else {
                 None
@@ -782,8 +933,8 @@ fn interpret_expression<'a, 'b>(
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Repetition {
-                    expression: Box::new(expression),
-                    node,
+                    expression: state.compiler.allocator.alloc(expression),
+                    location: node.location,
                 })
             } else {
                 None
@@ -794,39 +945,57 @@ fn interpret_expression<'a, 'b>(
                 interpret_expression(state, meta_state, var_map, child)
             {
                 Some(Expression::Optional {
-                    expression: Box::new(expression),
-                    node,
+                    expression: state.compiler.allocator.alloc(expression),
+                    location: node.location,
                 })
             } else {
                 None
             }
         }
         NodeData::Alternation(children) => {
-            let expressions = children
-                .iter()
-                .filter_map(|child| {
+            let mut expressions = vec![];
+            for child in children {
+                if let Some(e) =
                     interpret_expression(state, meta_state, var_map, child)
-                })
-                .collect::<Vec<_>>();
+                {
+                    expressions.push(e);
+                }
+            }
+            let expressions = state
+                .compiler
+                .allocator
+                .alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
             } else {
-                Some(Expression::Alternation { expressions, node })
+                Some(Expression::Alternation {
+                    expressions,
+                    location: node.location,
+                })
             }
         }
         NodeData::Concatenation(children) => {
-            let expressions = children
-                .iter()
-                .filter_map(|child| {
+            let mut expressions = vec![];
+            for child in children {
+                if let Some(e) =
                     interpret_expression(state, meta_state, var_map, child)
-                })
-                .collect::<Vec<_>>();
+                {
+                    expressions.push(e);
+                }
+            }
+            let expressions = state
+                .compiler
+                .allocator
+                .alloc_slice_fill_iter(expressions.into_iter());
 
             if expressions.len() != children.len() {
                 None
             } else {
-                Some(Expression::Concatenation { expressions, node })
+                Some(Expression::Concatenation {
+                    expressions,
+                    location: node.location,
+                })
             }
         }
         _ => panic!(),
@@ -836,10 +1005,10 @@ fn interpret_expression<'a, 'b>(
 fn parse_terminal_options<'a, 'b>(
     state: &mut State<'a>,
     meta_state: &MetaState<'a, 'b>,
-    var_map: &VarMap<'a>,
+    var_map: &VarMap,
     node_options: &'a Option<Box<Node<'a>>>,
     node_embed: &'a Option<Box<Node<'a>>>,
-) -> TerminalOptions<'a> {
+) -> TerminalOptions {
     let mut options = TerminalOptions {
         scope: sublime_syntax::Scope::empty(),
         captures: HashMap::new(),
@@ -865,17 +1034,17 @@ fn parse_terminal_options<'a, 'b>(
                         state,
                         &meta_state.collection,
                         var_map,
-                        option,
+                        option.location,
                         option.text,
                     );
 
                     options.scope =
                         parse_scope(meta_state.metadata, &interpolated);
                 } else {
-                    state.errors.push(state.stack.error_from_str(
+                    state.errors.push(Error::from_str(
                         "Positional argument for terminal scope may only be the first argument",
-                        option,
-                        vec!()));
+                        Some(option.location),
+                        vec!()).with_traceback(state.stack.clone()));
                 }
             }
             NodeData::KeywordOption(value_node) => {
@@ -887,7 +1056,7 @@ fn parse_terminal_options<'a, 'b>(
                     state,
                     &meta_state.collection,
                     var_map,
-                    value_node,
+                    value_node.location,
                     value_text,
                 );
 
@@ -895,11 +1064,14 @@ fn parse_terminal_options<'a, 'b>(
                 if let Some(group) = key.parse::<u16>().ok() {
                     if options.captures.contains_key(&group) {
                         // TODO: Improve error message
-                        state.errors.push(state.stack.error_from_str(
-                            "Duplicate capture group argument",
-                            option,
-                            vec![],
-                        ));
+                        state.errors.push(
+                            Error::from_str(
+                                "Duplicate capture group argument",
+                                Some(option.location),
+                                vec![],
+                            )
+                            .with_traceback(state.stack.clone()),
+                        );
                     } else {
                         options.captures.insert(
                             group,
@@ -907,12 +1079,12 @@ fn parse_terminal_options<'a, 'b>(
                         );
                     }
                 } else {
-                    state.errors.push(state.stack.error_from_str(
+                    state.errors.push(Error::from_str(
                         "Unexpected keyword argument",
-                        option,
+                        Some(option.location),
                         vec!(
-                            (option, "There should be no arguments after capture groups".to_string()),
-                        )));
+                            (option.location, "There should be no arguments after capture groups".to_string()),
+                        )).with_traceback(state.stack.clone()));
                 }
             }
             _ => panic!(),
@@ -925,23 +1097,27 @@ fn parse_terminal_options<'a, 'b>(
 fn parse_rule_options<'a, 'b>(
     state: &mut State<'a>,
     meta_state: &MetaState<'a, 'b>,
-    var_map: &VarMap<'a>,
-    name: &'a str,
+    var_map: &VarMap,
+    name: Symbol,
     options: Option<&'a Node<'a>>,
 ) -> RuleOptions {
     let mut scope = sublime_syntax::Scope::empty();
     let mut include_prototype: Option<(&'a Node<'a>, bool)> = None;
 
-    if meta_state.options.debug_contexts {
-        scope.scopes.push(format!("{}.sbnf-dbg", name));
-    }
+    {
+        let name = state.compiler.resolve_symbol(name);
 
-    if options.is_none() {
-        return RuleOptions {
-            scope,
-            include_prototype: true,
-            capture: name == "main" || name == "prototype",
-        };
+        if state.options.debug_contexts {
+            scope.scopes.push(format!("{}.sbnf-dbg", name));
+        }
+
+        if options.is_none() {
+            return RuleOptions {
+                scope,
+                include_prototype: true,
+                capture: name == "main" || name == "prototype",
+            };
+        }
     }
 
     let options = match &options.unwrap().data {
@@ -955,17 +1131,17 @@ fn parse_rule_options<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                argument,
+                argument.location,
                 argument.text,
             );
             scope = parse_scope(meta_state.metadata, &interpolated);
         } else if argument.data == NodeData::PositionalOption {
             state.errors.push(Error::from_str(
                 "Rules may only have one positional argument specifying the meta scope",
-                argument,
+                Some(argument.location),
                 vec!(
-                    (argument, "this argument".to_string()),
-                    (&options[0], "should be used here".to_string()),
+                    (argument.location, "this argument".to_string()),
+                    (options[0].location, "should be used here".to_string()),
                 )));
         } else if let NodeData::KeywordOption(value_node) = &argument.data {
             assert!(value_node.data == NodeData::KeywordOptionValue);
@@ -974,48 +1150,47 @@ fn parse_rule_options<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                value_node,
+                value_node.location,
                 value_text,
             );
 
             if trim_ascii(argument.text) == "include-prototype" {
-                if include_prototype.is_none() {
+                if let Some((node, _)) = include_prototype {
+                    state.errors.push(Error::from_str(
+                        "Duplicate 'include-prototype' argument",
+                        Some(argument.location),
+                        vec![
+                            (argument.location, "duplicate here".to_string()),
+                            (node.location, "first used here".to_string()),
+                        ],
+                    ));
+                } else {
                     if let Ok(v) = value.parse::<bool>() {
                         include_prototype = Some((argument, v));
                     } else {
                         state.errors.push(Error::new(
                             format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
-                            value_node,
+                            Some(value_node.location),
                             vec!(
-                                (value_node, "expected either 'true' or 'false'".to_string()),
-                                (argument, "for this argument".to_string()),
+                                (value_node.location, "expected either 'true' or 'false'".to_string()),
+                                (argument.location, "for this argument".to_string()),
                             )));
                     }
-                } else {
-                    state.errors.push(Error::from_str(
-                        "Duplicate 'include-prototype' argument",
-                        argument,
-                        vec![
-                            (argument, "duplicate here".to_string()),
-                            (
-                                include_prototype.unwrap().0,
-                                "first used here".to_string(),
-                            ),
-                        ],
-                    ));
                 }
             } else {
                 state.errors.push(Error::new(
                     format!("Unknown argument '{}'", argument.text),
-                    argument,
+                    Some(argument.location),
                     vec![(
-                        argument,
+                        argument.location,
                         "expected 'include-prototype' here".to_string(),
                     )],
                 ));
             }
         }
     }
+
+    let name = state.compiler.resolve_symbol(name);
 
     RuleOptions {
         scope,
@@ -1027,9 +1202,9 @@ fn parse_rule_options<'a, 'b>(
 fn parse_terminal_embed<'a, 'b>(
     state: &mut State<'a>,
     meta_state: &MetaState<'a, 'b>,
-    var_map: &VarMap<'a>,
+    var_map: &VarMap,
     node_embed: &'a Option<Box<Node<'a>>>,
-) -> TerminalEmbed<'a> {
+) -> TerminalEmbed {
     let node_embed = if let Some(n) = node_embed.as_ref() {
         n
     } else {
@@ -1054,14 +1229,17 @@ fn parse_terminal_embed<'a, 'b>(
     if node_embed.text == "embed" {
         // Embed takes a single string parameter for the escape regex
         if parameters.len() != 1 {
-            state.errors.push(state.stack.error_from_str(
-                "Expected a single parameter to %embed",
-                node_embed,
-                vec![(
-                    node_embed,
-                    format!("Got {} parameters instead", parameters.len()),
-                )],
-            ));
+            state.errors.push(
+                Error::from_str(
+                    "Expected a single parameter to %embed",
+                    Some(node_embed.location),
+                    vec![(
+                        node_embed.location,
+                        format!("Got {} parameters instead", parameters.len()),
+                    )],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return TerminalEmbed::None;
         }
 
@@ -1071,7 +1249,7 @@ fn parse_terminal_embed<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                &parameters[0],
+                parameters[0].location,
                 parameters[0].text,
             )
         } else if let NodeData::LiteralTerminal { regex, .. } =
@@ -1079,22 +1257,34 @@ fn parse_terminal_embed<'a, 'b>(
         {
             regex.to_string()
         } else {
-            state.errors.push(state.stack.error_from_str(
-                "%embed can only take a string as an argument",
-                node_embed,
-                vec![(node_embed, "Given a variable instead".to_string())],
-            ));
+            state.errors.push(
+                Error::from_str(
+                    "%embed can only take a string as an argument",
+                    Some(node_embed.location),
+                    vec![(
+                        node_embed.location,
+                        "Given a variable instead".to_string(),
+                    )],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return TerminalEmbed::None;
         };
 
         // Embed takes at least one option for the syntax to include and the
         // escape scope and capture scopes
         if options.len() < 1 {
-            state.errors.push(state.stack.error_from_str(
-                "Expected at least one option for %embed",
-                node_embed,
-                vec![(node_embed, "Requires at least one option".to_string())],
-            ));
+            state.errors.push(
+                Error::from_str(
+                    "Expected at least one option for %embed",
+                    Some(node_embed.location),
+                    vec![(
+                        node_embed.location,
+                        "Requires at least one option".to_string(),
+                    )],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return TerminalEmbed::None;
         }
 
@@ -1103,7 +1293,7 @@ fn parse_terminal_embed<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                &options[0],
+                options[0].location,
                 options[0].text,
             ),
             NodeData::KeywordOption(value_node) => {
@@ -1114,7 +1304,7 @@ fn parse_terminal_embed<'a, 'b>(
                     state,
                     &meta_state.collection,
                     var_map,
-                    value_node,
+                    value_node.location,
                     value_node.text,
                 );
 
@@ -1140,17 +1330,17 @@ fn parse_terminal_embed<'a, 'b>(
                             state,
                             &meta_state.collection,
                             var_map,
-                            option,
+                            option.location,
                             option.text,
                         );
 
                         embed_scope =
                             parse_scope(meta_state.metadata, &interpolated);
                     } else {
-                        state.errors.push(state.stack.error_from_str(
+                        state.errors.push(Error::from_str(
                             "Positional argument for escape scope may only be the second argument",
-                            option,
-                            vec!()));
+                            Some(option.location),
+                            vec!()).with_traceback(state.stack.clone()));
                     }
                 }
                 NodeData::KeywordOption(value_node) => {
@@ -1162,7 +1352,7 @@ fn parse_terminal_embed<'a, 'b>(
                         state,
                         &meta_state.collection,
                         var_map,
-                        value_node,
+                        value_node.location,
                         value_text,
                     );
 
@@ -1170,11 +1360,14 @@ fn parse_terminal_embed<'a, 'b>(
                     if let Some(group) = key.parse::<u16>().ok() {
                         if escape_captures.contains_key(&group) {
                             // TODO: Improve error message
-                            state.errors.push(state.stack.error_from_str(
-                                "Duplicate capture group argument",
-                                option,
-                                vec![],
-                            ));
+                            state.errors.push(
+                                Error::from_str(
+                                    "Duplicate capture group argument",
+                                    Some(option.location),
+                                    vec![],
+                                )
+                                .with_traceback(state.stack.clone()),
+                            );
                         } else {
                             escape_captures.insert(
                                 group,
@@ -1182,12 +1375,12 @@ fn parse_terminal_embed<'a, 'b>(
                             );
                         }
                     } else {
-                        state.errors.push(state.stack.error_from_str(
+                        state.errors.push(Error::from_str(
                             "Unexpected keyword argument",
-                            option,
+                            Some(option.location),
                             vec!(
-                                (option, "There should be no arguments after capture groups".to_string()),
-                            )));
+                                (option.location, "There should be no arguments after capture groups".to_string()),
+                            )).with_traceback(state.stack.clone()));
                     }
                 }
                 _ => panic!(),
@@ -1198,14 +1391,17 @@ fn parse_terminal_embed<'a, 'b>(
     } else if node_embed.text == "include" {
         // Include take a single parameter as the rule for the with_prototype
         if parameters.len() != 1 {
-            state.errors.push(state.stack.error_from_str(
-                "Expected a single parameter to %include",
-                node_embed,
-                vec![(
-                    node_embed,
-                    format!("Got {} parameters instead", parameters.len()),
-                )],
-            ));
+            state.errors.push(
+                Error::from_str(
+                    "Expected a single parameter to %include",
+                    Some(node_embed.location),
+                    vec![(
+                        node_embed.location,
+                        format!("Got {} parameters instead", parameters.len()),
+                    )],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return TerminalEmbed::None;
         }
 
@@ -1218,30 +1414,39 @@ fn parse_terminal_embed<'a, 'b>(
         );
 
         let prototype = match value {
-            Some(Value::String { node, .. }) => {
+            Some(Value::String { location, .. }) => {
                 let mut comments = vec![
                     (
-                        node_embed.as_ref(),
+                        node_embed.location,
                         "Must be provided a rule".to_string(),
                     ),
                     (
-                        &parameters[0],
+                        parameters[0].location,
                         "Should be a rule, but was a string".to_string(),
                     ),
                 ];
-                if let Some(node) = node {
-                    comments.push((node, "String came from here".to_string()));
+                if let Some(location) = location {
+                    comments
+                        .push((location, "String came from here".to_string()));
                 }
-                state.errors.push(state.stack.error_from_str(
-                    "Argument must be a rule, but was a string instead",
-                    node_embed,
-                    comments,
-                ));
+                state.errors.push(
+                    Error::from_str(
+                        "Argument must be a rule, but was a string instead",
+                        Some(node_embed.location),
+                        comments,
+                    )
+                    .with_traceback(state.stack.clone()),
+                );
                 return TerminalEmbed::None;
             }
             Some(Value::Rule { name, arguments, .. }) => {
                 let key = Key { name, arguments };
-                interpret_rule(state, meta_state, Some(&parameters[0]), &key);
+                interpret_rule(
+                    state,
+                    meta_state,
+                    Some(parameters[0].location),
+                    &key,
+                );
                 key
             }
             None => return TerminalEmbed::None,
@@ -1249,11 +1454,17 @@ fn parse_terminal_embed<'a, 'b>(
 
         // Include takes a single option for the context to include
         if options.len() != 1 {
-            state.errors.push(state.stack.error_from_str(
-                "Expected a single option for %include",
-                node_embed,
-                vec![(node_embed, "Requires one option".to_string())],
-            ));
+            state.errors.push(
+                Error::from_str(
+                    "Expected a single option for %include",
+                    Some(node_embed.location),
+                    vec![(
+                        node_embed.location,
+                        "Requires one option".to_string(),
+                    )],
+                )
+                .with_traceback(state.stack.clone()),
+            );
             return TerminalEmbed::None;
         }
 
@@ -1262,7 +1473,7 @@ fn parse_terminal_embed<'a, 'b>(
                 state,
                 &meta_state.collection,
                 var_map,
-                &options[0],
+                options[0].location,
                 options[0].text,
             ),
             NodeData::KeywordOption(value_node) => {
@@ -1273,7 +1484,7 @@ fn parse_terminal_embed<'a, 'b>(
                     state,
                     &meta_state.collection,
                     var_map,
-                    value_node,
+                    value_node.location,
                     value_node.text,
                 );
 
@@ -1288,14 +1499,17 @@ fn parse_terminal_embed<'a, 'b>(
 
         TerminalEmbed::Include { context, prototype }
     } else {
-        state.errors.push(state.stack.error_from_str(
-            "Unknown keyword",
-            node_embed,
-            vec![(
-                node_embed,
-                format!("Unknown keyword '{}'", node_embed.text),
-            )],
-        ));
+        state.errors.push(
+            Error::from_str(
+                "Unknown keyword",
+                Some(node_embed.location),
+                vec![(
+                    node_embed.location,
+                    format!("Unknown keyword '{}'", node_embed.text),
+                )],
+            )
+            .with_traceback(state.stack.clone()),
+        );
 
         TerminalEmbed::None
     }
@@ -1326,8 +1540,8 @@ fn str_from_iterators<'a>(
 fn interpolate_string<'a, 'b>(
     state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
-    var_map: &VarMap<'a>,
-    node: &'a Node<'a>,
+    var_map: &VarMap,
+    location: TextLocation,
     string: &'a str,
 ) -> String {
     let mut result = String::new();
@@ -1364,18 +1578,18 @@ fn interpolate_string<'a, 'b>(
                                     iter.next();
                                 } else {
                                     // TODO: Add node offset to show the error at the character
-                                    state.errors.push(state.stack.error(
+                                    state.errors.push(Error::new(
                                         format!("Unexpected character '{}' in string interpolation", c),
-                                        node,
-                                        vec!()));
+                                        Some(location),
+                                        vec!()).with_traceback(state.stack.clone()));
                                     return result;
                                 }
                             }
                             None => {
-                                state.errors.push(state.stack.error_from_str(
+                                state.errors.push(Error::from_str(
                                     "Expected ']' before the end of the string to end string interpolation",
-                                    node,
-                                    vec!()));
+                                    Some(location),
+                                    vec!()).with_traceback(state.stack.clone()));
                                 return result;
                             }
                         }
@@ -1383,31 +1597,32 @@ fn interpolate_string<'a, 'b>(
 
                     let variable =
                         str_from_iterators(string, start, iter.clone());
+                    let name = state.compiler.get_symbol(&variable);
                     let end = iter.next();
                     assert!(end.unwrap() == ']');
 
-                    let value = if let Some(value) = var_map.get(&variable) {
+                    let value = if let Some(value) = var_map.get(&name) {
                         Some(value.clone())
                     } else {
-                        let key = Key { name: variable, arguments: vec![] };
+                        let key = Key { name, arguments: vec![] };
 
                         if let Some((kind, ref_node, _)) = resolve_definition(
                             state,
                             collection,
-                            Some(node),
+                            Some(location),
                             &key,
                         ) {
                             match kind {
                                 DefinitionKind::Variable => interpret_variable(
                                     state,
                                     collection,
-                                    Some(node),
+                                    Some(location),
                                     key,
                                 ),
                                 DefinitionKind::Rule => Some(Value::Rule {
                                     name: key.name,
                                     arguments: key.arguments,
-                                    node: ref_node,
+                                    location: ref_node.location,
                                 }),
                             }
                         } else {
@@ -1417,39 +1632,47 @@ fn interpolate_string<'a, 'b>(
 
                     if let Some(value) = value {
                         match value {
-                            Value::Rule { node: rule_node, .. } => {
-                                state.errors.push(state.stack.error_from_str(
-                                    "Can't interpolate rule",
-                                    node,
-                                    vec![
-                                        (
-                                            node,
-                                            format!(
-                                                "{} must refer to a string",
-                                                variable
+                            Value::Rule { location, .. } => {
+                                state.errors.push(
+                                    Error::from_str(
+                                        "Can't interpolate rule",
+                                        Some(location),
+                                        vec![
+                                            (
+                                                location,
+                                                format!(
+                                                    "{} must refer to a string",
+                                                    variable
+                                                ),
                                             ),
-                                        ),
-                                        (
-                                            rule_node,
-                                            format!(
-                                                "{} is {}",
-                                                variable, value
+                                            (
+                                                location,
+                                                format!(
+                                                    "{} is {}",
+                                                    variable,
+                                                    value.with_compiler(
+                                                        state.compiler
+                                                    )
+                                                ),
                                             ),
-                                        ),
-                                    ],
-                                ));
+                                        ],
+                                    )
+                                    .with_traceback(state.stack.clone()),
+                                );
                             }
                             Value::String { regex, .. } => {
-                                result.push_str(&regex);
+                                result.push_str(
+                                    state.compiler.resolve_symbol(regex),
+                                );
                             }
                         }
                     } else {
-                        state.errors.push(state.stack.error_from_str(
+                        state.errors.push(Error::from_str(
                             "Variable in string interpolation not found",
-                            node,
+                            Some(location),
                             vec!(
-                                (node, format!("{} must be defined as an argument to the rule", variable)),
-                            )));
+                                (location, format!("{} must be defined as an argument to the rule", variable)),
+                            )).with_traceback(state.stack.clone()));
                     }
                 }
                 Some(next_chr) => {
@@ -1470,17 +1693,92 @@ fn interpolate_string<'a, 'b>(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::sbnf::TextLocation;
 
+    pub fn expr_var<'a>(key: Key) -> Expression<'a> {
+        Expression::Variable { key, location: TextLocation::INITIAL }
+    }
+
+    pub fn expr_trm<'a>(
+        regex: Symbol,
+        options: TerminalOptions,
+    ) -> Expression<'a> {
+        Expression::Terminal { regex, options, location: TextLocation::INITIAL }
+    }
+
+    pub fn expr_trm_noopt<'a>(regex: Symbol) -> Expression<'a> {
+        expr_trm(regex, TerminalOptions::new())
+    }
+
+    pub fn expr_pas<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
+        Expression::Passive {
+            expression: c.allocator.alloc(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_rep<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
+        Expression::Repetition {
+            expression: c.allocator.alloc(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_opt<'a>(
+        c: &'a Compiler,
+        expr: Expression<'a>,
+    ) -> Expression<'a> {
+        Expression::Optional {
+            expression: c.allocator.alloc(expr),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_alt<'a>(
+        c: &'a Compiler,
+        exprs: &[Expression<'a>],
+    ) -> Expression<'a> {
+        Expression::Alternation {
+            expressions: c.allocator.alloc_slice_clone(exprs),
+            location: TextLocation::INITIAL,
+        }
+    }
+
+    pub fn expr_cat<'a>(
+        c: &'a Compiler,
+        exprs: &[Expression<'a>],
+    ) -> Expression<'a> {
+        Expression::Concatenation {
+            expressions: c.allocator.alloc_slice_clone(exprs),
+            location: TextLocation::INITIAL,
+        }
+    }
+
     fn interp<'a, 'b>(
+        compiler: &mut Compiler,
         collection: &DefinitionMap<'a>,
-        var_map: &VarMap<'a>,
-        node: &'a Node<'a>,
+        var_map: &VarMap,
+        location: TextLocation,
         string: &'a str,
-    ) -> Option<String> {
+    ) -> Option<Symbol> {
+        let options = CompileOptions {
+            name_hint: None,
+            arguments: vec![],
+            debug_contexts: false,
+            entry_points: vec![],
+        };
+
         let mut state = State {
+            compiler,
+            options: &options,
             seen_definitions: HashSet::new(),
             variables: HashMap::new(),
             rules: HashMap::new(),
@@ -1489,11 +1787,12 @@ mod tests {
             warnings: vec![],
         };
 
-        let result =
-            interpolate_string(&mut state, collection, var_map, node, string);
+        let result = interpolate_string(
+            &mut state, collection, var_map, location, string,
+        );
 
         if state.errors.is_empty() {
-            Some(result)
+            Some(compiler.get_symbol(&result))
         } else {
             None
         }
@@ -1501,54 +1800,57 @@ mod tests {
 
     #[test]
     fn interpolate_string_test() {
+        let mut compiler = Compiler::new();
         let collection = DefinitionMap::new();
         let var_map = VarMap::from([(
-            "a",
+            compiler.get_symbol("a"),
             Value::String {
-                regex: "b".to_string(),
-                literal: "b".to_string(),
-                node: None,
+                regex: compiler.get_symbol("b"),
+                literal: compiler.get_symbol("b"),
+                location: None,
             },
         )]);
-        let node = Node::new(
-            "",
-            TextLocation::new(0, 0),
-            NodeData::Parameters(vec![]),
-        );
+        let location = TextLocation::new(0, 0);
 
         assert_eq!(
-            Some("".to_string()),
-            interp(&collection, &var_map, &node, "")
+            Some(compiler.get_symbol("")),
+            interp(&mut compiler, &collection, &var_map, location, "")
         );
         assert_eq!(
-            Some("#".to_string()),
-            interp(&collection, &var_map, &node, "#")
+            Some(compiler.get_symbol("#")),
+            interp(&mut compiler, &collection, &var_map, location, "#")
         );
         assert_eq!(
-            Some("#!".to_string()),
-            interp(&collection, &var_map, &node, "#!")
+            Some(compiler.get_symbol("#!")),
+            interp(&mut compiler, &collection, &var_map, location, "#!")
         );
         assert_eq!(
-            Some("#a".to_string()),
-            interp(&collection, &var_map, &node, "#a")
-        );
-        assert_eq!(None, interp(&collection, &var_map, &node, "#["));
-        assert_eq!(None, interp(&collection, &var_map, &node, "#[]"));
-        assert_eq!(
-            Some("#]".to_string()),
-            interp(&collection, &var_map, &node, "#]")
+            Some(compiler.get_symbol("#a")),
+            interp(&mut compiler, &collection, &var_map, location, "#a")
         );
         assert_eq!(
-            Some("b".to_string()),
-            interp(&collection, &var_map, &node, "#[a]")
+            None,
+            interp(&mut compiler, &collection, &var_map, location, "#[")
         );
         assert_eq!(
-            Some("aba".to_string()),
-            interp(&collection, &var_map, &node, "a#[a]a")
+            None,
+            interp(&mut compiler, &collection, &var_map, location, "#[]")
         );
         assert_eq!(
-            Some("#[a]".to_string()),
-            interp(&collection, &var_map, &node, "\\#[a]")
+            Some(compiler.get_symbol("#]")),
+            interp(&mut compiler, &collection, &var_map, location, "#]")
+        );
+        assert_eq!(
+            Some(compiler.get_symbol("b")),
+            interp(&mut compiler, &collection, &var_map, location, "#[a]")
+        );
+        assert_eq!(
+            Some(compiler.get_symbol("aba")),
+            interp(&mut compiler, &collection, &var_map, location, "a#[a]a")
+        );
+        assert_eq!(
+            Some(compiler.get_symbol("#[a]")),
+            interp(&mut compiler, &collection, &var_map, location, "\\#[a]")
         );
     }
 }

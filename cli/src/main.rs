@@ -44,8 +44,8 @@ fn try_main() -> Result<(), String> {
         fmt_io_err(file.read_to_string(&mut contents))?;
     }
 
-    let grammar =
-        sbnf::sbnf::parse(&contents).map_err(|e| e.fmt(&input, &contents))?;
+    let grammar = sbnf::sbnf::parse(&contents)
+        .map_err(|e| format!("{}", e.with_source(&input, &contents)))?;
 
     // Use the base name of the input as a name hint
     let name_hint = Path::new(&input).file_stem().unwrap().to_str().unwrap();
@@ -57,17 +57,28 @@ fn try_main() -> Result<(), String> {
         entry_points: vec!["main", "prototype"],
     };
 
-    let result = sbnf::compiler::compile(&options, &grammar);
+    let mut compiler = sbnf::compiler::Compiler::new();
+    let result = compiler.compile(&options, &grammar);
 
     match &result.result {
         Err(errors) => {
             for error in errors {
-                eprintln!("{}", error.fmt("Error", &input, &contents));
+                eprintln!(
+                    "{}",
+                    error.with_compiler_and_source(
+                        &compiler, "Error", &input, &contents
+                    )
+                );
             }
 
             if !matches.is_present("quiet") {
                 for warning in result.warnings {
-                    eprintln!("{}", warning.fmt("Warning", &input, &contents));
+                    eprintln!(
+                        "{}",
+                        warning.with_compiler_and_source(
+                            &compiler, "Warning", &input, &contents
+                        )
+                    );
                 }
             }
 
@@ -76,7 +87,12 @@ fn try_main() -> Result<(), String> {
         Ok(syntax) => {
             if !matches.is_present("quiet") {
                 for warning in result.warnings {
-                    eprintln!("{}", warning.fmt("Warning", &input, &contents));
+                    eprintln!(
+                        "{}",
+                        warning.with_compiler_and_source(
+                            &compiler, "Warning", &input, &contents
+                        )
+                    );
                 }
             }
 

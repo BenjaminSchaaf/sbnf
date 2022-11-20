@@ -1,0 +1,2 @@
+main : (~comment)*;
+comment{comment} : `[` (~comment)* ~`]`;

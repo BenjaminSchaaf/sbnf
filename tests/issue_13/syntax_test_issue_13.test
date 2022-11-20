@@ -1,0 +1,6 @@
+# SYNTAX TEST "Packages/tests/issue_13/issue_13.sublime-syntax"
+
+ [comment0 [comment1]]
+#^^^^^^^^^ comment - comment comment
+#          ^^^^^^^^^^ comment comment - comment comment comment
+#                    ^ comment - comment comment

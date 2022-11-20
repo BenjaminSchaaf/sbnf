@@ -219,14 +219,14 @@ pub enum NodeData<'a> {
     },
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextLocation {
     pub line: u32,
     pub column: u32,
 }
 
 impl TextLocation {
-    const INITIAL: TextLocation = TextLocation { line: 0, column: 0 };
+    pub const INITIAL: TextLocation = TextLocation { line: 0, column: 0 };
 
     pub fn new(line: u32, column: u32) -> TextLocation {
         TextLocation { line: line, column: column }
@@ -234,6 +234,10 @@ impl TextLocation {
 
     pub fn from_tuple((line, column): (u32, u32)) -> TextLocation {
         TextLocation::new(line, column)
+    }
+
+    pub fn invalid() -> TextLocation {
+        TextLocation::new(u32::MAX, u32::MAX)
     }
 
     fn increment(&mut self, chr: char) {
@@ -245,33 +249,11 @@ impl TextLocation {
         }
     }
 
-    pub fn extract_line<'a>(&self, source: &'a str) -> &'a str {
-        source.split('\n').nth(self.line as usize).unwrap()
-    }
-
-    pub fn fmt_marker(&self) -> String {
-        let mut s = String::new();
-        for _ in 0..self.column {
-            s.push(' ');
-        }
-        s.push('^');
-        s
-    }
-
-    pub fn fmt_source(&self, source: &str) -> String {
-        let line_number = format!("{}", self.line + 1);
-        let mut spacing = String::new();
-        for _ in 0..line_number.len() {
-            spacing.push(' ');
-        }
-
-        format!(
-            "{} | {}\n{} | {}",
-            line_number,
-            self.extract_line(source),
-            spacing,
-            self.fmt_marker()
-        )
+    pub fn with_source<'a>(
+        &'a self,
+        source: &'a str,
+    ) -> TextLocationWithSource {
+        TextLocationWithSource { loc: *self, source }
     }
 }
 
@@ -287,24 +269,69 @@ impl std::fmt::Debug for TextLocation {
     }
 }
 
+pub struct TextLocationWithSource<'a> {
+    loc: TextLocation,
+    source: &'a str,
+}
+
+impl<'a> std::fmt::Display for TextLocationWithSource<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_line = self.loc.line + 1;
+
+        // TODO: There's probably a fast way to do this...
+        let source_line =
+            self.source.split('\n').nth(self.loc.line as usize).unwrap();
+
+        write!(f, "{} | {}\n", display_line, source_line)?;
+
+        let line_log10 = ((display_line as f64).log2() / 10f64.log2()) as u32;
+        for _ in 0..line_log10 + 1 {
+            write!(f, " ")?;
+        }
+
+        write!(f, "   ")?;
+        for _ in 0..self.loc.column {
+            write!(f, " ")?;
+        }
+        write!(f, "^")
+    }
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     location: TextLocation,
-    error: String,
+    message: String,
 }
 
 impl ParseError {
-    fn new(location: TextLocation, error: String) -> ParseError {
-        ParseError { location: location, error: error }
+    fn new(location: TextLocation, message: String) -> ParseError {
+        ParseError { location, message }
     }
 
-    pub fn fmt(&self, origin: &str, source: &str) -> String {
-        format!(
+    pub fn with_source<'a>(
+        &'a self,
+        origin: &'a str,
+        source: &'a str,
+    ) -> ParseErrorWithSource {
+        ParseErrorWithSource { error: self, origin, source }
+    }
+}
+
+pub struct ParseErrorWithSource<'a> {
+    error: &'a ParseError,
+    origin: &'a str,
+    source: &'a str,
+}
+
+impl<'a> std::fmt::Display for ParseErrorWithSource<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "Parser Error: {} ({}:{})\n{}",
-            self.error,
-            origin,
-            self.location,
-            self.location.fmt_source(source)
+            self.error.message,
+            self.origin,
+            self.error.location,
+            self.error.location.with_source(self.source)
         )
     }
 }

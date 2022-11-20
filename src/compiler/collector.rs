@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::common::{CompileOptions, CompileResult, Error, Value, VarMap};
+use super::common::{
+    CompileOptions, CompileResult, Compiler, Error, Symbol, Value, VarMap,
+};
 use crate::sbnf::{Grammar, Node, NodeData};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -15,51 +17,52 @@ pub struct Definition<'a> {
     pub overloads: Vec<&'a Node<'a>>,
 }
 
-pub type DefinitionMap<'a> = HashMap<(&'a str, u8), Definition<'a>>;
+pub type DefinitionMap<'a> = HashMap<(Symbol, u8), Definition<'a>>;
 
 pub struct Collection<'a> {
-    pub variables: VarMap<'a>,
+    pub variables: VarMap,
     pub definitions: DefinitionMap<'a>,
 }
 
-struct State<'a> {
-    variables: VarMap<'a>,
+struct State<'a, 'b> {
+    compiler: &'b Compiler,
+    options: &'a CompileOptions<'a>,
+    variables: VarMap,
     definitions: DefinitionMap<'a>,
-    errors: Vec<Error<'a>>,
-    warnings: Vec<Error<'a>>,
+    errors: Vec<Error>,
+    warnings: Vec<Error>,
 }
 
-pub fn collect<'a>(
-    options: &CompileOptions<'a>,
+pub fn collect<'a, 'b>(
+    compiler: &'b Compiler,
+    options: &'a CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
-) -> CompileResult<'a, Collection<'a>> {
+) -> CompileResult<Collection<'a>> {
     let mut state = State {
+        compiler,
+        options,
         variables: VarMap::new(),
         definitions: HashMap::new(),
         errors: vec![],
         warnings: vec![],
     };
 
-    collect_parameters(options, grammar, &mut state);
+    collect_parameters(grammar, &mut state);
     collect_definitions(grammar, &mut state);
 
     CompileResult::new(
-        if state.errors.is_empty() {
-            Ok(Collection {
-                variables: state.variables,
-                definitions: state.definitions,
-            })
-        } else {
-            Err(state.errors)
+        Collection {
+            variables: state.variables,
+            definitions: state.definitions,
         },
+        state.errors,
         state.warnings,
     )
 }
 
-fn collect_parameters<'a>(
-    compile_options: &CompileOptions<'a>,
+fn collect_parameters<'a, 'b>(
     grammar: &'a Grammar<'a>,
-    state: &mut State<'a>,
+    state: &mut State<'a, 'b>,
 ) {
     let mut duplicate: Option<&Node<'a>> = None;
 
@@ -69,10 +72,10 @@ fn collect_parameters<'a>(
                 if let Some(duplicate) = duplicate {
                     state.errors.push(Error::from_str(
                         "Syntax may only contain a single set of syntax parameters",
-                        node,
+                        Some(node.location),
                         vec![
-                            (duplicate, "first declared here".to_string()),
-                            (node, "duplicate found here".to_string()),
+                            (duplicate.location, "first declared here".to_string()),
+                            (node.location, "duplicate found here".to_string()),
                         ]));
                     continue;
                 }
@@ -82,9 +85,9 @@ fn collect_parameters<'a>(
                 if params.is_empty() {
                     state.errors.push(Error::from_str(
                         "Empty syntax parameters",
-                        node,
+                        Some(node.location),
                         vec![(
-                            node,
+                            node.location,
                             "leave out parameters if none are required"
                                 .to_string(),
                         )],
@@ -92,15 +95,15 @@ fn collect_parameters<'a>(
                     continue;
                 }
 
-                if params.len() != compile_options.arguments.len() {
+                if params.len() != state.options.arguments.len() {
                     state.errors.push(Error::from_str(
                         "Wrong number of arguments",
-                        node,
+                        Some(node.location),
                         vec![(
-                            node,
+                            node.location,
                             format!(
                                 "expected {} arguments, but was {} instead",
-                                compile_options.arguments.len(),
+                                state.options.arguments.len(),
                                 params.len()
                             ),
                         )],
@@ -109,16 +112,16 @@ fn collect_parameters<'a>(
                 }
 
                 for (param, arg) in
-                    params.iter().zip(compile_options.arguments.iter())
+                    params.iter().zip(state.options.arguments.iter())
                 {
                     match &param.data {
                         NodeData::RegexTerminal { .. }
                         | NodeData::LiteralTerminal { .. } => {
                             state.errors.push(Error::from_str(
                                 "Syntax parameters may only be variables",
-                                node,
+                                Some(node.location),
                                 vec![(
-                                    param,
+                                    param.location,
                                     "got terminal instead".to_string(),
                                 )],
                             ));
@@ -129,8 +132,11 @@ fn collect_parameters<'a>(
                             if !parameters.is_none() {
                                 state.errors.push(Error::from_str(
                                     "Syntax parameters must be plain variables",
-                                    node,
-                                    vec![(node, "has parameters".to_string())],
+                                    Some(node.location),
+                                    vec![(
+                                        node.location,
+                                        "has parameters".to_string(),
+                                    )],
                                 ));
                                 continue;
                             }
@@ -138,9 +144,9 @@ fn collect_parameters<'a>(
                             if !is_variable_name(param.text) {
                                 state.errors.push(Error::from_str(
                                     "Variables must be all upper-case",
-                                    node,
+                                    Some(node.location),
                                     vec![(
-                                        node,
+                                        node.location,
                                         format!(
                                             "use '{}' instead",
                                             to_variable_name(param.text)
@@ -149,10 +155,10 @@ fn collect_parameters<'a>(
                                 ));
                             }
 
-                            let name = param.text;
+                            let symbol = state.compiler.get_symbol(param.text);
 
                             if let Some(duplicate) =
-                                state.definitions.get(&(&name, 0))
+                                state.definitions.get(&(symbol, 0))
                             {
                                 assert!(
                                     duplicate.kind == DefinitionKind::Variable
@@ -161,29 +167,30 @@ fn collect_parameters<'a>(
 
                                 state.errors.push(Error::from_str(
                                     "Duplicate parameters are not allowed in syntax parameters",
-                                    node,
+                                    Some(node.location),
                                     vec![
-                                        (duplicate.overloads[0], "first parameter here".to_string()),
-                                        (node, "conflicts with this one".to_string()),
+                                        (duplicate.overloads[0].location, "first parameter here".to_string()),
+                                        (node.location, "conflicts with this one".to_string()),
                                     ]));
                                 continue;
                             }
 
                             // Keep track of the definition, but also store the value
                             state.definitions.insert(
-                                (name, 0),
+                                (symbol, 0),
                                 Definition {
                                     kind: DefinitionKind::Variable,
                                     overloads: vec![param],
                                 },
                             );
 
+                            let arg_symbol = state.compiler.get_symbol(arg);
                             let value = Value::String {
-                                regex: arg.to_string(),
-                                literal: arg.to_string(),
-                                node: None,
+                                regex: arg_symbol,
+                                literal: arg_symbol,
+                                location: None,
                             };
-                            state.variables.insert(name, value);
+                            state.variables.insert(symbol, value);
                         }
                         _ => panic!(),
                     }
@@ -196,7 +203,10 @@ fn collect_parameters<'a>(
     }
 }
 
-fn collect_definitions<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) {
+fn collect_definitions<'a, 'b>(
+    grammar: &'a Grammar<'a>,
+    state: &mut State<'a, 'b>,
+) {
     for node in &grammar.nodes {
         match &node.data {
             NodeData::Parameters(_) => {}
@@ -213,9 +223,9 @@ fn collect_definitions<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) {
                 if kind == DefinitionKind::Variable && !is_variable_name(name) {
                     state.errors.push(Error::from_str(
                         "Variables must be all upper-case",
-                        node,
+                        Some(node.location),
                         vec![(
-                            node,
+                            node.location,
                             format!("use '{}' instead", to_variable_name(name)),
                         )],
                     ));
@@ -223,9 +233,9 @@ fn collect_definitions<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) {
                 } else if kind == DefinitionKind::Rule && !is_rule_name(name) {
                     state.errors.push(Error::from_str(
                         "Rules must be all lower-case",
-                        node,
+                        Some(node.location),
                         vec![(
-                            node,
+                            node.location,
                             format!("use '{}' instead", to_rule_name(name)),
                         )],
                     ));
@@ -242,7 +252,9 @@ fn collect_definitions<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) {
                     }
                 });
 
-                let key = (name, num_params as u8);
+                let symbol = state.compiler.get_symbol(name);
+
+                let key = (symbol, num_params as u8);
 
                 let definition: &mut Definition<'a> =
                     if let Some(def) = state.definitions.get_mut(&key) {
@@ -262,14 +274,14 @@ fn collect_definitions<'a>(grammar: &'a Grammar<'a>, state: &mut State<'a>) {
                 if num_params == 0 && !definition.overloads.is_empty() {
                     state.errors.push(Error::new(
                         format!("'{}' has already been defined", name),
-                        node,
+                        Some(node.location),
                         vec![
                             (
-                                definition.overloads[0],
+                                definition.overloads[0].location,
                                 "already defined here".to_string(),
                             ),
                             (
-                                node,
+                                node.location,
                                 "conflicts with first definition".to_string(),
                             ),
                         ],

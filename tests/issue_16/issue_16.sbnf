@@ -1,0 +1,3 @@
+main : (~func)*;
+func : ident? (~main)*;
+ident : '\b[[:alpha:]_][[:alnum:]_]*\b'{identifier};
