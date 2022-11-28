@@ -34,10 +34,10 @@ pub fn compile(
 
     let grammar_result = sbnf::sbnf::parse(&source);
 
-    if grammar_result.is_err() {
+    if let Err(error) = grammar_result {
         return CompileResult {
             syntax: "".to_string(),
-            messages: grammar_result.unwrap_err().fmt(&input, &source),
+            messages: format!("{}", error.with_source(&input, &source)),
         };
     }
 
@@ -56,7 +56,9 @@ pub fn compile(
         entry_points: vec!["main", "prototype"],
     };
 
-    let result = sbnf::compiler::compile(&options, &grammar);
+    let mut compiler = sbnf::compiler::Compiler::new();
+
+    let result = compiler.compile(&options, &grammar);
 
     let mut messages = String::new();
     let result_syntax: String;
@@ -64,10 +66,14 @@ pub fn compile(
     match &result.result {
         Err(errors) => {
             for error in errors {
-                messages
-                    .write_str(&error.fmt("Error", &input, &source))
-                    .unwrap();
-                messages.write_char('\n').unwrap();
+                write!(
+                    messages,
+                    "{}\n",
+                    error.with_compiler_and_source(
+                        &compiler, "Error", &input, &source
+                    )
+                )
+                .unwrap();
             }
 
             result_syntax = "".to_string();
@@ -84,10 +90,14 @@ pub fn compile(
 
     if !quiet {
         for warning in result.warnings {
-            messages
-                .write_str(&warning.fmt("Warning", &input, &source))
-                .unwrap();
-            messages.write_char('\n').unwrap();
+            write!(
+                messages,
+                "{}\n",
+                warning.with_compiler_and_source(
+                    &compiler, "Warning", &input, &source
+                )
+            )
+            .unwrap();
         }
     }
 
