@@ -682,16 +682,16 @@ mod tests {
 
     use super::*;
     use crate::compiler::interpreter::tests::*;
-    use crate::compiler::{collector, interpreter, CompileOptions, Compiler};
-    use crate::sbnf;
+    use crate::compiler::{interpreter, CompileOptions, Compiler};
 
     struct Harness {
         compiler: Compiler,
+        source_index: usize,
     }
 
     impl Harness {
         fn new() -> Harness {
-            Harness { compiler: Compiler::new() }
+            Harness { compiler: Compiler::new(), source_index: 0 }
         }
 
         fn symbol(&self, name: &str) -> Symbol {
@@ -702,26 +702,22 @@ mod tests {
         where
             F: Fn(Lookahead, &Compiler) -> (),
         {
-            let grammar = sbnf::parse(source).unwrap();
+            let src = self.compiler.add_source(Some(format!("{}", self.source_index)), source.to_string());
+            self.source_index += 1;
 
             let options = CompileOptions {
                 name_hint: Some("test"),
                 arguments: vec![],
                 debug_contexts: false,
                 entry_points: vec!["m"],
+                import_function: None,
             };
 
-            let collection =
-                collector::collect(&mut self.compiler, &options, &grammar);
-            assert!(collection.warnings.is_empty());
-
-            let collection = collection.result.unwrap();
-
             let interpreter_result =
-                interpreter::interpret(&self.compiler, &options, collection);
-            assert!(interpreter_result.warnings.is_empty());
+                interpreter::interpret(&self.compiler, &options, src).unwrap();
+            assert!(interpreter_result.1.is_empty());
 
-            let interpreted = interpreter_result.result.as_ref().unwrap();
+            let interpreted = interpreter_result.0;
 
             let key = interpreter::Key {
                 name: self.symbol(rule_name),
@@ -733,7 +729,7 @@ mod tests {
             assert!(lookahead_state.push_variable(&key).is_none());
 
             let mut la =
-                lookahead(interpreted, &rule.expression, &mut lookahead_state);
+                lookahead(&interpreted, &rule.expression, &mut lookahead_state);
 
             lookahead_state.pop_variable(&key, &mut la);
 

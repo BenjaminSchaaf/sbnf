@@ -5,45 +5,26 @@ pub mod collector;
 pub mod common;
 pub mod interpreter;
 
-use crate::sbnf::Grammar;
-pub use common::{CompileOptions, CompileResult, Compiler, Error};
+pub use common::{CompileOptions, CompileResult, Compiler, Error, SourceReference};
 
 impl Compiler {
     pub fn compile<'a>(
         &mut self,
         options: &'a CompileOptions<'a>,
-        grammar: &'a Grammar<'a>,
+        source: SourceReference,
     ) -> CompileResult<sublime_syntax::Syntax> {
-        let collection = collector::collect(self, options, grammar);
-
-        let (mut warnings, collected) = match collection {
-            CompileResult { result: Err(errors), warnings } => {
-                return CompileResult::err(errors, warnings);
-            }
-            CompileResult { result: Ok(col), warnings } => (warnings, col),
-        };
-
-        let mut interpreter_result =
-            interpreter::interpret(self, options, collected);
-
-        warnings.append(&mut interpreter_result.warnings);
-
-        if let Err(errors) = interpreter_result.result {
-            return CompileResult::err(errors, warnings);
-        }
-
-        let interpreted = interpreter_result.result.unwrap();
+        let (interpreted, warnings) =
+            interpreter::interpret(self, options, source)?;
 
         let syntax = codegen::codegen(self, interpreted);
 
-        CompileResult::new(syntax, vec![], warnings)
+        Ok((syntax, warnings))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::compiler::*;
-    use crate::sbnf;
     use crate::sublime_syntax::{
         Context, ContextChange, ContextPattern, Match, Pattern, Scope,
     };
@@ -53,46 +34,43 @@ mod tests {
         source: &str,
         arguments: Vec<&str>,
     ) -> HashMap<String, Context> {
-        let grammar = sbnf::parse(source).unwrap();
-
         let options = CompileOptions {
             name_hint: Some("test"),
             arguments,
             debug_contexts: false,
             entry_points: vec!["main"],
+            import_function: None,
         };
         let mut compiler = Compiler::new();
-        let result = compiler.compile(&options, &grammar);
+        let source = compiler.add_source(None, source.to_string());
+        let result = compiler.compile(&options, source);
 
         if result.is_err() {
-            for error in result.result.as_ref().unwrap_err() {
+            for error in result.unwrap_err().0 {
                 println!(
                     "{}",
-                    error.with_compiler_and_source(
-                        &compiler, "ERROR", "test", source
-                    )
+                    error.with_compiler(&compiler, "ERROR")
                 );
             }
+            panic!();
         }
-        assert!(result.is_ok());
 
-        if !result.warnings.is_empty() {
-            for warning in &result.warnings {
+        let (result, warnings) = result.unwrap();
+        if !warnings.is_empty() {
+            for warning in &warnings {
                 println!(
                     "{}",
-                    warning.with_compiler_and_source(
-                        &compiler, "WARNING", "test", source
-                    )
+                    warning.with_compiler(&compiler, "WARNING")
                 );
             }
         }
-        assert!(result.warnings.is_empty());
+        assert!(warnings.is_empty());
 
         let mut buf = String::new();
-        result.result.as_ref().unwrap().serialize(&mut buf).unwrap();
+        result.serialize(&mut buf).unwrap();
         println!("{}", buf);
 
-        result.result.unwrap().contexts
+        result.contexts
     }
 
     #[test]

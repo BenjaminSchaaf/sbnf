@@ -1,10 +1,11 @@
 /// This file implements a parser for the SBNF grammar
 use std::str::{from_utf8_unchecked, Chars};
+use bumpalo::Bump;
 
 #[derive(Debug)]
 pub struct Grammar<'a> {
     pub source: &'a str,
-    pub nodes: Vec<Node<'a>>,
+    pub nodes: &'a [Node<'a>],
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -16,7 +17,7 @@ pub struct Node<'a> {
 
 fn fmt_inner_parameters<'a>(
     f: &mut std::fmt::Formatter,
-    params: &Vec<Node<'a>>,
+    params: &[Node<'a>],
     start: &str,
     end: &str,
 ) -> std::fmt::Result {
@@ -33,7 +34,7 @@ fn fmt_inner_parameters<'a>(
 }
 
 fn fmt_inner_optional<'a>(
-    param: &Option<Box<Node<'a>>>,
+    param: Option<&'a Node<'a>>,
     f: &mut std::fmt::Formatter,
 ) -> std::fmt::Result {
     if let Some(p) = param {
@@ -79,6 +80,7 @@ impl<'a> Node<'a> {
             NodeData::PositionalOption => "popt",
             NodeData::KeywordOptionValue => "kopt",
             NodeData::Embed { .. } => "emb",
+            NodeData::Import { .. } => "imp",
         }
     }
 }
@@ -89,37 +91,37 @@ impl<'a> std::fmt::Debug for Node<'a> {
 
         match &self.data {
             NodeData::Parameters(parameters) => {
-                fmt_inner_parameters(f, &parameters, "[", "]")?;
+                fmt_inner_parameters(f, parameters, "[", "]")?;
             }
             NodeData::Options(options) => {
-                fmt_inner_parameters(f, &options, "{", "}")?;
+                fmt_inner_parameters(f, options, "{", "}")?;
             }
             NodeData::Variable { parameters, value } => {
                 write!(f, "{}", self.text)?;
-                fmt_inner_optional(&parameters, f)?;
+                fmt_inner_optional(*parameters, f)?;
                 write!(f, " = {:?}", value)?;
             }
             NodeData::Rule { parameters, options, node } => {
                 write!(f, "{}", self.text)?;
-                fmt_inner_optional(&parameters, f)?;
-                fmt_inner_optional(&options, f)?;
+                fmt_inner_optional(*parameters, f)?;
+                fmt_inner_optional(*options, f)?;
                 write!(f, " : {:?} ;", node)?;
             }
             NodeData::Reference { parameters, options } => {
                 write!(f, "{}", self.text)?;
-                fmt_inner_optional(&parameters, f)?;
-                fmt_inner_optional(&options, f)?;
+                fmt_inner_optional(*parameters, f)?;
+                fmt_inner_optional(*options, f)?;
             }
             NodeData::RegexTerminal { options, embed } => {
                 write!(f, "'{}'", self.text)?;
-                fmt_inner_optional(&options, f)?;
+                fmt_inner_optional(*options, f)?;
                 if let Some(embed) = embed {
                     write!(f, " {:?}", embed)?;
                 }
             }
             NodeData::LiteralTerminal { options, .. } => {
                 write!(f, "`{}`", self.text)?;
-                fmt_inner_optional(&options, f)?;
+                fmt_inner_optional(*options, f)?;
             }
             NodeData::Passive(node) => {
                 write!(f, "~({:?})", node)?;
@@ -156,6 +158,9 @@ impl<'a> std::fmt::Debug for Node<'a> {
             NodeData::Embed { parameters, options } => {
                 write!(f, "%{}{:?}{:?}", self.text, parameters, options)?;
             }
+            NodeData::Import { parameters } => {
+                write!(f, "%{}{:?}", self.text, parameters)?;
+            }
         }
 
         write!(f, ">({}:{:?})", self.type_name(), self.location)
@@ -165,57 +170,61 @@ impl<'a> std::fmt::Debug for Node<'a> {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum NodeData<'a> {
     // [parameters]
-    Parameters(Vec<Node<'a>>),
+    Parameters(&'a [Node<'a>]),
     // {options}
-    Options(Vec<Node<'a>>),
+    Options(&'a [Node<'a>]),
     // Variable[parameters] = Value
     Variable {
-        parameters: Option<Box<Node<'a>>>,
-        value: Box<Node<'a>>,
+        parameters: Option<&'a Node<'a>>,
+        value: &'a Node<'a>,
     },
     // Rule[parameters]{options} > node
     Rule {
-        parameters: Option<Box<Node<'a>>>,
-        options: Option<Box<Node<'a>>>,
-        node: Box<Node<'a>>,
+        parameters: Option<&'a Node<'a>>,
+        options: Option<&'a Node<'a>>,
+        node: &'a Node<'a>,
     },
     // Reference[parameters]{options}
     Reference {
-        parameters: Option<Box<Node<'a>>>,
-        options: Option<Box<Node<'a>>>,
+        parameters: Option<&'a Node<'a>>,
+        options: Option<&'a Node<'a>>,
     },
     // "\r\e\g\e\x"
     RegexTerminal {
-        options: Option<Box<Node<'a>>>,
-        embed: Option<Box<Node<'a>>>,
+        options: Option<&'a Node<'a>>,
+        embed: Option<&'a Node<'a>>,
     },
     // `literal`
     LiteralTerminal {
         regex: String,
-        options: Option<Box<Node<'a>>>,
-        embed: Option<Box<Node<'a>>>,
+        options: Option<&'a Node<'a>>,
+        embed: Option<&'a Node<'a>>,
     },
     // ~a
-    Passive(Box<Node<'a>>),
+    Passive(&'a Node<'a>),
     // a*
-    Repetition(Box<Node<'a>>),
+    Repetition(&'a Node<'a>),
     // a?
-    Optional(Box<Node<'a>>),
+    Optional(&'a Node<'a>),
     // a | b
-    Alternation(Vec<Node<'a>>),
+    Alternation(&'a [Node<'a>]),
     // a b
-    Concatenation(Vec<Node<'a>>),
+    Concatenation(&'a [Node<'a>]),
     // !
-    Capture(Box<Node<'a>>),
+    Capture(&'a Node<'a>),
     // {positional-option}
     PositionalOption,
     // {keyword: option}
-    KeywordOption(Box<Node<'a>>),
+    KeywordOption(&'a Node<'a>),
     KeywordOptionValue,
     // %embed[]{}
     Embed {
-        parameters: Box<Node<'a>>,
-        options: Box<Node<'a>>,
+        parameters: &'a Node<'a>,
+        options: &'a Node<'a>,
+    },
+    // %import[]
+    Import {
+        parameters: &'a Node<'a>,
     },
 }
 
@@ -299,8 +308,8 @@ impl<'a> std::fmt::Display for TextLocationWithSource<'a> {
 
 #[derive(Debug)]
 pub struct ParseError {
-    location: TextLocation,
-    message: String,
+    pub location: TextLocation,
+    pub message: String,
 }
 
 impl ParseError {
@@ -340,6 +349,7 @@ impl<'a> std::fmt::Display for ParseErrorWithSource<'a> {
 // is required for str_from_iterators. Why‽
 struct Parser<'a> {
     source: &'a str,
+    allocator: &'a Bump,
     location: TextLocation,
 
     current: Chars<'a>,
@@ -451,9 +461,10 @@ impl<'a> CollectedNode<'a> {
     }
 }
 
-pub fn parse(source: &str) -> Result<Grammar, ParseError> {
+pub fn parse<'a>(source: &'a str, allocator: &'a Bump) -> Result<Grammar<'a>, ParseError> {
     let mut parser = Parser {
         source,
+        allocator,
         location: TextLocation::INITIAL,
         current: source.chars(),
         peeked_char: None,
@@ -471,7 +482,10 @@ pub fn parse(source: &str) -> Result<Grammar, ParseError> {
         }
     }
 
-    Ok(Grammar { source: parser.source, nodes: nodes })
+    Ok(Grammar {
+        source: parser.source,
+        nodes: allocator.alloc_slice_fill_iter(nodes.into_iter()),
+    })
 }
 
 pub fn is_identifier_char(chr: char) -> bool {
@@ -535,7 +549,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
         skip_whitespace(parser);
 
-        Some(Box::new(params))
+        Some(parser.allocator.alloc(params) as &Node)
     } else {
         None
     };
@@ -571,13 +585,30 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                     options: None,
                     embed: None,
                 })
+            } else if first_char == '%' {
+                parser.next();
+
+                let keyword = parse_identifier(parser)?;
+
+                match keyword.text {
+                    "import" => {
+
+                    },
+                    _ => {
+                        return Err(ParseError::new(keyword.location, format!("Expected 'import' but got '{}'", keyword.text)));
+                    }
+                }
+
+                let parameters = parser.allocator.alloc(parse_parameters(parser)?);
+
+                keyword.build(NodeData::Import { parameters })
             } else if is_identifier_char(first_char) {
                 let ident = parse_identifier(parser)?;
 
                 skip_whitespace(parser);
 
-                let parameters = if parser.peek() == Some('[') {
-                    Some(Box::new(parse_parameters(parser)?))
+                let parameters: Option<&Node> = if parser.peek() == Some('[') {
+                    Some(parser.allocator.alloc(parse_parameters(parser)?))
                 } else {
                     None
                 };
@@ -590,7 +621,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 )));
             };
 
-            NodeData::Variable { parameters, value: Box::new(value) }
+            NodeData::Variable { parameters, value: parser.allocator.alloc(value) }
         }
         Some(_) => {
             let options = if parser.peek() == Some('{') {
@@ -598,7 +629,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
                 skip_whitespace(parser);
 
-                Some(Box::new(options))
+                Some(parser.allocator.alloc(options) as &Node)
             } else {
                 None
             };
@@ -673,7 +704,7 @@ fn parse_parameters<'a>(
                 skip_whitespace(parser);
 
                 let params = if parser.peek() == Some('[') {
-                    Some(Box::new(parse_parameters(parser)?))
+                    Some(parser.allocator.alloc(parse_parameters(parser)?) as &Node)
                 } else {
                     None
                 };
@@ -705,7 +736,7 @@ fn parse_parameters<'a>(
         }
     }
 
-    Ok(col.build_from_text("", NodeData::Parameters(parameters)))
+    Ok(col.build_from_text("", NodeData::Parameters(parser.allocator.alloc_slice_fill_iter(parameters.into_iter()))))
 }
 
 fn parse_options<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
@@ -737,7 +768,7 @@ fn parse_options<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
         }
     }
 
-    Ok(col.build_from_text("", NodeData::Options(arguments)))
+    Ok(col.build_from_text("", NodeData::Options(parser.allocator.alloc_slice_fill_iter(arguments.into_iter()))))
 }
 
 fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
@@ -763,7 +794,7 @@ fn parse_argument<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
                 let kwarg = parse_kwarg_value(parser)?;
 
-                return Ok(node.build(NodeData::KeywordOption(Box::new(kwarg))));
+                return Ok(node.build(NodeData::KeywordOption(parser.allocator.alloc(kwarg))));
             }
             Some(_) => {}
         }
@@ -798,7 +829,7 @@ fn parse_kwarg_value<'a>(
 
 fn parse_rule<'a>(
     parser: &mut Parser<'a>,
-) -> Result<Box<Node<'a>>, ParseError> {
+) -> Result<&'a Node<'a>, ParseError> {
     let node = parse_rule_alternation(parser)?;
 
     skip_whitespace(parser);
@@ -818,7 +849,7 @@ fn parse_rule<'a>(
 
     parser.next();
 
-    Ok(Box::new(node))
+    Ok(parser.allocator.alloc(node))
 }
 
 fn parse_rule_alternation<'a>(
@@ -872,7 +903,7 @@ fn parse_rule_alternation<'a>(
         }
     }
 
-    Ok(col.build_from_text("", NodeData::Alternation(elements)))
+    Ok(col.build_from_text("", NodeData::Alternation(parser.allocator.alloc_slice_fill_iter(elements.into_iter()))))
 }
 
 fn parse_rule_concatenation<'a>(
@@ -912,7 +943,7 @@ fn parse_rule_concatenation<'a>(
         }
     }
 
-    Ok(col.build_from_text("", NodeData::Concatenation(elements)))
+    Ok(col.build_from_text("", NodeData::Concatenation(parser.allocator.alloc_slice_fill_iter(elements.into_iter()))))
 }
 
 fn parse_rule_element<'a>(
@@ -928,7 +959,7 @@ fn parse_rule_element<'a>(
 
             let node = col.end_from_parser(parser);
 
-            Ok(node.build(NodeData::Capture(Box::new(
+            Ok(node.build(NodeData::Capture(parser.allocator.alloc(
                 parse_rule_element_contents(parser)?,
             ))))
         } else if chr == '~' {
@@ -936,7 +967,7 @@ fn parse_rule_element<'a>(
 
             let node = col.end_from_parser(parser);
 
-            Ok(node.build(NodeData::Passive(Box::new(
+            Ok(node.build(NodeData::Passive(parser.allocator.alloc(
                 parse_rule_element_contents(parser)?,
             ))))
         } else {
@@ -987,7 +1018,7 @@ fn parse_rule_element_contents<'a>(
             skip_whitespace(parser);
 
             let parameters = if parser.peek() == Some('[') {
-                Some(Box::new(parse_parameters(parser)?))
+                Some(parser.allocator.alloc(parse_parameters(parser)?) as &Node)
             } else {
                 None
             };
@@ -995,7 +1026,7 @@ fn parse_rule_element_contents<'a>(
             skip_whitespace(parser);
 
             let options = if parser.peek() == Some('{') {
-                Some(Box::new(parse_options(parser)?))
+                Some(parser.allocator.alloc(parse_options(parser)?) as &Node)
             } else {
                 None
             };
@@ -1024,12 +1055,12 @@ fn parse_rule_element_contents<'a>(
 
             col.build_from_parser(
                 parser,
-                NodeData::Repetition(Box::new(element)),
+                NodeData::Repetition(parser.allocator.alloc(element)),
             )
         } else if chr == '?' {
             parser.next();
 
-            col.build_from_parser(parser, NodeData::Optional(Box::new(element)))
+            col.build_from_parser(parser, NodeData::Optional(parser.allocator.alloc(element)))
         } else {
             element
         }
@@ -1046,9 +1077,9 @@ fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
     let word = parse_identifier(parser)?;
 
-    let parameters = Box::new(parse_parameters(parser)?);
+    let parameters = parser.allocator.alloc(parse_parameters(parser)?);
 
-    let options = Box::new(parse_options(parser)?);
+    let options = parser.allocator.alloc(parse_options(parser)?);
 
     Ok(word.build(NodeData::Embed { parameters, options }))
 }
@@ -1102,7 +1133,7 @@ fn parse_regex_terminal<'a>(
     skip_whitespace(parser);
 
     let options = if parser.peek() == Some('{') {
-        Some(Box::new(parse_options(parser)?))
+        Some(parser.allocator.alloc(parse_options(parser)?) as &Node)
     } else {
         None
     };
@@ -1110,7 +1141,7 @@ fn parse_regex_terminal<'a>(
     skip_whitespace(parser);
 
     let embed = if parser.peek() == Some('%') {
-        Some(Box::new(parse_embed(parser)?))
+        Some(parser.allocator.alloc(parse_embed(parser)?) as &Node)
     } else {
         None
     };
@@ -1157,7 +1188,7 @@ fn parse_literal_terminal<'a>(
     skip_whitespace(parser);
 
     let options = if parser.peek() == Some('{') {
-        Some(Box::new(parse_options(parser)?))
+        Some(parser.allocator.alloc(parse_options(parser)?) as &Node)
     } else {
         None
     };
@@ -1165,7 +1196,7 @@ fn parse_literal_terminal<'a>(
     skip_whitespace(parser);
 
     let embed = if parser.peek() == Some('%') {
-        Some(Box::new(parse_embed(parser)?))
+        Some(parser.allocator.alloc(parse_embed(parser)?) as &Node)
     } else {
         None
     };
@@ -1190,13 +1221,15 @@ fn literal_to_regex(literal: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::sbnf::*;
+    use bumpalo::Bump;
 
     #[test]
     fn parse_empty() {
-        assert!(parse("").unwrap().nodes.is_empty());
+        let a = Bump::new();
+        assert!(parse("", &a).unwrap().nodes.is_empty());
     }
 
-    fn parameters<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
+    fn parameters<'a>(loc: (u32, u32), nodes: &'a [Node<'a>]) -> Node<'a> {
         Node::new(
             "",
             TextLocation::from_tuple(loc),
@@ -1204,22 +1237,22 @@ mod tests {
         )
     }
 
-    fn options<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
+    fn options<'a>(loc: (u32, u32), nodes: &'a [Node<'a>]) -> Node<'a> {
         Node::new("", TextLocation::from_tuple(loc), NodeData::Options(nodes))
     }
 
     fn variable<'a>(
         name: &'a str,
         loc: (u32, u32),
-        parameters: Option<Node<'a>>,
-        value: Node<'a>,
+        parameters: Option<&'a Node<'a>>,
+        value: &'a Node<'a>,
     ) -> Node<'a> {
         Node::new(
             name,
             TextLocation::from_tuple(loc),
             NodeData::Variable {
-                parameters: parameters.map(Box::new),
-                value: Box::new(value),
+                parameters,
+                value,
             },
         )
     }
@@ -1227,17 +1260,17 @@ mod tests {
     fn rule<'a>(
         name: &'a str,
         loc: (u32, u32),
-        parameters: Option<Node<'a>>,
-        options: Option<Node<'a>>,
-        node: Node<'a>,
+        parameters: Option<&'a Node<'a>>,
+        options: Option<&'a Node<'a>>,
+        node: &'a Node<'a>,
     ) -> Node<'a> {
         Node::new(
             name,
             TextLocation::from_tuple(loc),
             NodeData::Rule {
-                parameters: parameters.map(Box::new),
-                options: options.map(Box::new),
-                node: Box::new(node),
+                parameters,
+                options,
+                node,
             },
         )
     }
@@ -1245,15 +1278,15 @@ mod tests {
     fn refr<'a>(
         name: &'a str,
         loc: (u32, u32),
-        parameters: Option<Node<'a>>,
-        options: Option<Node<'a>>,
+        parameters: Option<&'a Node<'a>>,
+        options: Option<&'a Node<'a>>,
     ) -> Node<'a> {
         Node::new(
             name,
             TextLocation::from_tuple(loc),
             NodeData::Reference {
-                parameters: parameters.map(Box::new),
-                options: options.map(Box::new),
+                parameters,
+                options,
             },
         )
     }
@@ -1261,13 +1294,13 @@ mod tests {
     fn regex<'a>(
         contents: &'a str,
         loc: (u32, u32),
-        options: Option<Node<'a>>,
+        options: Option<&'a Node<'a>>,
     ) -> Node<'a> {
         Node::new(
             contents,
             TextLocation::from_tuple(loc),
             NodeData::RegexTerminal {
-                options: options.map(Box::new),
+                options,
                 embed: None,
             },
         )
@@ -1277,44 +1310,44 @@ mod tests {
         literal: &'a str,
         loc: (u32, u32),
         regex: &str,
-        options: Option<Node<'a>>,
+        options: Option<&'a Node<'a>>,
     ) -> Node<'a> {
         Node::new(
             literal,
             TextLocation::from_tuple(loc),
             NodeData::LiteralTerminal {
                 regex: regex.to_string(),
-                options: options.map(Box::new),
+                options,
                 embed: None,
             },
         )
     }
 
-    fn passive<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
+    fn passive<'a>(loc: (u32, u32), node: &'a Node<'a>) -> Node<'a> {
         Node::new(
             "~",
             TextLocation::from_tuple(loc),
-            NodeData::Passive(Box::new(node)),
+            NodeData::Passive(node),
         )
     }
 
-    fn repetition<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
+    fn repetition<'a>(loc: (u32, u32), node: &'a Node<'a>) -> Node<'a> {
         Node::new(
             "*",
             TextLocation::from_tuple(loc),
-            NodeData::Repetition(Box::new(node)),
+            NodeData::Repetition(node),
         )
     }
 
-    fn optional<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
+    fn optional<'a>(loc: (u32, u32), node: &'a Node<'a>) -> Node<'a> {
         Node::new(
             "?",
             TextLocation::from_tuple(loc),
-            NodeData::Optional(Box::new(node)),
+            NodeData::Optional(node),
         )
     }
 
-    fn alt<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
+    fn alt<'a>(loc: (u32, u32), nodes: &'a [Node<'a>]) -> Node<'a> {
         Node::new(
             "",
             TextLocation::from_tuple(loc),
@@ -1322,7 +1355,7 @@ mod tests {
         )
     }
 
-    fn concat<'a>(loc: (u32, u32), nodes: Vec<Node<'a>>) -> Node<'a> {
+    fn concat<'a>(loc: (u32, u32), nodes: &'a [Node<'a>]) -> Node<'a> {
         Node::new(
             "",
             TextLocation::from_tuple(loc),
@@ -1330,11 +1363,11 @@ mod tests {
         )
     }
 
-    fn capture<'a>(loc: (u32, u32), node: Node<'a>) -> Node<'a> {
+    fn capture<'a>(loc: (u32, u32), node: &'a Node<'a>) -> Node<'a> {
         Node::new(
             "!",
             TextLocation::from_tuple(loc),
-            NodeData::Capture(Box::new(node)),
+            NodeData::Capture(node),
         )
     }
 
@@ -1346,128 +1379,137 @@ mod tests {
         )
     }
 
-    fn keyarg<'a>(
+    fn keyopt<'a>(
         key: &'a str,
         key_loc: (u32, u32),
-        value: &'a str,
-        value_loc: (u32, u32),
+        val: &'a Node<'a>,
     ) -> Node<'a> {
         Node::new(
             key,
             TextLocation::from_tuple(key_loc),
-            NodeData::KeywordOption(Box::new(Node::new(
-                value,
-                TextLocation::from_tuple(value_loc),
-                NodeData::KeywordOptionValue,
-            ))),
+            NodeData::KeywordOption(val),
+        )
+    }
+
+    fn keyoptval<'a>(
+        value: &'a str,
+        value_loc: (u32, u32),
+    ) -> Node<'a> {
+        Node::new(
+            value,
+            TextLocation::from_tuple(value_loc),
+            NodeData::KeywordOptionValue,
         )
     }
 
     #[test]
     fn parse_variables() {
-        assert!(parse("a").is_err());
-        assert!(parse("a=").is_err());
-        assert!(parse("a =").is_err());
-        assert!(parse(" a =").is_err());
+        let a = Bump::new();
+        assert!(parse("a", &a).is_err());
+        assert!(parse("a=", &a).is_err());
+        assert!(parse("a =", &a).is_err());
+        assert!(parse(" a =", &a).is_err());
         assert!(
-            parse("a=b").unwrap().nodes
-                == vec!(variable(
+            parse("a=b", &a).unwrap().nodes
+                == &[variable(
                     "a",
                     (0, 0),
                     None,
-                    refr("b", (0, 2), None, None)
-                ),)
+                    &refr("b", (0, 2), None, None)
+                )]
         );
         assert!(
-            parse("a='b' \nf\t\n\n= `foo`\n").unwrap().nodes
-                == vec!(
-                    variable("a", (0, 0), None, regex("b", (0, 2), None)),
+            parse("a='b' \nf\t\n\n= `foo`\n", &a).unwrap().nodes
+                == &[
+                    variable("a", (0, 0), None, &regex("b", (0, 2), None)),
                     variable(
                         "f",
                         (1, 0),
                         None,
-                        literal("foo", (3, 2), "foo", None)
+                        &literal("foo", (3, 2), "foo", None)
                     ),
-                )
+                ]
         );
         assert!(
-            parse("a[b, 'c'] = b").unwrap().nodes
-                == vec!(variable(
+            parse("a[b, 'c'] = b", &a).unwrap().nodes
+                == &[variable(
                     "a",
                     (0, 0),
-                    Some(parameters(
+                    Some(&parameters(
                         (0, 1),
-                        vec!(
+                        &[
                             refr("b", (0, 2), None, None),
                             regex("c", (0, 5), None),
-                        )
+                        ]
                     )),
-                    refr("b", (0, 12), None, None)
-                ),)
+                    &refr("b", (0, 12), None, None)
+                )]
         );
     }
 
     #[test]
     fn parse_syntax_parameters() {
-        assert!(parse("[").is_err());
-        assert!(parse("]").is_err());
-        assert!(parse("[,]").is_err());
+        let a = Bump::new();
+        assert!(parse("[", &a).is_err());
+        assert!(parse("]", &a).is_err());
+        assert!(parse("[,]", &a).is_err());
         assert!(
-            parse("  [ A ] ").unwrap().nodes
-                == vec!(parameters(
+            parse("  [ A ] ", &a).unwrap().nodes
+                == &[parameters(
                     (0, 2),
-                    vec!(refr("A", (0, 4), None, None))
-                ))
+                    &[refr("A", (0, 4), None, None)]
+                )]
         );
         assert!(
-            parse("[B, `bar`]").unwrap().nodes
-                == vec!(parameters(
+            parse("[B, `bar`]", &a).unwrap().nodes
+                == &[parameters(
                     (0, 0),
-                    vec!(
+                    &[
                         refr("B", (0, 1), None, None),
                         literal("bar", (0, 4), "bar", None)
-                    )
-                ))
+                    ]
+                )]
         );
     }
 
     #[test]
     fn parse_rules() {
-        assert!(parse("a:").is_err());
-        assert!(parse("a:a").is_err());
-        assert!(parse("a:(").is_err());
-        assert!(parse("a:(a").is_err());
-        assert!(parse("a:(a;").is_err());
+        let a = Bump::new();
+        assert!(parse("a:", &a).is_err());
+        assert!(parse("a:a", &a).is_err());
+        assert!(parse("a:(", &a).is_err());
+        assert!(parse("a:(a", &a).is_err());
+        assert!(parse("a:(a;", &a).is_err());
         assert!(
-            parse("a:b;").unwrap().nodes
-                == vec!(rule(
+            parse("a:b;", &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
                     None,
-                    refr("b", (0, 2), None, None)
-                ),)
+                    &refr("b", (0, 2), None, None)
+                )]
         );
         assert!(
-            parse("a :b c |d ;b:`a`;").unwrap().nodes
-                == vec!(
+            parse("a :b c |d ;b:`a`;", &a).unwrap().nodes
+                == &[
                     rule(
                         "a",
                         (0, 0),
                         None,
                         None,
-                        alt(
+                        &alt(
                             (0, 3),
-                            vec!(
+                            &[
                                 concat(
                                     (0, 3),
-                                    vec!(
+                                    &[
                                         refr("b", (0, 3), None, None),
                                         refr("c", (0, 5), None, None),
-                                    )
+                                    ]
                                 ),
                                 refr("d", (0, 8), None, None),
-                            )
+                            ]
                         )
                     ),
                     rule(
@@ -1475,166 +1517,176 @@ mod tests {
                         (0, 11),
                         None,
                         None,
-                        literal("a", (0, 13), "a", None)
+                        &literal("a", (0, 13), "a", None)
                     ),
-                )
+                ]
         );
         assert!(
-            parse("a:~(b c)? (d|(e)|f) !g*;").unwrap().nodes
-                == vec!(rule(
+            parse("a:~(b c)? (d|(e)|f) !g*;", &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
                     None,
-                    concat(
+                    &concat(
                         (0, 2),
-                        vec!(
+                        &[
                             passive(
                                 (0, 2),
-                                optional(
+                                &optional(
                                     (0, 8),
-                                    concat(
+                                    &concat(
                                         (0, 4),
-                                        vec!(
+                                        &[
                                             refr("b", (0, 4), None, None),
                                             refr("c", (0, 6), None, None),
-                                        )
+                                        ]
                                     )
                                 )
                             ),
                             alt(
                                 (0, 11),
-                                vec!(
+                                &[
                                     refr("d", (0, 11), None, None),
                                     refr("e", (0, 14), None, None),
                                     refr("f", (0, 17), None, None),
-                                )
+                                ]
                             ),
                             capture(
                                 (0, 20),
-                                repetition(
+                                &repetition(
                                     (0, 22),
-                                    refr("g", (0, 21), None, None)
+                                    &refr("g", (0, 21), None, None)
                                 )
                             ),
-                        )
+                        ]
                     )
-                ),)
+                )]
         );
         assert!(
-            parse("a{b c, 2:d, e}:a;").unwrap().nodes
-                == vec!(rule(
+            parse("a{b c, 2:d, e}:a;", &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
-                    Some(options(
+                    Some(&options(
                         (0, 1),
-                        vec!(
+                        &[
                             arg("b c", (0, 2)),
-                            keyarg(" 2", (0, 6), "d", (0, 9)),
+                            keyopt(" 2", (0, 6), &keyoptval("d", (0, 9))),
                             arg(" e", (0, 11)),
-                        )
+                        ]
                     )),
-                    refr("a", (0, 15), None, None)
-                ))
+                    &refr("a", (0, 15), None, None)
+                )]
         );
         assert!(
-            parse("a[`b`]:a['c'] b[c, d];").unwrap().nodes
-                == vec!(rule(
+            parse("a[`b`]:a['c'] b[c, d];", &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
-                    Some(parameters(
+                    Some(&parameters(
                         (0, 1),
-                        vec!(literal("b", (0, 2), "b", None),)
+                        &[literal("b", (0, 2), "b", None)]
                     )),
                     None,
-                    concat(
+                    &concat(
                         (0, 7),
-                        vec!(
+                        &[
                             refr(
                                 "a",
                                 (0, 7),
-                                Some(parameters(
+                                Some(&parameters(
                                     (0, 8),
-                                    vec!(regex("c", (0, 9), None),)
+                                    &[regex("c", (0, 9), None)]
                                 )),
                                 None
                             ),
                             refr(
                                 "b",
                                 (0, 14),
-                                Some(parameters(
+                                Some(&parameters(
                                     (0, 15),
-                                    vec!(
+                                    &[
                                         refr("c", (0, 16), None, None),
                                         refr("d", (0, 19), None, None),
-                                    )
+                                    ]
                                 )),
                                 None,
                             ),
-                        )
+                        ]
                     )
-                ))
+                )]
         );
     }
 
     #[test]
     fn parse_terminals() {
-        assert!(parse("a:`;").is_err());
-        assert!(parse("a:\';").is_err());
+        let a = Bump::new();
+        assert!(parse("a:`;", &a).is_err());
+        assert!(parse("a:\';", &a).is_err());
         assert!(
-            parse("a:`\\`;").unwrap().nodes
-                == vec!(rule(
+            parse("a:`\\`;", &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
                     None,
-                    literal("\\", (0, 2), "\\\\", None)
-                ))
+                    &literal("\\", (0, 2), "\\\\", None)
+                )]
         );
-        assert!(parse(r#"a:'\';"#).is_err());
+        assert!(parse(r#"a:'\';"#, &a).is_err());
         assert!(
-            parse(r#"a:'\'';"#).unwrap().nodes
-                == vec!(rule(
+            parse(r#"a:'\'';"#, &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
                     None,
-                    regex("\\'", (0, 2), None)
-                ))
-        );
-        assert!(
-            parse(r#"a:'#';"#).unwrap().nodes
-                == vec!(rule(
-                    "a",
-                    (0, 0),
-                    None,
-                    None,
-                    regex("#", (0, 2), None)
-                ))
+                    &regex("\\'", (0, 2), None)
+                )]
         );
         assert!(
-            parse(r#"a:'b(c)'{d, 1 :d e}?;"#).unwrap().nodes
-                == vec!(rule(
+            parse(r#"a:'#';"#, &a).unwrap().nodes
+                == &[rule(
                     "a",
                     (0, 0),
                     None,
                     None,
-                    optional(
+                    &regex("#", (0, 2), None)
+                )]
+        );
+        assert!(
+            parse(r#"a:'b(c)'{d, 1 :d e}?;"#, &a).unwrap().nodes
+                == &[rule(
+                    "a",
+                    (0, 0),
+                    None,
+                    None,
+                    &optional(
                         (0, 19),
-                        regex(
+                        &regex(
                             "b(c)",
                             (0, 2),
-                            Some(options(
+                            Some(&options(
                                 (0, 8),
-                                vec!(
+                                &[
                                     arg("d", (0, 9)),
-                                    keyarg(" 1 ", (0, 11), "d e", (0, 15)),
-                                )
+                                    keyopt(" 1 ", (0, 11), &keyoptval("d e", (0, 15))),
+                                ]
                             ))
                         )
                     )
-                ))
+                )]
         );
+    }
+
+    #[test]
+    fn parse_import() {
+        let a = Bump::new();
+        assert!(parse("A = %imp", &a).is_err());
+        assert!(parse("A = %import", &a).is_err());
+        println!("{:?}", parse("A = %import['a']", &a));
+        assert!(parse("A = %import['a']", &a).is_ok());
     }
 }
