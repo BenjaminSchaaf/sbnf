@@ -10,10 +10,9 @@ fi
 SOURCE=$(dirname "$0")
 DEST=$1
 
-$(cd $SOURCE && wasm-pack build --target web)
+$(cd $SOURCE && wasm-pack build --target web --release)
 
 mkdir -p $DEST/pkg
 cp $SOURCE/pkg/sbnf_wasm.js $DEST/pkg/
-cp $SOURCE/pkg/sbnf_wasm_bg.js $DEST/pkg/
 cp $SOURCE/pkg/sbnf_wasm_bg.wasm $DEST/pkg/
 cp $SOURCE/playground.html $DEST/
