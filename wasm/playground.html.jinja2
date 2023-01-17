@@ -2,8 +2,9 @@
 <html>
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <script type="module" src="./sbnf_wasm.js"></script>
     <script type="module">
-      import init, { compile } from './pkg/sbnf_wasm.js';
+      import init, { compile } from './sbnf_wasm.js';
 
       init();
 
@@ -89,16 +90,16 @@
           if (compile_timer)
             clearTimeout(compile_timer);
 
-          compile_timer = setTimeout(do_compile, 300);
+          compile_timer = setTimeout(do_compile, 200);
         }
 
-        // Compile with a delay after these are changed
+        // Compile with a delay after there are changed
         name_input.addEventListener('input', trigger_delayed_compile);
         arguments_input.addEventListener('input', trigger_delayed_compile);
         code_input.addEventListener('input', trigger_delayed_compile);
       });
     </script>
-    <link rel="stylesheet" href="https://unpkg.com/spectre.css/dist/spectre.min.css">
+    <style type="text/css">{{ spectre_css }}</style>
     <title>SBNF Playground</title>
   </head>
   <body style="padding: 10px 15px">
