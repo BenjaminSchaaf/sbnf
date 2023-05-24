@@ -2,15 +2,14 @@
 <html>
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
-    <script type="module" src="./sbnf_wasm.js"></script>
-    <script type="module">
-      import init, { compile } from './sbnf_wasm.js';
+    {# Prefetch the worker script as well as the wasm so they're in the cache #}
+    <link rel="preload" href="./sbnf.js" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="./sbnf.wasm" as="fetch" crossorigin="anonymous" />
+    <script>
+      // Create the worker as early as possible to speed up load time
+      let worker = new Worker('./sbnf.js');
 
-      init();
-
-      document.addEventListener("DOMContentLoaded", async() => {
-        await init();
-
+      document.addEventListener("DOMContentLoaded", () => {
         const name_input = document.getElementById('input-name');
         const arguments_input = document.getElementById('input-arguments');
         const quiet_input = document.getElementById('input-quiet');
@@ -44,31 +43,14 @@
         }
         messages_tab_elem.addEventListener('click', activate_messages_tab);
 
-        async function do_compile() {
-          const name = name_input.value;
-          const code = code_input.value;
-          const args = arguments_input.value;
-          const quiet = quiet_input.checked;
-          const debug = debug_input.checked;
+        // Run compilation in a background thread to avoid blocking the UI
+        // thread. We only ever have one pending compilation if one is
+        // currently in progress. This ensures we always end up with the most
+        // up-to-date compile.
+        let compile_in_flight = false;
+        let pending_compile = null;
 
-          let syntax;
-          let messages;
-          let error = null;
-
-          try {
-            const result = compile(name, code, args, quiet, debug);
-
-            syntax = result.syntax();
-            messages = result.messages();
-          } catch (e) {
-            syntax = '';
-            messages = 'Whoops, it looks like the compiler has crashed.\n'
-                     + 'This is a bug and should be reported.\n';
-
-            // Reinitialize wasm to reset any broken state.
-            await init();
-          }
-
+        function set_content(syntax, messages) {
           syntax_content_elem.textContent = syntax;
           messages_content_elem.textContent = messages;
 
@@ -76,6 +58,64 @@
             activate_messages_tab();
           } else {
             activate_syntax_tab();
+          }
+        }
+
+        function create_worker() {
+          if (!worker) {
+            worker = new Worker('./sbnf.js');
+          }
+
+          worker.onmessage = (event) => {
+            console.assert(compile_in_flight);
+
+            const [syntax, messages] = event.data;
+            set_content(syntax, messages);
+
+            if (pending_compile) {
+              worker.postMessage(pending_compile);
+              pending_compile = null;
+            } else {
+              compile_in_flight = false;
+            }
+          };
+
+          worker.onerror = (error) => {
+            console.error(error);
+
+            worker.terminate();
+
+            worker = null;
+            pending_compile = null;
+
+            set_content('', 'Whoops, it looks like the compiler has crashed.\n'
+                          + 'This is a bug and should be reported.\n');
+          };
+
+          compile_in_flight = false;
+          pending_compile = null;
+        }
+
+        // Complete worker initialization
+        create_worker();
+
+        async function do_compile() {
+          const name = name_input.value;
+          const code = code_input.value;
+          const args = arguments_input.value;
+          const quiet = quiet_input.checked;
+          const debug = debug_input.checked;
+          const message = [name, code, args, quiet, debug];
+
+          if (!worker) {
+            create_worker();
+          }
+
+          if (compile_in_flight) {
+            pending_compile = message;
+          } else {
+            compile_in_flight = true;
+            worker.postMessage(message);
           }
         }
 
@@ -90,7 +130,7 @@
           if (compile_timer)
             clearTimeout(compile_timer);
 
-          compile_timer = setTimeout(do_compile, 200);
+          compile_timer = setTimeout(do_compile, 50);
         }
 
         // Compile with a delay after there are changed
