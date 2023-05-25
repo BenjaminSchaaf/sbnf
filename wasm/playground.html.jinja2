@@ -123,22 +123,11 @@
 
         do_compile();
 
-        // Compile immediately after these are changed
         quiet_input.addEventListener('change', do_compile);
         debug_input.addEventListener('change', do_compile);
-
-        let compile_timer;
-        function trigger_delayed_compile() {
-          if (compile_timer)
-            clearTimeout(compile_timer);
-
-          compile_timer = setTimeout(do_compile, 50);
-        }
-
-        // Compile with a delay after there are changed
-        name_input.addEventListener('input', trigger_delayed_compile);
-        arguments_input.addEventListener('input', trigger_delayed_compile);
-        code_input.addEventListener('input', trigger_delayed_compile);
+        name_input.addEventListener('input', do_compile);
+        arguments_input.addEventListener('input', do_compile);
+        code_input.addEventListener('input', do_compile);
       });
     </script>
     <style type="text/css">{{ spectre_css }}</style>
