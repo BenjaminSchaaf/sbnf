@@ -1192,9 +1192,9 @@ fn build_rule_key_name<'a>(state: &State, rule_key: &Key) -> String {
         }
         s.push_str("]");
 
-        let encoded =
-            base64::encode_config(s.as_bytes(), base64::URL_SAFE_NO_PAD);
-        result.push_str(&encoded);
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode_string(s.as_bytes(), &mut result);
     }
 
     result
