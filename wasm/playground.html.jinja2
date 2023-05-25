@@ -28,19 +28,19 @@
 
         // Implement tabs
         function activate_syntax_tab() {
-          syntax_elem.classList.remove('d-none');
+          syntax_elem.classList.remove('hide');
           syntax_tab_elem.classList.add('active');
 
-          messages_elem.classList.add('d-none');
+          messages_elem.classList.add('hide');
           messages_tab_elem.classList.remove('active');
         }
         syntax_tab_elem.addEventListener('click', activate_syntax_tab);
 
         function activate_messages_tab() {
-          syntax_elem.classList.add('d-none');
+          syntax_elem.classList.add('hide');
           syntax_tab_elem.classList.remove('active');
 
-          messages_elem.classList.remove('d-none');
+          messages_elem.classList.remove('hide');
           messages_tab_elem.classList.add('active');
         }
         messages_tab_elem.addEventListener('click', activate_messages_tab);
@@ -130,39 +130,164 @@
         code_input.addEventListener('input', do_compile);
       });
     </script>
-    <style type="text/css">{{ spectre_css }}</style>
+    <style type="text/css">
+      body {
+        font-family: sans-serif;
+        padding: 10px 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      header {
+        display: flex;
+        flex-direction: row;
+        align-items: baseline;
+      }
+
+      header h3 {
+        flex-grow: 1;
+        margin: 0;
+      }
+
+      header a {
+        color: #f0f6fc;
+        background-color: #161b22;
+        font-weight: bold;
+        text-decoration: none;
+        padding: .2rem .4rem;
+        border-radius: 0.3rem;
+      }
+
+      header a:hover {
+        color: #ffffffb2;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      form div {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      textarea {
+        flex-grow: 1;
+        font-family: monospace;
+      }
+
+      input[type=text], textarea {
+        appearance: none;
+        background: #fff;
+        border: 0.05rem solid #bcc3ce;
+        border-radius: 0.2rem;
+        color: black;
+        display: block;
+        outline: 0;
+        padding: 0.3rem 0.4rem;
+        transition: background .2s,border .2s,box-shadow .2s,color .2s;
+      }
+
+      input[type=text]:focus, textarea:focus {
+        border-color: #5755d9;
+        box-shadow: 0 0 0 .1rem rgba(87,85,217,.2);
+      }
+
+      form label {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0.1rem;
+      }
+
+      form label input {
+        aling-self: flex-start;
+      }
+
+      section {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .hide {
+        display: none;
+      }
+
+      .tabs {
+        display: flex;
+        flex-direction: row;
+      }
+
+      .tabs > a {
+        flex-grow: 1;
+        text-align: center;
+        text-decoration: none;
+        padding: 0.4em;
+        border-radius: .3rem .3rem 0 0;
+        border-bottom: .1rem solid transparent;
+        color: black;
+      }
+
+      .tabs > a:hover {
+        background-color: #f5f5f5;
+        transition: background-color 200ms linear;
+        color: #5755d9;
+        transition: background-color 200ms linear;
+      }
+
+      .tabs > a.active {
+        color: #5755d9;
+        background: #eee;
+        border-bottom-color: #5755d9;
+      }
+
+      code {
+        background-color: #eee;
+        padding: .1rem .2rem;
+        border-radius: .1rem;
+      }
+
+      pre {
+        margin-top: 0;
+        padding: 1em;
+        background: #eee;
+        min-height: 50%;
+        overflow: scroll;
+      }
+    </style>
     <title>SBNF Playground</title>
   </head>
-  <body style="padding: 10px 15px">
-    <div class="container">
-      <header class="navbar">
-        <section class="navbar-section">
-          <span class="text-large">SBNF Playground</span>
-        </section>
-        <section class="navbar-section">
-          <a href="https://github.com/BenjaminSchaaf/sbnf" class="btn btn-primary btn-large">GitHub</a>
-        </section>
-      </header>
+  <body>
+    <header>
+      <h3>SBNF Playground</h3>
+      <a href="https://github.com/BenjaminSchaaf/sbnf" class="btn btn-primary btn-large">GitHub</a>
+    </header>
 
-      <form>
-        <div class="form-inline">
-          <div class="form-group form-inline">
-            <input class="form-input" id="input-name" type="text" placeholder="name">
-          </div>
-          <div class="form-group form-inline">
-            <input class="form-input" id="input-arguments" type="text" placeholder="args">
-          </div>
-          <label class="form-checkbox form-inline">
+    <form>
+      <div>
+        <div>
+          <input id="input-name" type="text" placeholder="name">
+          <input id="input-arguments" type="text" placeholder="args">
+        </div>
+        <div>
+          <label>
             <input type="checkbox" id="input-quiet">
-            <i class="form-icon"></i> Quiet <code>-q</code>
+            Quiet <code>-q</code>
           </label>
-          <label class="form-checkbox form-inline">
+          <label>
             <input type="checkbox" id="input-debug" checked>
-            <i class="form-icon"></i> Debug <code>-g</code>
+            Debug <code>-g</code>
           </label>
         </div>
-        <div class="form-group">
-          <textarea class="form-input" id="input-code" placeholder="Textarea" rows="15" style="font-family: monospace; resize: vertical;">
+      </div>
+      <div>
+        <textarea id="input-code" placeholder="Textarea" rows="15" style="font-family: monospace; resize: vertical;">
 main : ( ~( foo
           | bar
        )  )*
@@ -172,20 +297,17 @@ foo : 'foo'{foo} ;
 
 bar : 'bar'{bar} ;
 </textarea>
-        </div>
-      </form>
+      </div>
+    </form>
 
-      <ul class="tab tab-block">
-        <li class="tab-item">
-          <a href="#" class="active" id="syntax-tab">Sublime Syntax</a>
-        </li>
-        <li class="tab-item">
-          <a href="#" id="messages-tab">Errors & Warnings</a>
-        </li>
-      </ul>
+    <section>
+      <div class="tabs">
+        <a href="#" class="active" id="syntax-tab">Sublime Syntax</a>
+        <a href="#" id="messages-tab">Errors & Warnings</a>
+      </div>
 
-      <pre class="code" id="syntax"><code id="syntax-content"></code></pre>
-      <pre class="code d-none" id="messages"><code id="messages-content"></code></pre>
-    </div>
+      <pre id="syntax"><code id="syntax-content"></code></pre>
+      <pre class="hide" id="messages"><code id="messages-content"></code></pre>
+    </section>
   </body>
 </html>
