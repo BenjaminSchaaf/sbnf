@@ -1,5 +1,8 @@
 /// This file implements a parser for the SBNF grammar
 use std::str::{from_utf8_unchecked, Chars};
+use crate::compiler::common::{
+    is_valid_variable_name_char, is_valid_rule_name_char
+};
 
 #[derive(Debug)]
 pub struct Grammar<'a> {
@@ -475,7 +478,7 @@ pub fn parse(source: &str) -> Result<Grammar, ParseError> {
 }
 
 pub fn is_identifier_char(chr: char) -> bool {
-    chr.is_alphanumeric() || chr == '_' || chr == '-' || chr == '.'
+    is_valid_variable_name_char(&chr) || is_valid_rule_name_char(&chr)
 }
 
 fn skip_whitespace(parser: &mut Parser) {

@@ -4,6 +4,7 @@ use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
     parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
     Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
+    is_valid_variable_name_char, is_valid_rule_name_char
 };
 use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
 use crate::sublime_syntax;
@@ -587,13 +588,13 @@ fn resolve_definition<'a>(
 fn is_variable_name(name: &str) -> bool {
     return name
         .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        .all(|c| is_valid_variable_name_char(&c));
 }
 
 fn is_rule_name(name: &str) -> bool {
     return name
         .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        .all(|c| is_valid_rule_name_char(&c));
 }
 
 fn interpret_variable<'a>(

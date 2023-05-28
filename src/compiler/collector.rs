@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::common::{
     CompileOptions, CompileResult, Compiler, Error, Symbol, Value, VarMap,
+    is_valid_variable_name_char, is_valid_rule_name_char
 };
 use crate::sbnf::{Grammar, Node, NodeData};
 
@@ -302,10 +303,7 @@ fn collect_definitions<'a, 'b>(
 
 fn is_valid_variable_name(name: &str) -> bool {
     return name.chars().all(|c| {
-        c.is_ascii_uppercase()
-            || c.is_ascii_digit()
-            || c == '_'
-            || !c.is_ascii()
+        is_valid_variable_name_char(&c)
     });
 }
 
@@ -318,10 +316,7 @@ fn to_variable_name(name: &str) -> String {
 
 fn is_valid_rule_name(name: &str) -> bool {
     return name.chars().all(|c| {
-        c.is_ascii_lowercase()
-            || c.is_ascii_digit()
-            || c == '-'
-            || !c.is_ascii()
+        is_valid_rule_name_char(&c)
     });
 }
 
