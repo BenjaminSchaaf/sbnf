@@ -12,8 +12,25 @@ main : ( clause
        )*
      ;
 
-CLAUSE = '[A-Z\d_]+'
-RULE = '[a-z\d\-]+'
+
+CHAR_OUT_SPACE  = '[[^\x{9}\x{20}\x{a0}\x{1680}]&&[^\x{2000}-\x{200a}]&&[^\x{200b}-\x{200f}]&&[^\x{202a}-\x{202f}]&&[^\x{205f}\x{3000}]]'
+CHAR_OUT_BOM    = '[^\x{feff}]'      # bom
+CHAR_OUT_C0     = '[^\x{0}-\x{1f}]'  # ASCII C0 control chars
+CHAR_OUT_SYM1   = '[^!-,\./]'        # ASCII punctuation and symbols except for -
+CHAR_OUT_SYM2   = '[^:-@]'           # ASCII punctuation and symbols
+CHAR_OUT_SYM3   = '[^\[-^`]'         # ASCII punctuation and symbols except for _
+CHAR_OUT_SYM4   = '[^\{-~]'          # ASCII punctuation and symbols
+CHAR_OUT_C3     = '[^\x{7f}]'        # ASCII control character
+CHAR_OUT_C1     = '[^\x{80}-\x{9f}]' # C1 control chars
+
+IDENT_CHARS_IN  = '[[\x{20}-\x{7E}][\x{A0}-\x{D7FF}][\x{E000}-\x{FFFD}][\x{10000}-\x{DFFFF}]]'
+IDENT_CHARS_OUT = '[#[CHAR_OUT_SPACE]]&&[#[CHAR_OUT_BOM]]&&[#[CHAR_OUT_C0]]&&[#[CHAR_OUT_SYM1]]&&[#[CHAR_OUT_SYM2]]&&[#[CHAR_OUT_SYM3]]&&[#[CHAR_OUT_SYM4]]&&[#[CHAR_OUT_C3]]&&[#[CHAR_OUT_C1]]'
+CLAUSE_OUT      = '[^a-z\-]'
+RULE_OUT        = '[^A-Z_]'
+IDENT_CHARS     = '[[#[IDENT_CHARS_IN]]&&[#[IDENT_CHARS_OUT]]]'
+
+RULE            = '[#[IDENT_CHARS]&&#[RULE_OUT]]+'
+CLAUSE          = '[#[IDENT_CHARS]&&#[CLAUSE_OUT]]+'
 
 clause : ( '(?:EXTENSIONS|FIRST_LINE|HIDDEN|NAME|SCOPE(?:_POSTFIX)?)\b'{storage.type}
              | CLAUSE{entity.name.variable}
