@@ -18,13 +18,15 @@ def main(argv):
         print('Destination path does not exist')
         return 1
 
+    DEST = os.path.realpath(args.DEST)
+
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
     # Compile WASM
     subprocess.run(['wasm-pack', 'build', '--target', 'no-modules', '--no-typescript'], check=True)
 
     # Install WASM
-    shutil.copy('pkg/sbnf_wasm_bg.wasm', os.path.join(args.DEST, 'sbnf.wasm'))
+    shutil.copy('pkg/sbnf_wasm_bg.wasm', os.path.join(DEST, 'sbnf.wasm'))
 
     # Compile HTML
     template = Template(open('playground.html.jinja2', 'r').read())
@@ -32,7 +34,7 @@ def main(argv):
     open('pkg/playground.html', 'w').write(html)
 
     # Install (Minify) HTML
-    dest = os.path.join(args.DEST, 'playground.html')
+    dest = os.path.join(DEST, 'playground.html')
     if args.release:
         subprocess.run(['html-minifier', '--minify-css', '--minify-js=-cm', '-o', dest, 'pkg/playground.html'], check=True)
     else:
@@ -44,14 +46,14 @@ def main(argv):
     open('pkg/sbnf.js', 'w').write(wasm_js + sbnf_js)
 
     # Install (Minify) JS
-    dest = os.path.join(args.DEST, 'sbnf.js')
+    dest = os.path.join(DEST, 'sbnf.js')
     if args.release:
         subprocess.run(['uglifyjs', '--module', '-cm', '-o', dest, 'pkg/sbnf.js'], check=True)
     else:
         shutil.copy('pkg/sbnf.js', dest)
 
     # Print git status
-    subprocess.run(['git', 'status'], check=True, cwd=args.DEST)
+    subprocess.run(['git', 'status'], check=True, cwd=DEST)
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))

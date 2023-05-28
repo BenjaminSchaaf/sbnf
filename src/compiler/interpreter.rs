@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::collector::{
-    is_rule_name, is_variable_name, Collection, Definition, DefinitionKind,
-    DefinitionMap,
-};
+use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
     parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
     Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
@@ -585,6 +582,18 @@ fn resolve_definition<'a>(
 
         None
     }
+}
+
+fn is_variable_name(name: &str) -> bool {
+    return name
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+}
+
+fn is_rule_name(name: &str) -> bool {
+    return name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
 }
 
 fn interpret_variable<'a>(

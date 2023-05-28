@@ -141,7 +141,7 @@ fn collect_parameters<'a, 'b>(
                                 continue;
                             }
 
-                            if !is_variable_name(param.text) {
+                            if !is_valid_variable_name(param.text) {
                                 state.errors.push(Error::from_str(
                                     "Variables must be all upper-case",
                                     Some(node.location),
@@ -220,7 +220,9 @@ fn collect_definitions<'a, 'b>(
 
                 let name = node.text;
 
-                if kind == DefinitionKind::Variable && !is_variable_name(name) {
+                if kind == DefinitionKind::Variable
+                    && !is_valid_variable_name(name)
+                {
                     state.errors.push(Error::from_str(
                         "Variables must be all upper-case",
                         Some(node.location),
@@ -230,7 +232,9 @@ fn collect_definitions<'a, 'b>(
                         )],
                     ));
                     continue;
-                } else if kind == DefinitionKind::Rule && !is_rule_name(name) {
+                } else if kind == DefinitionKind::Rule
+                    && !is_valid_rule_name(name)
+                {
                     state.errors.push(Error::from_str(
                         "Rules must be all lower-case",
                         Some(node.location),
@@ -296,10 +300,13 @@ fn collect_definitions<'a, 'b>(
     }
 }
 
-pub fn is_variable_name(name: &str) -> bool {
-    return name
-        .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+fn is_valid_variable_name(name: &str) -> bool {
+    return name.chars().all(|c| {
+        c.is_ascii_uppercase()
+            || c.is_ascii_digit()
+            || c == '_'
+            || !c.is_ascii()
+    });
 }
 
 fn to_variable_name(name: &str) -> String {
@@ -309,10 +316,13 @@ fn to_variable_name(name: &str) -> String {
         .collect::<String>();
 }
 
-pub fn is_rule_name(name: &str) -> bool {
-    return name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+fn is_valid_rule_name(name: &str) -> bool {
+    return name.chars().all(|c| {
+        c.is_ascii_lowercase()
+            || c.is_ascii_digit()
+            || c == '-'
+            || !c.is_ascii()
+    });
 }
 
 fn to_rule_name(name: &str) -> String {
