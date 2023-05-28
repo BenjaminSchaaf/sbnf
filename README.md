@@ -318,8 +318,9 @@ See `sbnf.sbnf` for a full example grammar.
 ### Clauses
 
 Clauses are in the form `<name> <parameters> = <value>`. The `name` must follow
-[SCREAMING_SNAKE_CASE](https://en.wikipedia.org/wiki/SCREAMING_SNAKE_CASE). The
-following names are reserved for meta-data:
+[SCREAMING_SNAKE_CASE](https://en.wikipedia.org/wiki/SCREAMING_SNAKE_CASE) and can include a wide range of unicode
+characters[^unic], though it's strongly recommended against using them.
+The following names are reserved for meta-data:
 
 * `NAME`: The name of the syntax. This defaults to the base-name of the sbnf
   file.
@@ -346,7 +347,8 @@ EXTENSIONS = `sbnf`
 ### Rules
 
 Rules are in the form `<name> <parameters> <options> : <expression> ;`. The
-`name` must follow [kebab-case](https://en.wikipedia.org/wiki/Kebab_case).
+`name` must follow [kebab-case](https://en.wikipedia.org/wiki/Kebab_case) and can include a wide range of unicode
+characters[^unic], though it's strongly recommended against using them.
 
 Like sublime-syntax files, SBNF grammars have two entry points: `main`,
 `prototype`. They behave identically to those in sublime-syntax files. Only
@@ -608,3 +610,7 @@ understand any regexes.
   providing an implementation.
 * Add warnings for when branches are used in non-popping loops.
 * Fix infinite loop/recursion when rule refers to itself
+
+[^unic]: Valid YAML characters without YAML indicators, whitespace, control,
+ASCII punctuation and symbols, and special purpose and private use planes
+(the full list is in the `is_valid_name_char` function at [common.rs](https://github.com/BenjaminSchaaf/sbnf/blob/master/src/compiler/common.rs))
