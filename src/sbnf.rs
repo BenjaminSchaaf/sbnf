@@ -1,8 +1,8 @@
+use crate::compiler::common::{
+    is_valid_rule_name_char, is_valid_variable_name_char,
+};
 /// This file implements a parser for the SBNF grammar
 use std::str::{from_utf8_unchecked, Chars};
-use crate::compiler::common::{
-    is_valid_variable_name_char, is_valid_rule_name_char
-};
 
 #[derive(Debug)]
 pub struct Grammar<'a> {

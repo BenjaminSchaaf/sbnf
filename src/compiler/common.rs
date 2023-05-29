@@ -373,32 +373,54 @@ pub fn parse_scope(metadata: &Metadata, s: &str) -> sublime_syntax::Scope {
 }
 
 #[inline]
-pub const fn is_valid_variable_name_char(&c:&char) -> bool {
-    if c.is_ascii_uppercase() { return true }
-    if c.is_ascii_digit()     { return true }
-    if c == '_'               { return true }
+pub const fn is_valid_variable_name_char(&c: &char) -> bool {
+    if c.is_ascii_uppercase() {
+        return true;
+    }
+    if c.is_ascii_digit() {
+        return true;
+    }
+    if c == '_' {
+        return true;
+    }
 
-    if c.is_ascii_lowercase() { return false} // at least ASCII should NOT be lowercase (otherwise `is_valid_ident` will match them)
+    if c.is_ascii_lowercase() {
+        return false;
+    } // at least ASCII should NOT be lowercase (otherwise `is_valid_ident` will match them)
 
-    return is_valid_name_char(&c)
+    return is_valid_name_char(&c);
 }
 #[inline]
-pub const fn is_valid_rule_name_char(&c:&char) -> bool {
-    if c.is_ascii_lowercase() { return true }
-    if c.is_ascii_digit()     { return true }
-    if c == '-'               { return true }
+pub const fn is_valid_rule_name_char(&c: &char) -> bool {
+    if c.is_ascii_lowercase() {
+        return true;
+    }
+    if c.is_ascii_digit() {
+        return true;
+    }
+    if c == '-' {
+        return true;
+    }
 
-    if c.is_ascii_uppercase() { return false} // at least ASCII should NOT be UPPERCASE (otherwise `is_valid_name_char` will match them)
+    if c.is_ascii_uppercase() {
+        return false;
+    } // at least ASCII should NOT be UPPERCASE (otherwise `is_valid_name_char` will match them)
 
-    return is_valid_name_char(&c)
+    return is_valid_name_char(&c);
 }
 #[inline]
-pub const fn is_valid_name_char(&c:&char) -> bool {
+pub const fn is_valid_name_char(&c: &char) -> bool {
     // if c.is_control()          { return false} // not const
-    if c.is_ascii_control()    { return false}
-    if c.is_ascii_whitespace() { return false}
+    if c.is_ascii_control() {
+        return false;
+    }
+    if c.is_ascii_whitespace() {
+        return false;
+    }
 
-    if c.is_ascii_digit()      { return true}
+    if c.is_ascii_digit() {
+        return true;
+    }
 
     match c {
         // EXclude
