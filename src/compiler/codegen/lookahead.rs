@@ -682,7 +682,7 @@ mod tests {
 
     use super::*;
     use crate::compiler::interpreter::tests::*;
-    use crate::compiler::{interpreter, CompileOptions, Compiler};
+    use crate::compiler::{interpreter, CompileOptions, Compiler, SourceReference};
 
     struct Harness {
         compiler: Compiler,
@@ -720,6 +720,7 @@ mod tests {
             let interpreted = interpreter_result.0;
 
             let key = interpreter::Key {
+                source: SourceReference(0),
                 name: self.symbol(rule_name),
                 arguments: vec![],
             };
@@ -1106,7 +1107,7 @@ mod tests {
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
-        let r_key = Key { name: harness.symbol("r"), arguments: vec![] };
+        let r_key = Key { source: SourceReference(0), name: harness.symbol("r"), arguments: vec![] };
 
         harness.lookahead("m : 'a' 'b';", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);
@@ -1212,8 +1213,8 @@ mod tests {
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
-        let m_key = Key { name: harness.symbol("m"), arguments: vec![] };
-        let r_key = Key { name: harness.symbol("r"), arguments: vec![] };
+        let m_key = Key { source: SourceReference(0), name: harness.symbol("m"), arguments: vec![] };
+        let r_key = Key { source: SourceReference(0), name: harness.symbol("r"), arguments: vec![] };
 
         harness.lookahead("m : m ;", "m", |lookahead, _c| {
             assert_matches!(lookahead.end, End::Illegal);

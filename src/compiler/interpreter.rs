@@ -22,6 +22,7 @@ pub struct Interpreted<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Key {
+    pub source: SourceReference,
     pub name: Symbol,
     pub arguments: Vec<Value>,
 }
@@ -252,7 +253,7 @@ struct CollectionCache<'a> {
 }
 
 impl<'a> CollectionCache<'a> {
-    fn get_collection(&mut self, source: SourceReference, errors: &mut Vec<Error>, warnings: &mut Vec<Error>) -> &Option<Collection<'a>> {
+    fn get(&mut self, source: SourceReference, state: &mut State<'a>) -> &Option<Collection<'a>> {
         if !self.collections.contains_key(&source) {
             let (_, src) = self.compiler.get_source(source);
 
@@ -260,7 +261,7 @@ impl<'a> CollectionCache<'a> {
                 Ok(grammar) => Some(grammar),
                 Err(error) => {
 
-                    errors.push(Error::new(error.message, source)
+                    state.errors.push(Error::new(error.message, source)
                         .location(error.location));
                     None
                 }
@@ -272,12 +273,12 @@ impl<'a> CollectionCache<'a> {
                 // TODO: Add stack to errors/warnings?
                 match result {
                     Ok((c, mut new_warnings)) => {
-                        warnings.append(&mut new_warnings);
+                        state.warnings.append(&mut new_warnings);
                         Some(c)
                     }
                     Err((mut new_errors, mut new_warnings)) => {
-                        errors.append(&mut new_errors);
-                        warnings.append(&mut new_warnings);
+                        state.errors.append(&mut new_errors);
+                        state.warnings.append(&mut new_warnings);
                         None
                     }
                 }
@@ -302,7 +303,7 @@ struct State<'a> {
 }
 
 struct MetaState<'a, 'b> {
-    collection: &'b DefinitionMap<'a>,
+    collections: &'b CollectionCache<'a>,
     metadata: &'b Metadata,
 }
 
@@ -328,25 +329,24 @@ pub fn interpret<'a>(
         warnings: vec![],
     };
 
-    if let Some(collection) = collection_cache.get_collection(source, &mut state.errors, &mut state.warnings) {
+    if let Some(collection) = collection_cache.get(source, &mut state) {
         for (name, value) in &collection.variables {
-            state.variables.insert(Key { name: *name, arguments: vec![] }, Some(value.clone()));
+            state.variables.insert(Key { source, name: *name, arguments: vec![] }, Some(value.clone()));
         }
 
-        let definitions = &collection.definitions;
-
-        let metadata = collect_metadata(&mut state, source, &definitions);
+        let metadata = collect_metadata(&mut state, source, &collection.definitions);
 
         let mut entry_points = vec![];
 
         {
             let meta_state =
-                MetaState { collection: definitions, metadata: &metadata };
+                MetaState { collections: &collection_cache, metadata: &metadata };
 
             for entry_point in &options.entry_points {
                 let name = state.compiler.get_symbol(entry_point);
-                if meta_state.collection.get_key_value(&(name, 0)).is_some() {
-                    let key = Key { name, arguments: vec![] };
+                let collection = meta_state.collections.get(source, &mut state).unwrap();
+                if collection.definitions.get_key_value(&(name, 0)).is_some() {
+                    let key = Key { source, name, arguments: vec![] };
 
                     assert!(state.stack.is_empty());
                     interpret_rule(&mut state, &meta_state, source, None, &key);
@@ -465,7 +465,7 @@ fn interpret_metadata_variable<'a>(
 
         let overloads = &definition.overloads;
 
-        let key = Key { name: symbol, arguments: vec![] };
+        let key = Key { source, name: symbol, arguments: vec![] };
 
         let value = interpret_variable(state, collection, source, None, key);
 
@@ -730,8 +730,10 @@ fn interpret_rule<'a, 'b>(
         return;
     }
 
+    let collection = meta_state.collections.get(source, state).unwrap();
+
     if let Some((kind, node, var_map)) =
-        resolve_definition(state, &meta_state.collection, source, reference_loc, key)
+        resolve_definition(state, &collection.definitions, source, reference_loc, key)
     {
         assert!(kind == DefinitionKind::Rule);
 
@@ -870,7 +872,7 @@ fn interpret_value<'a>(
                 return None;
             }
 
-            let key = Key { name, arguments };
+            let key = Key { source, name, arguments };
 
             if let Some((kind, ref_node, _)) =
                 resolve_definition(state, collection, source, Some(node.location), &key)
@@ -964,11 +966,13 @@ fn interpret_expression<'a, 'b>(
     source: SourceReference,
     node: &'a Node<'a>,
 ) -> Option<Expression<'a>> {
+    let collection = meta_state.collections.get(source, state).as_ref()?;
+
     match &node.data {
         NodeData::Reference { options: node_options, .. } => {
             let value = interpret_value(
                 state,
-                &meta_state.collection,
+                &collection.definitions,
                 var_map,
                 source,
                 node,
@@ -995,7 +999,7 @@ fn interpret_expression<'a, 'b>(
                 Some(Value::Rule { name, arguments, .. }) => {
                     assert!(node_options.is_none());
 
-                    let key = Key { name, arguments };
+                    let key = Key { source, name, arguments };
                     interpret_rule(
                         state,
                         meta_state,
@@ -1015,7 +1019,7 @@ fn interpret_expression<'a, 'b>(
         NodeData::RegexTerminal { options: node_options, embed } => {
             let regex = interpolate_string(
                 state,
-                &meta_state.collection,
+                &collection.definitions,
                 var_map,
                 source,
                 node.location,
@@ -1133,6 +1137,32 @@ fn interpret_expression<'a, 'b>(
                     expressions,
                     location: node.location,
                 })
+            }
+        }
+        NodeData::Accessor { element, reference } => {
+            let element = interpret_value(
+                state,
+                &collection.definitions,
+                var_map,
+                source,
+                element,
+                false,
+            );
+
+            match element {
+                Some(Value::String { .. }) => {
+                    // TODO: Error
+                    None
+                }
+                Some(Value::Rule { .. }) => {
+                    // TODO: Error
+                    None
+                }
+                Some(Value::Grammar { grammar_source, .. }) => {
+                    // TODO: var_map?
+                    // Some(interpret_expression(state, meta_state, var_map, grammar_source))
+                }
+                None => None,
             }
         }
         _ => panic!(),

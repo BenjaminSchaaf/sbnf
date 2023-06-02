@@ -33,6 +33,7 @@ mod tests {
     fn compile_matches(
         source: &str,
         arguments: Vec<&str>,
+        extra_sources: Vec<(&str, &str)>,
     ) -> HashMap<String, Context> {
         let options = CompileOptions {
             name_hint: Some("test"),
@@ -43,6 +44,11 @@ mod tests {
         };
         let mut compiler = Compiler::new();
         let source = compiler.add_source(None, source.to_string());
+
+        for (name, src) in extra_sources {
+            compiler.add_source(Some(name.to_string()), src.to_string());
+        }
+
         let result = compiler.compile(&options, source);
 
         if result.is_err() {
@@ -75,7 +81,7 @@ mod tests {
 
     #[test]
     fn compile_simple() {
-        let contexts = compile_matches("main : 'a'{a};", vec![]);
+        let contexts = compile_matches("main : 'a'{a};", vec![], vec![]);
         assert_eq!(contexts.len(), 1);
         let main = contexts.get("main").unwrap();
         assert_eq!(
@@ -101,7 +107,7 @@ mod tests {
 
     #[test]
     fn compile_simple_repetition() {
-        let contexts = compile_matches("main : ('a'{a} 'b'{b})*;", vec![]);
+        let contexts = compile_matches("main : ('a'{a} 'b'{b})*;", vec![], vec![]);
         assert_eq!(contexts.len(), 2);
         let main = contexts.get("main").unwrap();
         assert_eq!(
@@ -149,7 +155,7 @@ mod tests {
 
     #[test]
     fn compile_simple_alternation() {
-        let contexts = compile_matches("main : 'a'{a} | 'b'{b} ;", vec![]);
+        let contexts = compile_matches("main : 'a'{a} | 'b'{b} ;", vec![], vec![]);
         assert_eq!(contexts.len(), 1);
         let main = &contexts["main"];
         assert_eq!(
@@ -182,7 +188,7 @@ mod tests {
 
     #[test]
     fn compile_simple_concatenation() {
-        let contexts = compile_matches("main : 'a' 'b'? 'c';", vec![]);
+        let contexts = compile_matches("main : 'a' 'b'? 'c';", vec![], vec![]);
         assert_eq!(contexts.len(), 3);
         let main = &contexts["main"];
         assert_eq!(
@@ -260,7 +266,7 @@ mod tests {
     #[test]
     fn compile_simple_recursion() {
         let contexts =
-            compile_matches("main : r* ; r{r} : '{' r* '}' ; ", vec![]);
+            compile_matches("main : r* ; r{r} : '{' r* '}' ; ", vec![], vec![]);
         assert_eq!(contexts.len(), 2);
         let main = &contexts["main"];
         assert_eq!(main.meta_content_scope, Scope::empty());
@@ -325,6 +331,7 @@ mod tests {
         let contexts = compile_matches(
             "main : ( ~block )* ; block{block} : `{` ('a' | block)* `}` ;",
             vec![],
+            vec![],
         );
         assert_eq!(contexts.len(), 2);
         let main = &contexts["main"];
@@ -387,6 +394,7 @@ mod tests {
     fn compile_repeated_concatenation() {
         let contexts = compile_matches(
             "main : ( ~a )* ; a{a} : 'a' ('b' 'c')* 'd' ;",
+            vec![],
             vec![],
         );
         assert_eq!(contexts.len(), 3);
@@ -462,6 +470,7 @@ mod tests {
     fn compile_simple_branch() {
         let contexts = compile_matches(
             "main : (a | b)*; a{a} : 'c'{ac} 'a'; b{b} : 'c'{bc} 'b';",
+            vec![],
             vec![],
         );
         assert_eq!(contexts.len(), 6);
@@ -570,6 +579,7 @@ mod tests {
             NAME = '#[A]'\n\
             main : ( ~'a#[A]'{#[A]a} )* ;",
             vec!["b"],
+            vec![],
         );
         assert_eq!(contexts.len(), 1);
         let main = contexts.get("main").unwrap();
@@ -589,6 +599,7 @@ mod tests {
     fn compile_branch_repetition() {
         let contexts = compile_matches(
             "main : ( ~('start'{a} 'end' | 'start'{b} | 'start'{c} 'mid' 'end' ) )* ;",
+            vec![],
             vec![],
         );
         assert_eq!(contexts.len(), 8);
@@ -728,6 +739,7 @@ mod tests {
         let contexts = compile_matches(
             "main : a (',' a)* ; a{a} : 'a'{ra} | b ; b{b} : 'b'{rb} 'c'{rc} ;",
             vec![],
+            vec![],
         );
         assert_eq!(contexts.len(), 5);
         let main = contexts.get("main").unwrap();
@@ -767,7 +779,7 @@ mod tests {
 
     #[test]
     fn compile_simple_left_recursion() {
-        let contexts = compile_matches("main : a ; a : a 'a' | 'b' ;", vec![]);
+        let contexts = compile_matches("main : a ; a : a 'a' | 'b' ;", vec![], vec![]);
         // Gets rewritten as: main : 'b' main|lr0 ; main|lr0 : 'a' main|lr0 ;
         assert_eq!(contexts.len(), 2);
         let main = contexts.get("main").unwrap();
@@ -812,5 +824,11 @@ mod tests {
                 }),
             ]
         )
+    }
+
+    #[test]
+    fn compile_simple_import() {
+        let contexts = compile_matches("main : %import['foo'].main ;", vec![], vec![("foo", "main : 'a' ;")]);
+        assert_eq!(contexts.len(), 1);
     }
 }

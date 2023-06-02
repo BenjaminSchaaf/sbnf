@@ -81,6 +81,7 @@ impl<'a> Node<'a> {
             NodeData::KeywordOptionValue => "kopt",
             NodeData::Embed { .. } => "emb",
             NodeData::Import { .. } => "imp",
+            NodeData::Accessor { .. } => "acc",
         }
     }
 }
@@ -159,7 +160,10 @@ impl<'a> std::fmt::Debug for Node<'a> {
                 write!(f, "%{}{:?}{:?}", self.text, parameters, options)?;
             }
             NodeData::Import { parameters } => {
-                write!(f, "%{}{:?}", self.text, parameters)?;
+                write!(f, "@{}{:?}", self.text, parameters)?;
+            }
+            NodeData::Accessor { element, reference } => {
+                write!(f, "{:?}.{:?}", element, reference)?;
             }
         }
 
@@ -222,9 +226,13 @@ pub enum NodeData<'a> {
         parameters: &'a Node<'a>,
         options: &'a Node<'a>,
     },
-    // %import[]
+    // @import[]
     Import {
         parameters: &'a Node<'a>,
+    },
+    Accessor {
+        element: &'a Node<'a>,
+        reference: &'a Node<'a>,
     },
 }
 
@@ -489,7 +497,7 @@ pub fn parse<'a>(source: &'a str, allocator: &'a Bump) -> Result<Grammar<'a>, Pa
 }
 
 pub fn is_identifier_char(chr: char) -> bool {
-    chr.is_alphanumeric() || chr == '_' || chr == '-' || chr == '.'
+    chr.is_alphanumeric() || chr == '_' || chr == '-'
 }
 
 fn skip_whitespace(parser: &mut Parser) {
@@ -570,7 +578,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 }
             };
 
-            let value = if first_char == '\'' {
+            let mut value = if first_char == '\'' {
                 let regex = parse_regex(parser)?;
 
                 regex.build(NodeData::RegexTerminal {
@@ -585,23 +593,8 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                     options: None,
                     embed: None,
                 })
-            } else if first_char == '%' {
-                parser.next();
-
-                let keyword = parse_identifier(parser)?;
-
-                match keyword.text {
-                    "import" => {
-
-                    },
-                    _ => {
-                        return Err(ParseError::new(keyword.location, format!("Expected 'import' but got '{}'", keyword.text)));
-                    }
-                }
-
-                let parameters = parser.allocator.alloc(parse_parameters(parser)?);
-
-                keyword.build(NodeData::Import { parameters })
+            } else if first_char == '@' {
+                parse_import(parser)?
             } else if is_identifier_char(first_char) {
                 let ident = parse_identifier(parser)?;
 
@@ -620,6 +613,30 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                     first_char
                 )));
             };
+
+            skip_whitespace(parser);
+
+            while let Some(chr) = parser.peek() {
+                let col = parser.start_node_collection();
+
+                if chr == '.' {
+                    parser.next();
+                    let accessor = col.end_from_parser(parser);
+
+                    skip_whitespace(parser);
+
+                    let reference = parse_reference(parser)?;
+
+                    value = accessor.build(NodeData::Accessor {
+                        element: parser.allocator.alloc(value),
+                        reference: parser.allocator.alloc(reference),
+                    });
+                } else {
+                    break;
+                }
+
+                skip_whitespace(parser);
+            }
 
             NodeData::Variable { parameters, value: parser.allocator.alloc(value) }
         }
@@ -986,17 +1003,17 @@ fn parse_rule_element_contents<'a>(
 ) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
 
-    let element: Node<'a>;
-
-    if let Some(first_char) = parser.peek() {
+    let mut element = if let Some(first_char) = parser.peek() {
         if first_char == '(' {
             parser.next();
 
-            element = parse_rule_alternation(parser)?;
+            let element = parse_rule_alternation(parser)?;
 
             if let Some(chr) = parser.peek() {
                 if chr == ')' {
                     parser.next();
+
+                    element
                 } else {
                     return Err(parser.char_error(format!(
                         "Expected end of a group ')', got {:?} instead",
@@ -1009,29 +1026,13 @@ fn parse_rule_element_contents<'a>(
                 ));
             }
         } else if first_char == '\'' {
-            element = parse_regex_terminal(parser)?;
+            parse_regex_terminal(parser)?
         } else if first_char == '`' {
-            element = parse_literal_terminal(parser)?;
+            parse_literal_terminal(parser)?
         } else if is_identifier_char(first_char) {
-            let ident = parse_identifier(parser)?;
-
-            skip_whitespace(parser);
-
-            let parameters = if parser.peek() == Some('[') {
-                Some(parser.allocator.alloc(parse_parameters(parser)?) as &Node)
-            } else {
-                None
-            };
-
-            skip_whitespace(parser);
-
-            let options = if parser.peek() == Some('{') {
-                Some(parser.allocator.alloc(parse_options(parser)?) as &Node)
-            } else {
-                None
-            };
-
-            element = ident.build(NodeData::Reference { parameters, options });
+            parse_reference(parser)?
+        } else if first_char == '@' {
+            parse_import(parser)?
         } else {
             return Err(parser.char_error(format!(
                 "Expected a terminal, variable or group, got {:?} instead",
@@ -1043,14 +1044,14 @@ fn parse_rule_element_contents<'a>(
             "Expected a terminal, variable or group, got EOF instead"
                 .to_string(),
         ));
-    }
+    };
 
     skip_whitespace(parser);
 
-    Ok(if let Some(chr) = parser.peek() {
+    while let Some(chr) = parser.peek() {
         let col = parser.start_node_collection();
 
-        if chr == '*' {
+        element = if chr == '*' {
             parser.next();
 
             col.build_from_parser(
@@ -1061,12 +1062,48 @@ fn parse_rule_element_contents<'a>(
             parser.next();
 
             col.build_from_parser(parser, NodeData::Optional(parser.allocator.alloc(element)))
+        } else if chr == '.' {
+            parser.next();
+            let accessor = col.end_from_parser(parser);
+
+            skip_whitespace(parser);
+
+            let reference = parse_reference(parser)?;
+
+            accessor.build(NodeData::Accessor {
+                element: parser.allocator.alloc(element),
+                reference: parser.allocator.alloc(reference),
+            })
         } else {
-            element
-        }
+            break;
+        };
+
+        skip_whitespace(parser);
+    }
+
+    Ok(element)
+}
+
+fn parse_reference<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let ident = parse_identifier(parser)?;
+
+    skip_whitespace(parser);
+
+    let parameters = if parser.peek() == Some('[') {
+        Some(parser.allocator.alloc(parse_parameters(parser)?) as &Node)
     } else {
-        element
-    })
+        None
+    };
+
+    skip_whitespace(parser);
+
+    let options = if parser.peek() == Some('{') {
+        Some(parser.allocator.alloc(parse_options(parser)?) as &Node)
+    } else {
+        None
+    };
+
+    Ok(ident.build(NodeData::Reference { parameters, options }))
 }
 
 fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
@@ -1082,6 +1119,26 @@ fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     let options = parser.allocator.alloc(parse_options(parser)?);
 
     Ok(word.build(NodeData::Embed { parameters, options }))
+}
+
+fn parse_import<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+    let first = parser.next().unwrap();
+    assert!(first == '@');
+
+    let keyword = parse_identifier(parser)?;
+
+    match keyword.text {
+        "import" => {
+
+        },
+        _ => {
+            return Err(ParseError::new(keyword.location, format!("Expected 'import' but got '{}'", keyword.text)));
+        }
+    }
+
+    let parameters = parser.allocator.alloc(parse_parameters(parser)?);
+
+    Ok(keyword.build(NodeData::Import { parameters }))
 }
 
 fn parse_regex<'a>(
@@ -1684,9 +1741,14 @@ mod tests {
     #[test]
     fn parse_import() {
         let a = Bump::new();
-        assert!(parse("A = %imp", &a).is_err());
-        assert!(parse("A = %import", &a).is_err());
-        println!("{:?}", parse("A = %import['a']", &a));
-        assert!(parse("A = %import['a']", &a).is_ok());
+        assert!(parse("A = @imp", &a).is_err());
+        assert!(parse("A = @import", &a).is_err());
+        // TODO: Properly test tokens
+        assert!(parse("A = @import['a']", &a).is_ok());
+        assert!(parse("A = @import['a'].a", &a).is_ok());
+        assert!(parse("A = @import['a'].a.b", &a).is_ok());
+        assert!(parse("a : @import['a'] ;", &a).is_ok());
+        assert!(parse("a : @import['a'].a ;", &a).is_ok());
+        assert!(parse("a : @import['a'].a.b ;", &a).is_ok());
     }
 }
