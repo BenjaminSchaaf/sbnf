@@ -427,6 +427,7 @@ pub const fn is_valid_name_char(&c: &char) -> bool {
         // unicode-space
         '\u{9}'|'\u{20}'|'\u{a0}'|'\u{1680}'|'\u{2000}'..='\u{200a}'|'\u{200b}'..='\u{200f}'|'\u{202a}'..='\u{202f}'|'\u{205f}'|'\u{3000}'
         |'\u{feff}' //bom
+        |'\u{2800}' //braile blank
 
         // others
         |'\u{0}'..='\u{1f}' // ASCII C0 control chars
