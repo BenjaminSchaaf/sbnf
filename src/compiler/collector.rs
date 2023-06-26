@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use super::common::{
-    is_valid_rule_name_char, is_valid_variable_name_char, CompileOptions,
-    CompileResult, Compiler, Error, Symbol, Value, VarMap,
+    CompileOptions, CompileResult, Compiler, Error, Symbol, Value, VarMap,
 };
-use crate::sbnf::{Grammar, Node, NodeData};
+use crate::sbnf::{
+    is_valid_rule_name_char, is_valid_variable_name_char, Grammar, Node,
+    NodeData,
+};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum DefinitionKind {

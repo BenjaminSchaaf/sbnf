@@ -1,6 +1,3 @@
-use crate::compiler::common::{
-    is_valid_rule_name_char, is_valid_variable_name_char,
-};
 /// This file implements a parser for the SBNF grammar
 use std::str::{from_utf8_unchecked, Chars};
 
@@ -475,6 +472,108 @@ pub fn parse(source: &str) -> Result<Grammar, ParseError> {
     }
 
     Ok(Grammar { source: parser.source, nodes: nodes })
+}
+
+#[inline]
+pub const fn is_valid_variable_name_char(&c: &char) -> bool {
+    if c.is_ascii_uppercase() {
+        return true;
+    }
+    if c.is_ascii_digit() {
+        return true;
+    }
+    if c == '_' {
+        return true;
+    }
+
+    if c.is_ascii_lowercase() {
+        return false;
+    } // at least ASCII should NOT be lowercase (otherwise `is_valid_ident` will match them)
+
+    return is_valid_name_char(&c);
+}
+#[inline]
+pub const fn is_valid_rule_name_char(&c: &char) -> bool {
+    if c.is_ascii_lowercase() {
+        return true;
+    }
+    if c.is_ascii_digit() {
+        return true;
+    }
+    if c == '-' {
+        return true;
+    }
+
+    if c.is_ascii_uppercase() {
+        return false;
+    } // at least ASCII should NOT be UPPERCASE (otherwise `is_valid_name_char` will match them)
+
+    return is_valid_name_char(&c);
+}
+#[inline]
+pub const fn is_valid_name_char(&c: &char) -> bool {
+    // if c.is_control()          { return false} // not const
+    if c.is_ascii_control() {
+        return false;
+    }
+    if c.is_ascii_whitespace() {
+        return false;
+    }
+
+    if c.is_ascii_digit() {
+        return true;
+    }
+
+    match c {
+        // EXclude
+        // unicode-space
+        '\u{9}'|'\u{20}'|'\u{a0}'|'\u{1680}'|'\u{2000}'..='\u{200a}'|'\u{200b}'..='\u{200f}'|'\u{202a}'..='\u{202f}'|'\u{205f}'|'\u{3000}'
+        |'\u{feff}' //bom
+        |'\u{2800}' //braile blank
+
+        // others
+        |'\u{0}'..='\u{1f}' // ASCII C0 control chars
+        |'!'..='/' // ASCII punctuation and symbols
+        |':'..='@' // ASCII punctuation and symbols
+        |'['..='`' // ASCII punctuation and symbols
+        |'{'..='~' // ASCII punctuation and symbols
+        |'\u{7f}' // ASCII control character
+        |'\u{80}'..='\u{9f}' // C1 control chars
+
+        // yaml: c-printable
+        // |'\u{A}' // Line feed (LF \n)
+        // |'\u{D}' // Carriage Return (CR \r)
+        // yaml: Indicator Characters
+        // |'-' // (x2D, hyphen) denotes a block sequence entry
+        // |'?' // (x3F, question mark) denotes a mapping key
+        // |':' // (x3A, colon) denotes a mapping value
+        // |',' // (x2C, comma) ends a flow collection entry
+        // |'[' // (x5B, left bracket) starts a flow sequence
+        // |']' // (x5D, right bracket) ends a flow sequence
+        // |'{' // (x7B, left brace) starts a flow mapping
+        // |'}' // (x7D, right brace) ends a flow mapping
+        // |'#' // (x23, octothorpe, hash, sharp, pound, number sign) denotes a comment
+        // |'&' // (x26, ampersand) denotes a node’s anchor property
+        // |'*' // (x2A, asterisk) denotes an alias node
+        // |'!' // (x21, exclamation) is used for specifying node tags. It is used to denote tag handles used in tag directives and tag properties; to denote local tags; and as the non-specific tag for non-plain scalars
+          => false,
+
+        // INclude                      //
+        // yaml: c-printable            //
+        // 8 bit                        //
+        // '\u{9}'                      // Tab (\t)
+        // | '\u{A}'                    // Line feed (LF \n)
+        // | '\u{D}'                    // Carriage Return (CR \r)
+         '\u{20}'     ..='\u{7E}'       // Printable ASCII
+        // 16 bit                       //
+        // |'\u{85}'                    // Next Line (NEL)
+        |'\u{A0}'     ..='\u{D7FF}'     // Basic Multilingual Plane (BMP)
+        |'\u{E000}'   ..='\u{FFFD}'     // Additional Unicode Areas
+        // |'\u{10000}'  ..='\u{10FFFF}'// 32 bit
+        |'\u{10000}'  ..='\u{DFFFF}'    // 32 bit without special purpose and private use planes
+          => true,
+        _ => false,
+    }
 }
 
 pub fn is_identifier_char(chr: char) -> bool {

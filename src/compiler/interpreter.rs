@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
-    is_valid_rule_name_char, is_valid_variable_name_char, parse_scope,
-    trim_ascii, CallStack, CompileOptions, CompileResult, Compiler, Error,
-    Metadata, RuleOptions, Symbol, Value, VarMap,
+    parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
+    Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
 };
-use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
+use crate::sbnf::{
+    is_identifier_char, is_valid_rule_name_char, is_valid_variable_name_char,
+    Node, NodeData, TextLocation,
+};
 use crate::sublime_syntax;
 
 #[derive(Debug, Clone)]

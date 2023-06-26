@@ -613,4 +613,4 @@ understand any regexes.
 
 [^unic]: Valid YAML characters without YAML indicators, whitespace, control,
 ASCII punctuation and symbols, and special purpose and private use planes
-(the full list is in the `is_valid_name_char` function at [common.rs](https://github.com/BenjaminSchaaf/sbnf/blob/master/src/compiler/common.rs))
+(the full list is in the `is_valid_name_char` function at [sbnf.rs](https://github.com/BenjaminSchaaf/sbnf/blob/master/src/sbnf.rs))
