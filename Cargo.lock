@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "sbnf"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64",
  "bumpalo",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "sbnfc"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clap",
  "sbnf",

@@ -1,6 +1,6 @@
 [package]
 name = "sbnfc"
-version = "0.6.0"
+version = "0.6.1"
 license-file = "LICENSE"
 repository = "https://github.com/BenjaminSchaaf/sbnf"
 description = "CLI program for SBNF: A BNF-style language for writing sublime-syntax files"
