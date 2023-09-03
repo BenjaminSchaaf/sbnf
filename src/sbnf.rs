@@ -467,7 +467,7 @@ pub fn parse(source: &str) -> Result<Grammar, ParseError> {
         if parser.peek().is_none() {
             break;
         } else {
-            nodes.push(parse_item(&mut parser)?);
+            nodes.push(parse_item(&mut parser, 0)?);
         }
     }
 
@@ -519,11 +519,30 @@ fn parse_identifier<'a>(
     Ok(col.end_from_parser(parser))
 }
 
-fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+fn check_parse_depth<'a>(
+    parser: &mut Parser<'a>,
+    depth: usize,
+) -> Result<usize, ParseError> {
+    const MAXIMUM_PARSER_DEPTH: usize = 512;
+
+    if depth > MAXIMUM_PARSER_DEPTH {
+        Err(parser
+            .char_error("Parser recursion depth limit reached".to_string()))
+    } else {
+        Ok(depth + 1)
+    }
+}
+
+fn parse_item<'a>(
+    parser: &mut Parser<'a>,
+    depth: usize,
+) -> Result<Node<'a>, ParseError> {
+    let depth = check_parse_depth(parser, depth)?;
+
     skip_whitespace(parser);
 
     if parser.peek() == Some('[') {
-        return parse_parameters(parser);
+        return parse_parameters(parser, depth);
     }
 
     let ident = parse_identifier(parser)?;
@@ -531,7 +550,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
 
     let parameters = if parser.peek() == Some('[') {
-        let params = parse_parameters(parser)?;
+        let params = parse_parameters(parser, depth)?;
 
         skip_whitespace(parser);
 
@@ -577,7 +596,7 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 skip_whitespace(parser);
 
                 let parameters = if parser.peek() == Some('[') {
-                    Some(Box::new(parse_parameters(parser)?))
+                    Some(Box::new(parse_parameters(parser, depth)?))
                 } else {
                     None
                 };
@@ -619,7 +638,11 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
                 }
             }
 
-            NodeData::Rule { parameters, options, node: parse_rule(parser)? }
+            NodeData::Rule {
+                parameters,
+                options,
+                node: parse_rule(parser, depth)?,
+            }
         }
         None => {
             return Err(parser.char_error(format!(
@@ -633,7 +656,10 @@ fn parse_item<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
 fn parse_parameters<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
+    let depth = check_parse_depth(parser, depth)?;
+
     let col = parser.start_node_collection();
 
     if parser.peek() != Some('[') {
@@ -673,7 +699,7 @@ fn parse_parameters<'a>(
                 skip_whitespace(parser);
 
                 let params = if parser.peek() == Some('[') {
-                    Some(Box::new(parse_parameters(parser)?))
+                    Some(Box::new(parse_parameters(parser, depth)?))
                 } else {
                     None
                 };
@@ -798,8 +824,9 @@ fn parse_kwarg_value<'a>(
 
 fn parse_rule<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Box<Node<'a>>, ParseError> {
-    let node = parse_rule_alternation(parser)?;
+    let node = parse_rule_alternation(parser, depth)?;
 
     skip_whitespace(parser);
 
@@ -823,10 +850,11 @@ fn parse_rule<'a>(
 
 fn parse_rule_alternation<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
     let col = parser.start_node_collection();
 
-    let first_element = parse_rule_concatenation(parser)?;
+    let first_element = parse_rule_concatenation(parser, depth)?;
 
     skip_whitespace(parser);
 
@@ -850,7 +878,7 @@ fn parse_rule_alternation<'a>(
     let mut elements = vec![first_element];
 
     loop {
-        elements.push(parse_rule_concatenation(parser)?);
+        elements.push(parse_rule_concatenation(parser, depth)?);
 
         skip_whitespace(parser);
 
@@ -877,10 +905,11 @@ fn parse_rule_alternation<'a>(
 
 fn parse_rule_concatenation<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
     let col = parser.start_node_collection();
 
-    let first_element = parse_rule_element(parser)?;
+    let first_element = parse_rule_element(parser, depth)?;
 
     skip_whitespace(parser);
 
@@ -897,7 +926,7 @@ fn parse_rule_concatenation<'a>(
     let mut elements = vec![first_element];
 
     loop {
-        elements.push(parse_rule_element(parser)?);
+        elements.push(parse_rule_element(parser, depth)?);
 
         skip_whitespace(parser);
 
@@ -917,7 +946,10 @@ fn parse_rule_concatenation<'a>(
 
 fn parse_rule_element<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
+    let depth = check_parse_depth(parser, depth)?;
+
     skip_whitespace(parser);
 
     let col = parser.start_node_collection();
@@ -929,7 +961,7 @@ fn parse_rule_element<'a>(
             let node = col.end_from_parser(parser);
 
             Ok(node.build(NodeData::Capture(Box::new(
-                parse_rule_element_contents(parser)?,
+                parse_rule_element_contents(parser, depth)?,
             ))))
         } else if chr == '~' {
             parser.next();
@@ -937,10 +969,10 @@ fn parse_rule_element<'a>(
             let node = col.end_from_parser(parser);
 
             Ok(node.build(NodeData::Passive(Box::new(
-                parse_rule_element_contents(parser)?,
+                parse_rule_element_contents(parser, depth)?,
             ))))
         } else {
-            parse_rule_element_contents(parser)
+            parse_rule_element_contents(parser, depth)
         }
     } else {
         Err(parser.char_error(
@@ -952,6 +984,7 @@ fn parse_rule_element<'a>(
 
 fn parse_rule_element_contents<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
     skip_whitespace(parser);
 
@@ -961,7 +994,7 @@ fn parse_rule_element_contents<'a>(
         if first_char == '(' {
             parser.next();
 
-            element = parse_rule_alternation(parser)?;
+            element = parse_rule_alternation(parser, depth)?;
 
             if let Some(chr) = parser.peek() {
                 if chr == ')' {
@@ -978,16 +1011,16 @@ fn parse_rule_element_contents<'a>(
                 ));
             }
         } else if first_char == '\'' {
-            element = parse_regex_terminal(parser)?;
+            element = parse_regex_terminal(parser, depth)?;
         } else if first_char == '`' {
-            element = parse_literal_terminal(parser)?;
+            element = parse_literal_terminal(parser, depth)?;
         } else if is_identifier_char(first_char) {
             let ident = parse_identifier(parser)?;
 
             skip_whitespace(parser);
 
             let parameters = if parser.peek() == Some('[') {
-                Some(Box::new(parse_parameters(parser)?))
+                Some(Box::new(parse_parameters(parser, depth)?))
             } else {
                 None
             };
@@ -1038,7 +1071,10 @@ fn parse_rule_element_contents<'a>(
     })
 }
 
-fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
+fn parse_embed<'a>(
+    parser: &mut Parser<'a>,
+    depth: usize,
+) -> Result<Node<'a>, ParseError> {
     let first = parser.next().unwrap();
     assert!(first == '%');
 
@@ -1046,7 +1082,7 @@ fn parse_embed<'a>(parser: &mut Parser<'a>) -> Result<Node<'a>, ParseError> {
 
     let word = parse_identifier(parser)?;
 
-    let parameters = Box::new(parse_parameters(parser)?);
+    let parameters = Box::new(parse_parameters(parser, depth)?);
 
     let options = Box::new(parse_options(parser)?);
 
@@ -1096,6 +1132,7 @@ fn parse_regex<'a>(
 
 fn parse_regex_terminal<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
     let regex = parse_regex(parser)?;
 
@@ -1110,7 +1147,7 @@ fn parse_regex_terminal<'a>(
     skip_whitespace(parser);
 
     let embed = if parser.peek() == Some('%') {
-        Some(Box::new(parse_embed(parser)?))
+        Some(Box::new(parse_embed(parser, depth)?))
     } else {
         None
     };
@@ -1151,6 +1188,7 @@ fn parse_literal<'a>(
 
 fn parse_literal_terminal<'a>(
     parser: &mut Parser<'a>,
+    depth: usize,
 ) -> Result<Node<'a>, ParseError> {
     let (text, regex) = parse_literal(parser)?;
 
@@ -1165,7 +1203,7 @@ fn parse_literal_terminal<'a>(
     skip_whitespace(parser);
 
     let embed = if parser.peek() == Some('%') {
-        Some(Box::new(parse_embed(parser)?))
+        Some(Box::new(parse_embed(parser, depth)?))
     } else {
         None
     };
