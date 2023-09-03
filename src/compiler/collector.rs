@@ -11,6 +11,15 @@ pub enum DefinitionKind {
     Rule,
 }
 
+impl std::fmt::Display for DefinitionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DefinitionKind::Variable => write!(f, "variable"),
+            DefinitionKind::Rule => write!(f, "rule"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Definition<'a> {
     pub kind: DefinitionKind,
@@ -272,8 +281,29 @@ fn collect_definitions<'a, 'b>(
                         state.definitions.get_mut(&key).unwrap()
                     };
 
-                // Should always be the case since capitalization is enforced
-                assert!(definition.kind == kind);
+                if definition.kind != kind {
+                    state.errors.push(Error::new(
+                        format!(
+                            "'{}' must be either a rule or a variable",
+                            name
+                        ),
+                        None,
+                        vec![
+                            (
+                                definition.overloads[0].location,
+                                format!(
+                                    "defined as a {} here",
+                                    definition.kind
+                                ),
+                            ),
+                            (
+                                node.location,
+                                format!("defined as a {} here", kind),
+                            ),
+                        ],
+                    ));
+                    continue;
+                }
 
                 if num_params == 0 && !definition.overloads.is_empty() {
                     state.errors.push(Error::new(
