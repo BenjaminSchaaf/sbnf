@@ -41,9 +41,9 @@ struct ContextKeyWithCompiler<'a> {
 
 impl<'a> std::fmt::Debug for ContextKeyWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:\n", self)?;
+        writeln!(f, "{}:", self)?;
         for terminal in &self.key.lookahead.terminals {
-            write!(f, "{:?}\n", terminal.with_compiler(self.compiler))?;
+            writeln!(f, "{:?}", terminal.with_compiler(self.compiler))?;
         }
         Ok(())
     }
@@ -77,7 +77,7 @@ struct State<'a> {
     contexts: HashMap<String, sublime_syntax::Context>,
 }
 
-pub fn codegen<'a>(
+pub fn codegen(
     compiler: &Compiler,
     interpreted: Interpreted,
 ) -> sublime_syntax::Syntax {
@@ -98,7 +98,7 @@ pub fn codegen<'a>(
         gen_contexts(&mut state, &interpreted, vec![item]);
     }
 
-    let syntax = sublime_syntax::Syntax {
+    sublime_syntax::Syntax {
         name: interpreted.metadata.name.clone(),
         file_extensions: interpreted.metadata.file_extensions.clone(),
         first_line_match: interpreted.metadata.first_line_match.clone(),
@@ -106,13 +106,11 @@ pub fn codegen<'a>(
         hidden: interpreted.metadata.hidden,
         variables: HashMap::new(),
         contexts: state.contexts,
-    };
-
-    syntax
+    }
 }
 
 fn lookahead_rule<'a>(
-    state: &mut State<'a>,
+    state: &State<'a>,
     interpreted: &'a Interpreted,
     rule_key: &'a Key,
 ) -> lookahead::Lookahead<'a> {
@@ -123,7 +121,7 @@ fn lookahead_rule<'a>(
 
     let mut lookahead = lookahead::lookahead(
         interpreted,
-        &rule.expression,
+        rule.expression,
         &mut lookahead_state,
     );
 
@@ -172,9 +170,7 @@ where
     map
 }
 
-fn index_terminals<'a>(
-    lookahead: &Lookahead<'a>,
-) -> IndexMap<Symbol, Vec<usize>> {
+fn index_terminals(lookahead: &Lookahead<'_>) -> IndexMap<Symbol, Vec<usize>> {
     let mut map = IndexMap::<Symbol, Vec<usize>>::new();
     for (i, terminal) in lookahead.terminals.iter().enumerate() {
         if let Some(m) = map.get_mut(&terminal.regex) {
@@ -244,7 +240,7 @@ fn gen_contexts<'a>(
                     let scope = scope_for_match_stack(
                         interpreted,
                         Some(rule_key),
-                        &terminal,
+                        terminal,
                     );
 
                     let exit = if let Some(lookahead) =
@@ -284,7 +280,7 @@ fn gen_contexts<'a>(
                         &meta_content_scope,
                         &branch_point,
                         scope,
-                        &terminal,
+                        terminal,
                         exit,
                         1,
                     ));
@@ -296,7 +292,7 @@ fn gen_contexts<'a>(
                         } else {
                             None
                         },
-                        &terminal,
+                        terminal,
                     );
 
                     patterns.push(gen_simple_match(
@@ -438,7 +434,7 @@ fn gen_contexts<'a>(
                     };
 
                     let scope =
-                        scope_for_match_stack(interpreted, None, &terminal);
+                        scope_for_match_stack(interpreted, None, terminal);
 
                     let (exit, pop) = if let Some(name) = next_name {
                         // Using set in branch_point is broken, so we
@@ -580,7 +576,7 @@ fn gen_end_match<'a>(
     match &lookahead.end {
         lookahead::End::Illegal => Some(if lookahead.empty && !capture {
             sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
+                pattern: sublime_syntax::Pattern::from(r"(?=\S)"),
                 scope: sublime_syntax::Scope::empty(),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::None,
@@ -590,7 +586,7 @@ fn gen_end_match<'a>(
             && branch_point.as_ref().unwrap().can_fail
         {
             sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
+                pattern: sublime_syntax::Pattern::from(r"\S"),
                 scope: sublime_syntax::Scope::empty(),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Fail(
@@ -600,7 +596,7 @@ fn gen_end_match<'a>(
             }
         } else {
             sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str(r#"\S"#),
+                pattern: sublime_syntax::Pattern::from(r"\S"),
                 scope: parse_scope(&interpreted.metadata, "invalid.illegal"),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::None,
@@ -628,7 +624,7 @@ fn gen_end_match<'a>(
             };
 
             Some(sublime_syntax::Match {
-                pattern: sublime_syntax::Pattern::from_str(r#"(?=\S)"#),
+                pattern: sublime_syntax::Pattern::from(r"(?=\S)"),
                 scope: sublime_syntax::Scope::empty(),
                 captures: HashMap::new(),
                 change_context: sublime_syntax::ContextChange::Push(vec![name]),
@@ -636,7 +632,7 @@ fn gen_end_match<'a>(
             })
         }
     }
-    .map(&sublime_syntax::ContextPattern::Match)
+    .map(sublime_syntax::ContextPattern::Match)
 }
 
 fn gen_terminal<'a>(
@@ -689,10 +685,9 @@ fn gen_terminal<'a>(
                             matches: vec![
                                 sublime_syntax::ContextPattern::Match(
                                     sublime_syntax::Match {
-                                        pattern:
-                                            sublime_syntax::Pattern::from_str(
-                                                "",
-                                            ),
+                                        pattern: sublime_syntax::Pattern::from(
+                                            "",
+                                        ),
                                         scope: sublime_syntax::Scope::empty(),
                                         captures: HashMap::new(),
                                         change_context: embed_exit,
@@ -767,10 +762,9 @@ fn gen_terminal<'a>(
                             matches: vec![
                                 sublime_syntax::ContextPattern::Match(
                                     sublime_syntax::Match {
-                                        pattern:
-                                            sublime_syntax::Pattern::from_str(
-                                                "",
-                                            ),
+                                        pattern: sublime_syntax::Pattern::from(
+                                            "",
+                                        ),
                                         scope: sublime_syntax::Scope::empty(),
                                         captures: HashMap::new(),
                                         change_context: include_exit,
@@ -791,31 +785,24 @@ fn gen_terminal<'a>(
     }
 
     // Translate Set into Push/Pop if we're setting back to the same context
-    match &exit {
-        sublime_syntax::ContextChange::Push(contexts) => {
-            if pop_amount > 0 && contexts[0] == context_name {
-                if contexts.len() > 1 {
-                    exit = sublime_syntax::ContextChange::Push(
-                        contexts[1..].to_vec(),
-                    );
-                } else {
-                    exit = sublime_syntax::ContextChange::None;
-                }
-                pop_amount -= 1;
+    if let sublime_syntax::ContextChange::Push(contexts) = &exit {
+        if pop_amount > 0 && contexts[0] == context_name {
+            if contexts.len() > 1 {
+                exit =
+                    sublime_syntax::ContextChange::Push(contexts[1..].to_vec());
+            } else {
+                exit = sublime_syntax::ContextChange::None;
             }
+            pop_amount -= 1;
         }
-        _ => {}
     }
 
-    match &exit {
-        sublime_syntax::ContextChange::None => {
-            if pop_amount > 0 {
-                scope
-                    .scopes
-                    .splice(0..0, meta_content_scope.scopes.iter().cloned());
-            }
+    if let sublime_syntax::ContextChange::None = &exit {
+        if pop_amount > 0 {
+            scope
+                .scopes
+                .splice(0..0, meta_content_scope.scopes.iter().cloned());
         }
-        _ => {}
     }
 
     sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
@@ -1010,27 +997,21 @@ fn gen_simple_match_contexts<'a>(
             ));
         }
 
-        match &entry.data {
-            StackEntryData::Variable { key } => {
-                rule_key = key;
+        if let StackEntryData::Variable { key } = &entry.data {
+            rule_key = key;
 
-                let rem =
-                    if i > 0 { &stack[i - 1].remaining } else { remaining };
-                if rem.is_empty() && (i != 0 || !remaining.is_empty()) {
-                    // If a match has no remaining nodes it can generally be
-                    // ignored, unless it has a meta scope and there are child
-                    // matches that were not ignored. In those cases we create
-                    // a meta scope context.
-                    if let Some(context) = gen_meta_content_scope_context(
-                        state,
-                        interpreted,
-                        rule_key,
-                    ) {
-                        contexts.push(context);
-                    }
+            let rem = if i > 0 { &stack[i - 1].remaining } else { remaining };
+            if rem.is_empty() && (i != 0 || !remaining.is_empty()) {
+                // If a match has no remaining nodes it can generally be
+                // ignored, unless it has a meta scope and there are child
+                // matches that were not ignored. In those cases we create
+                // a meta scope context.
+                if let Some(context) =
+                    gen_meta_content_scope_context(state, interpreted, rule_key)
+                {
+                    contexts.push(context);
                 }
             }
-            _ => {}
         }
     }
 
@@ -1074,7 +1055,7 @@ fn gen_meta_content_scope_context<'a>(
                     clear_scopes: sublime_syntax::ScopeClear::Amount(0),
                     matches: vec![sublime_syntax::ContextPattern::Match(
                         sublime_syntax::Match {
-                            pattern: sublime_syntax::Pattern::from_str(""),
+                            pattern: sublime_syntax::Pattern::from(""),
                             scope: sublime_syntax::Scope::empty(),
                             captures: HashMap::new(),
                             change_context: sublime_syntax::ContextChange::None,
@@ -1175,7 +1156,7 @@ fn gen_simple_match_remaining_context<'a>(
     contexts
 }
 
-fn build_rule_key_name<'a>(state: &State, rule_key: &Key) -> String {
+fn build_rule_key_name(state: &State, rule_key: &Key) -> String {
     let mut result = state.compiler.resolve_symbol(rule_key.name).to_string();
 
     // Encode arguments
@@ -1190,7 +1171,7 @@ fn build_rule_key_name<'a>(state: &State, rule_key: &Key) -> String {
         for arg in &rule_key.arguments[1..] {
             s.push_str(&format!(", {}", arg.with_compiler(state.compiler)));
         }
-        s.push_str("]");
+        s.push(']');
 
         use base64::Engine;
         base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -1275,13 +1256,10 @@ fn scope_for_match_stack<'a>(
     }
 
     for entry in terminal.stack.iter().rev() {
-        match &entry.data {
-            StackEntryData::Variable { key } => {
-                let rule_options = &interpreted.rules[key].options;
+        if let StackEntryData::Variable { key } = &entry.data {
+            let rule_options = &interpreted.rules[key].options;
 
-                scopes.extend(rule_options.scope.scopes.iter().cloned());
-            }
-            _ => {}
+            scopes.extend(rule_options.scope.scopes.iter().cloned());
         }
     }
 

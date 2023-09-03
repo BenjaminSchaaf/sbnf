@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -40,12 +42,12 @@ fn try_main() -> Result<(), String> {
 
     let mut contents = String::new();
     {
-        let mut file = fmt_io_err(File::open(&input))?;
+        let mut file = fmt_io_err(File::open(input))?;
         fmt_io_err(file.read_to_string(&mut contents))?;
     }
 
     let grammar = sbnf::sbnf::parse(&contents)
-        .map_err(|e| format!("{}", e.with_source(&input, &contents)))?;
+        .map_err(|e| format!("{}", e.with_source(input, &contents)))?;
 
     // Use the base name of the input as a name hint
     let name_hint = Path::new(&input).file_stem().unwrap().to_str().unwrap();
@@ -57,7 +59,7 @@ fn try_main() -> Result<(), String> {
         entry_points: vec!["main", "prototype"],
     };
 
-    let mut compiler = sbnf::compiler::Compiler::new();
+    let mut compiler = sbnf::compiler::Compiler::default();
     let result = compiler.compile(&options, &grammar);
 
     match &result.result {
@@ -66,7 +68,7 @@ fn try_main() -> Result<(), String> {
                 eprintln!(
                     "{}",
                     error.with_compiler_and_source(
-                        &compiler, "Error", &input, &contents
+                        &compiler, "Error", input, &contents
                     )
                 );
             }
@@ -76,7 +78,7 @@ fn try_main() -> Result<(), String> {
                     eprintln!(
                         "{}",
                         warning.with_compiler_and_source(
-                            &compiler, "Warning", &input, &contents
+                            &compiler, "Warning", input, &contents
                         )
                     );
                 }
@@ -90,7 +92,7 @@ fn try_main() -> Result<(), String> {
                     eprintln!(
                         "{}",
                         warning.with_compiler_and_source(
-                            &compiler, "Warning", &input, &contents
+                            &compiler, "Warning", input, &contents
                         )
                     );
                 }

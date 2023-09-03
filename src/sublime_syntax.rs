@@ -46,7 +46,7 @@ pub struct Syntax {
 
 impl Syntax {
     pub fn serialize(&self, output: &mut dyn Write) -> Result<(), Error> {
-        let mut state = SerializeState { indent: 0, output: output };
+        let mut state = SerializeState { indent: 0, output };
 
         serializeln!(state, "%YAML 1.2")?;
         serializeln!(state, "---")?;
@@ -54,7 +54,7 @@ impl Syntax {
         serializeln!(state, "version: 2")?;
         serializeln!(state, "name: {}", self.name)?;
 
-        if self.file_extensions.len() > 0 {
+        if !self.file_extensions.is_empty() {
             serializeln!(state, "file_extensions:")?;
 
             for extension in &self.file_extensions {
@@ -66,7 +66,7 @@ impl Syntax {
             serializeln!(state, "first_line_match: {}", pattern)?;
         }
 
-        if self.scope.len() > 0 {
+        if !self.scope.is_empty() {
             serializeln!(state, "scope: {}", self.scope)?;
         }
 
@@ -74,7 +74,7 @@ impl Syntax {
             serializeln!(state, "hidden: true")?;
         }
 
-        if self.variables.len() > 0 {
+        if !self.variables.is_empty() {
             serializeln!(state, "variables:")?;
 
             let mut keys = self.variables.keys().collect::<Vec<&String>>();
@@ -89,7 +89,7 @@ impl Syntax {
             }
         }
 
-        if self.contexts.len() > 0 {
+        if !self.contexts.is_empty() {
             serializeln!(state, "contexts:")?;
 
             let mut keys = self.contexts.keys().collect::<Vec<&String>>();
@@ -123,10 +123,12 @@ pub struct Pattern {
 
 impl Pattern {
     pub fn new(regex: String) -> Pattern {
-        Pattern { regex: regex }
+        Pattern { regex }
     }
+}
 
-    pub fn from_str(regex: &str) -> Pattern {
+impl From<&str> for Pattern {
+    fn from(regex: &str) -> Pattern {
         Pattern { regex: regex.to_string() }
     }
 }
@@ -148,7 +150,7 @@ impl Scope {
     }
 
     pub fn new(scopes: Vec<String>) -> Scope {
-        Scope { scopes: scopes }
+        Scope { scopes }
     }
 
     pub fn parse(scopes: &str) -> Scope {
@@ -171,7 +173,7 @@ impl Scope {
 
 impl std::fmt::Display for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.scopes.len() == 0 {
+        if self.scopes.is_empty() {
             return Ok(());
         }
 
@@ -274,7 +276,7 @@ impl Match {
         serializeln!(state, "- match: {}", self.pattern)?;
 
         indent!(state, {
-            if self.scope.len() > 0 {
+            if !self.scope.is_empty() {
                 serializeln!(state, "scope: {}", self.scope)?;
             }
 
@@ -285,12 +287,12 @@ impl Match {
                 ContextChange::Push(contexts) => {
                     state.write_indentation()?;
                     write!(&mut state.output, "push: ")?;
-                    write_context_list(state, &contexts)?;
+                    write_context_list(state, contexts)?;
                 }
                 ContextChange::Set(contexts) => {
                     state.write_indentation()?;
                     write!(&mut state.output, "set: ")?;
-                    write_context_list(state, &contexts)?;
+                    write_context_list(state, contexts)?;
                 }
                 ContextChange::PushEmbed(context) => {
                     serializeln!(state, "push:")?;
@@ -306,7 +308,7 @@ impl Match {
                 }
                 ContextChange::Embed(embed) => {
                     serializeln!(state, "embed: {}", embed.embed)?;
-                    if embed.embed_scope.len() > 0 {
+                    if !embed.embed_scope.is_empty() {
                         serializeln!(
                             state,
                             "embed_scope: {}",
@@ -329,7 +331,7 @@ impl Match {
                         serializeln!(state, "set: {}", embed.path)?;
                     }
 
-                    if embed.with_prototype.len() > 0 {
+                    if !embed.with_prototype.is_empty() {
                         serializeln!(state, "with_prototype:")?;
                         indent!(state, {
                             for pattern in &embed.with_prototype {
@@ -367,7 +369,7 @@ fn write_captures(
     name: &str,
     captures: &HashMap<u16, Scope>,
 ) -> Result<(), Error> {
-    if captures.len() > 0 {
+    if !captures.is_empty() {
         serializeln!(state, "{}:", name)?;
 
         let mut keys = captures.keys().cloned().collect::<Vec<u16>>();
@@ -439,7 +441,7 @@ mod tests {
         let syntax = Syntax {
             name: "Empty Lang".to_string(),
             file_extensions: vec!["tes".to_string(), "test".to_string()],
-            first_line_match: Some(Pattern::from_str(".*\\bfoo\\b")),
+            first_line_match: Some(Pattern::from(".*\\bfoo\\b")),
             scope: Scope::parse("source.empty"),
             hidden: true,
             variables: HashMap::new(),
@@ -474,8 +476,8 @@ hidden: true\n"
             scope: Scope::parse("source.vars text.vars"),
             hidden: false,
             variables: hashmap! {
-                "foo".to_string() => Pattern::from_str("^foo\\b.*$"),
-                "bar".to_string() => Pattern::from_str("\\bbar\\b|\\bfoo\\b"),
+                "foo".to_string() => Pattern::from("^foo\\b.*$"),
+                "bar".to_string() => Pattern::from("\\bbar\\b|\\bfoo\\b"),
             },
             contexts: HashMap::new(),
         };
@@ -516,14 +518,14 @@ variables:
                         ContextPattern::Include("bar".to_string()),
                         ContextPattern::Include("baz".to_string()),
                         ContextPattern::Match(Match {
-                            pattern: Pattern::from_str("\\ba(b)\\b"),
+                            pattern: Pattern::from("\\ba(b)\\b"),
                             scope: Scope::empty(),
                             captures: hashmap!{ 1 => Scope::parse("b") },
                             change_context: ContextChange::None,
                             pop: 0,
                         }),
                         ContextPattern::Match(Match {
-                            pattern: Pattern::from_str("(?=\\()"),
+                            pattern: Pattern::from("(?=\\()"),
                             scope: Scope::parse("a b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
@@ -531,7 +533,7 @@ variables:
                             pop: 0,
                         }),
                         ContextPattern::Match(Match {
-                            pattern: Pattern::from_str("(?={)"),
+                            pattern: Pattern::from("(?={)"),
                             scope: Scope::parse("a.b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::Push(
@@ -539,7 +541,7 @@ variables:
                             pop: 0,
                         }),
                         ContextPattern::Match(Match {
-                            pattern: Pattern::from_str(""),
+                            pattern: Pattern::from(""),
                             scope: Scope::empty(),
                             captures: HashMap::new(),
                             change_context: ContextChange::None,
@@ -555,7 +557,7 @@ variables:
                     clear_scopes: ScopeClear::Amount(0),
                     matches: vec!(
                         ContextPattern::Match(Match {
-                            pattern: Pattern::from_str("//"),
+                            pattern: Pattern::from("//"),
                             scope: Scope::parse("b"),
                             captures: HashMap::new(),
                             change_context: ContextChange::SetEmbed(Context {
@@ -565,13 +567,13 @@ variables:
                                 clear_scopes: ScopeClear::Amount(2),
                                 matches: vec!(
                                     ContextPattern::Match(Match {
-                                        pattern: Pattern::from_str("(?=aa)"),
+                                        pattern: Pattern::from("(?=aa)"),
                                         scope: Scope::empty(),
                                         captures: HashMap::new(),
                                         change_context: ContextChange::Embed(Embed {
                                             embed: "Prolog.sublime-syntax".to_string(),
                                             embed_scope: Scope::empty(),
-                                            escape: Some(Pattern::from_str("</(p)>")),
+                                            escape: Some(Pattern::from("</(p)>")),
                                             escape_captures: hashmap!{
                                                 2 => Scope::parse("c"),
                                             },
@@ -579,7 +581,7 @@ variables:
                                         pop: 0,
                                     }),
                                     ContextPattern::Match(Match {
-                                        pattern: Pattern::from_str("b"),
+                                        pattern: Pattern::from("b"),
                                         scope: Scope::empty(),
                                         captures: HashMap::new(),
                                         change_context: ContextChange::IncludeEmbed(
@@ -588,7 +590,7 @@ variables:
                                             use_push: true,
                                             with_prototype: vec!(
                                                 ContextPattern::Match(Match {
-                                                    pattern: Pattern::from_str("c"),
+                                                    pattern: Pattern::from("c"),
                                                     scope: Scope::parse("c"),
                                                     captures: HashMap::new(),
                                                     change_context:
@@ -614,7 +616,7 @@ variables:
         syntax.serialize(&mut buf).unwrap();
         assert_eq!(
             buf,
-            r#"%YAML 1.2
+            r"%YAML 1.2
 ---
 # http://www.sublimetext.com/docs/syntax.html
 version: 2
@@ -660,7 +662,7 @@ contexts:
       push: [foo, bar]
     - match: ''
       pop: true
-"#
+"
         );
     }
 }

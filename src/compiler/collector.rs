@@ -42,8 +42,8 @@ struct State<'a, 'b> {
     warnings: Vec<Error>,
 }
 
-pub fn collect<'a, 'b>(
-    compiler: &'b Compiler,
+pub fn collect<'a>(
+    compiler: &Compiler,
     options: &'a CompileOptions<'a>,
     grammar: &'a Grammar<'a>,
 ) -> CompileResult<Collection<'a>> {
@@ -269,17 +269,17 @@ fn collect_definitions<'a, 'b>(
 
                 let key = (symbol, num_params as u8);
 
-                let definition: &mut Definition<'a> =
-                    if let Some(def) = state.definitions.get_mut(&key) {
-                        def
-                    } else {
-                        state.definitions.insert(
-                            key.clone(),
-                            Definition { kind, overloads: vec![] },
-                        );
+                let definition: &mut Definition<'a> = if let Some(def) =
+                    state.definitions.get_mut(&key)
+                {
+                    def
+                } else {
+                    state
+                        .definitions
+                        .insert(key, Definition { kind, overloads: vec![] });
 
-                        state.definitions.get_mut(&key).unwrap()
-                    };
+                    state.definitions.get_mut(&key).unwrap()
+                };
 
                 if definition.kind != kind {
                     state.errors.push(Error::new(

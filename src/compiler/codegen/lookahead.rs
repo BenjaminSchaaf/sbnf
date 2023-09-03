@@ -119,15 +119,12 @@ impl<'a> Terminal<'a> {
 
     pub fn local_key(&self, topmost: &'a Key) -> &'a Key {
         for entry in &self.stack {
-            match &entry.data {
-                StackEntryData::Variable { key } => {
-                    return key;
-                }
-                _ => {}
+            if let StackEntryData::Variable { key } = &entry.data {
+                return key;
             }
         }
 
-        return topmost;
+        topmost
     }
 
     pub fn iter<'b>(&'b self) -> TerminalStackIterator<'a, 'b> {
@@ -248,9 +245,9 @@ pub struct TerminalWithCompiler<'a> {
 
 impl<'a> std::fmt::Debug for TerminalWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
+        writeln!(
             f,
-            "match {} {:?}\n",
+            "match {} {:?}",
             self.compiler.resolve_symbol(self.terminal.regex),
             self.terminal.options
         )?;
@@ -259,12 +256,12 @@ impl<'a> std::fmt::Debug for TerminalWithCompiler<'a> {
             for expr in &self.terminal.remaining {
                 write!(f, "{:?}, ", expr.with_compiler(self.compiler))?;
             }
-            write!(f, "]\n")?;
+            writeln!(f, "]")?;
         }
         if !self.terminal.stack.is_empty() {
-            write!(f, "stack\n")?;
+            writeln!(f, "stack")?;
             for entry in &self.terminal.stack {
-                write!(f, "* {:?}\n", entry.with_compiler(self.compiler))?;
+                writeln!(f, "* {:?}", entry.with_compiler(self.compiler))?;
             }
         }
         Ok(())
@@ -367,13 +364,13 @@ pub struct LookaheadWithCompiler<'a> {
 
 impl<'a> std::fmt::Debug for LookaheadWithCompiler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
+        writeln!(
             f,
-            "LOOKAHEAD empty:{:?} end:{:?}\n",
+            "LOOKAHEAD empty:{:?} end:{:?}",
             self.lookahead.empty, self.lookahead.end
         )?;
         for terminal in &self.lookahead.terminals {
-            write!(f, "{:?}\n", terminal.with_compiler(self.compiler))?;
+            writeln!(f, "{:?}", terminal.with_compiler(self.compiler))?;
         }
         write!(f, "LOOKAHEAD END")
     }
@@ -447,10 +444,8 @@ impl<'a> LookaheadState<'a> {
                     }
                 })
                 .collect::<Vec<_>>();
-            let expressions = self
-                .compiler
-                .allocator
-                .alloc_slice_fill_iter(expressions.into_iter());
+            let expressions =
+                self.compiler.allocator.alloc_slice_fill_iter(expressions);
 
             if !expressions.is_empty() {
                 let expression = if expressions.len() > 1 {
@@ -459,7 +454,7 @@ impl<'a> LookaheadState<'a> {
                         location: TextLocation::invalid(),
                     })
                 } else {
-                    expressions.into_iter().next().unwrap()
+                    expressions.iter_mut().next().unwrap()
                 };
                 let rep =
                     self.compiler.allocator.alloc(Expression::Repetition {
@@ -491,7 +486,7 @@ pub fn lookahead<'a>(
 
             let rule = interpreted.rules.get(key).unwrap();
 
-            let mut la = lookahead(interpreted, &rule.expression, state);
+            let mut la = lookahead(interpreted, rule.expression, state);
 
             state.pop_variable(key, &mut la);
 
@@ -511,12 +506,12 @@ pub fn lookahead<'a>(
             empty: false,
         },
         Expression::Passive { expression, .. } => {
-            let mut la = lookahead(interpreted, &expression, state);
+            let mut la = lookahead(interpreted, expression, state);
             la.end = End::None;
             la
         }
         Expression::Repetition { expression: child, .. } => {
-            let mut la = lookahead(interpreted, &child, state);
+            let mut la = lookahead(interpreted, child, state);
 
             // Add the repetition to the front of each match stack
             for term in &mut la.terminals {
@@ -532,7 +527,7 @@ pub fn lookahead<'a>(
             la
         }
         Expression::Optional { expression: child, .. } => {
-            let la = lookahead(interpreted, &child, state);
+            let la = lookahead(interpreted, child, state);
 
             match la.end {
                 End::Illegal => Lookahead {
@@ -555,7 +550,7 @@ pub fn lookahead<'a>(
             };
 
             for expression in *expressions {
-                la.append(lookahead(interpreted, &expression, state));
+                la.append(lookahead(interpreted, expression, state));
             }
 
             la
@@ -685,22 +680,19 @@ mod tests {
     use crate::compiler::{collector, interpreter, CompileOptions, Compiler};
     use crate::sbnf;
 
+    #[derive(Default)]
     struct Harness {
         compiler: Compiler,
     }
 
     impl Harness {
-        fn new() -> Harness {
-            Harness { compiler: Compiler::new() }
-        }
-
         fn symbol(&self, name: &str) -> Symbol {
             self.compiler.get_symbol(name)
         }
 
         fn lookahead<F>(&mut self, source: &str, rule_name: &str, fun: F)
         where
-            F: Fn(Lookahead, &Compiler) -> (),
+            F: Fn(Lookahead, &Compiler),
         {
             let grammar = sbnf::parse(source).unwrap();
 
@@ -712,7 +704,7 @@ mod tests {
             };
 
             let collection =
-                collector::collect(&mut self.compiler, &options, &grammar);
+                collector::collect(&self.compiler, &options, &grammar);
             assert!(collection.warnings.is_empty());
 
             let collection = collection.result.unwrap();
@@ -733,7 +725,7 @@ mod tests {
             assert!(lookahead_state.push_variable(&key).is_none());
 
             let mut la =
-                lookahead(interpreted, &rule.expression, &mut lookahead_state);
+                lookahead(interpreted, rule.expression, &mut lookahead_state);
 
             lookahead_state.pop_variable(&key, &mut la);
 
@@ -746,13 +738,13 @@ mod tests {
         StackEntryData::Repetition { expression }
     }
 
-    fn sed_var<'a>(key: &'a Key) -> StackEntryData<'a> {
+    fn sed_var(key: &Key) -> StackEntryData<'_> {
         StackEntryData::Variable { key }
     }
 
     #[test]
     fn collect_passive() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
@@ -939,7 +931,7 @@ mod tests {
 
     #[test]
     fn collect_repetition() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
@@ -1004,7 +996,7 @@ mod tests {
 
     #[test]
     fn collect_optional() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
@@ -1046,7 +1038,7 @@ mod tests {
 
     #[test]
     fn collect_alternation() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
@@ -1106,7 +1098,7 @@ mod tests {
 
     #[test]
     fn collect_concat() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");
@@ -1212,7 +1204,7 @@ mod tests {
 
     #[test]
     fn collect_left_recursion() {
-        let mut harness = Harness::new();
+        let mut harness = Harness::default();
         let sym_a = harness.symbol("a");
         let sym_b = harness.symbol("b");
         let sym_c = harness.symbol("c");

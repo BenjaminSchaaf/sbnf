@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 use std::fmt::Write;
 
 extern crate sbnf;
@@ -32,12 +34,12 @@ pub fn compile(
 ) -> CompileResult {
     let input = "web";
 
-    let grammar_result = sbnf::sbnf::parse(&source);
+    let grammar_result = sbnf::sbnf::parse(source);
 
     if let Err(error) = grammar_result {
         return CompileResult {
             syntax: "".to_string(),
-            messages: format!("{}", error.with_source(&input, &source)),
+            messages: format!("{}", error.with_source(input, source)),
         };
     }
 
@@ -46,7 +48,7 @@ pub fn compile(
     let arguments = if args.is_empty() {
         vec![]
     } else {
-        args.split(" ").collect::<Vec<_>>()
+        args.split(' ').collect::<Vec<_>>()
     };
 
     let options = sbnf::compiler::CompileOptions {
@@ -56,27 +58,26 @@ pub fn compile(
         entry_points: vec!["main", "prototype"],
     };
 
-    let mut compiler = sbnf::compiler::Compiler::new();
+    let mut compiler = sbnf::compiler::Compiler::default();
 
     let result = compiler.compile(&options, &grammar);
 
     let mut messages = String::new();
-    let result_syntax: String;
 
-    match &result.result {
+    let result_syntax = match &result.result {
         Err(errors) => {
             for error in errors {
-                write!(
+                writeln!(
                     messages,
-                    "{}\n",
+                    "{}",
                     error.with_compiler_and_source(
-                        &compiler, "Error", &input, &source
+                        &compiler, "Error", input, source
                     )
                 )
                 .unwrap();
             }
 
-            result_syntax = "".to_string();
+            "".to_string()
         }
         Ok(syntax) => {
             let mut output_buffer = String::new();
@@ -84,17 +85,17 @@ pub fn compile(
                 messages.write_fmt(format_args!("{}", e)).unwrap();
             });
 
-            result_syntax = output_buffer;
+            output_buffer
         }
-    }
+    };
 
     if !quiet {
         for warning in result.warnings {
-            write!(
+            writeln!(
                 messages,
-                "{}\n",
+                "{}",
                 warning.with_compiler_and_source(
-                    &compiler, "Warning", &input, &source
+                    &compiler, "Warning", input, source
                 )
             )
             .unwrap();

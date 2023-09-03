@@ -43,7 +43,7 @@ fn main() -> std::io::Result<()> {
 
     // Make sure sbnfc is compiled
     let status = Command::new("cargo")
-        .args(&["build"])
+        .args(["build"])
         .status()
         .expect("Failed to run cargo");
     assert!(status.success(), "Failed to compile sbnf");
@@ -84,7 +84,7 @@ fn main() -> std::io::Result<()> {
 
                 // Compile syntax to target
                 let status = Command::new("target/debug/sbnf")
-                    .args(&[
+                    .args([
                         sbnf_path.to_str().unwrap(),
                         "-o",
                         target.to_str().unwrap(),

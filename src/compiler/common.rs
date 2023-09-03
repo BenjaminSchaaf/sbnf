@@ -13,11 +13,13 @@ pub struct Compiler {
 
 pub type Symbol = symbol_table::Symbol;
 
-impl Compiler {
-    pub fn new() -> Compiler {
+impl Default for Compiler {
+    fn default() -> Compiler {
         Compiler { interner: SymbolTable::new(), allocator: Bump::new() }
     }
+}
 
+impl Compiler {
     pub fn get_symbol(&self, s: &str) -> Symbol {
         self.interner.intern(s)
     }
@@ -60,7 +62,7 @@ pub struct CompileOptions<'a> {
     pub entry_points: Vec<&'a str>,
 }
 
-pub fn trim_ascii<'a>(s: &'a str) -> &'a str {
+pub fn trim_ascii(s: &str) -> &str {
     s.trim_matches(|c: char| c.is_ascii_whitespace())
 }
 
@@ -129,26 +131,26 @@ impl std::fmt::Display for ErrorWithCompilerAndSource<'_> {
         if let Some(loc) = self.error.location {
             write!(f, ":{}", loc)?;
         }
-        write!(f, ")\n")?;
+        writeln!(f, ")")?;
 
         for (loc, comment) in &self.error.comments {
-            write!(f, "{} {}\n", loc.with_source(self.source), comment)?;
+            writeln!(f, "{} {}", loc.with_source(self.source), comment)?;
         }
 
         if !self.error.traceback.is_empty() {
-            write!(f, "TRACEBACK:\n")?;
+            writeln!(f, "TRACEBACK:")?;
 
             for frame in self.error.traceback.iter().rev() {
-                write!(
+                writeln!(
                     f,
-                    "{}:{} - {}\n",
+                    "{}:{} - {}",
                     self.origin,
                     frame.function_loc,
                     frame.with_compiler(self.compiler)
                 )?;
 
                 if let Some(loc) = frame.reference_loc {
-                    write!(f, "{}\n", loc.with_source(self.source))?;
+                    writeln!(f, "{}", loc.with_source(self.source))?;
                 }
             }
         }
@@ -275,13 +277,15 @@ pub const STACK_SIZE_LIMIT: usize = 500;
 #[derive(Debug, Clone)]
 pub struct CallStack(Vec<StackFrame>);
 
-impl CallStack {
-    pub fn new() -> CallStack {
+impl Default for CallStack {
+    fn default() -> CallStack {
         let mut stack = vec![];
         stack.reserve_exact(STACK_SIZE_LIMIT);
-        return CallStack(stack);
+        CallStack(stack)
     }
+}
 
+impl CallStack {
     pub fn empty() -> CallStack {
         CallStack(vec![])
     }

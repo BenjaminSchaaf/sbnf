@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
@@ -72,8 +72,8 @@ pub struct TerminalOptions {
     pub embed: TerminalEmbed,
 }
 
-impl TerminalOptions {
-    pub fn new() -> TerminalOptions {
+impl Default for TerminalOptions {
+    fn default() -> TerminalOptions {
         TerminalOptions {
             scope: sublime_syntax::Scope::empty(),
             captures: HashMap::new(),
@@ -267,7 +267,7 @@ pub fn interpret<'a>(
         variables: HashMap::new(),
         seen_definitions: HashSet::new(),
         rules: HashMap::new(),
-        stack: CallStack::new(),
+        stack: CallStack::default(),
         errors: vec![],
         warnings: vec![],
     };
@@ -278,7 +278,7 @@ pub fn interpret<'a>(
 
     let definitions = &collection.definitions;
 
-    let metadata = collect_metadata(&mut state, &definitions);
+    let metadata = collect_metadata(&mut state, definitions);
 
     let mut entry_points = vec![];
 
@@ -306,12 +306,12 @@ pub fn interpret<'a>(
     )
 }
 
-fn collect_metadata<'a, 'b>(
-    state: &'b mut State<'a>,
+fn collect_metadata<'a>(
+    state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
 ) -> Metadata {
     let name = interpret_metadata_variable(state, collection, "NAME", true)
-        .map(|s| s.1.to_string())
+        .map(|s| s.1)
         .or_else(|| state.options.name_hint.map(|s| trim_ascii(s).to_string()));
 
     // A name is required, either from a variable or the name hint
@@ -373,7 +373,7 @@ fn collect_metadata<'a, 'b>(
     };
 
     Metadata {
-        name: name.unwrap_or_else(|| "".to_string()),
+        name: name.unwrap_or_default(),
         // File extensions are separated by whitespace
         file_extensions: file_extensions.map_or(vec![], |s| {
             s.1.split_ascii_whitespace()
@@ -433,9 +433,9 @@ fn interpret_metadata_variable<'a>(
     }
 }
 
-fn match_rule<'a, 'b>(
+fn match_rule<'a>(
     state: &mut State<'a>,
-    collection: &'b DefinitionMap<'a>,
+    collection: &DefinitionMap<'a>,
     def_node: &'a Node<'a>,
     arguments: &Vec<Value>,
 ) -> Option<(&'a Node<'a>, VarMap)> {
@@ -567,7 +567,7 @@ fn resolve_definition<'a>(
                 )
             };
 
-        if key.arguments.len() > 0 {
+        if !key.arguments.is_empty() {
             msg.push_str(&format!(" with {} arguments", key.arguments.len()));
         }
 
@@ -666,9 +666,9 @@ fn interpret_variable<'a>(
     }
 }
 
-fn interpret_rule<'a, 'b>(
+fn interpret_rule<'a>(
     state: &mut State<'a>,
-    meta_state: &MetaState<'a, 'b>,
+    meta_state: &MetaState<'a, '_>,
     reference_loc: Option<TextLocation>,
     key: &Key,
 ) {
@@ -678,7 +678,7 @@ fn interpret_rule<'a, 'b>(
     }
 
     if let Some((kind, node, var_map)) =
-        resolve_definition(state, &meta_state.collection, reference_loc, key)
+        resolve_definition(state, meta_state.collection, reference_loc, key)
     {
         assert!(kind == DefinitionKind::Rule);
 
@@ -840,9 +840,9 @@ fn interpret_value<'a>(
     }
 }
 
-fn interpret_expression<'a, 'b>(
+fn interpret_expression<'a>(
     state: &mut State<'a>,
-    meta_state: &MetaState<'a, 'b>,
+    meta_state: &MetaState<'a, '_>,
     var_map: &VarMap,
     node: &'a Node<'a>,
 ) -> Option<Expression<'a>> {
@@ -850,7 +850,7 @@ fn interpret_expression<'a, 'b>(
         NodeData::Reference { options: node_options, .. } => {
             let value = interpret_value(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 node,
                 false,
@@ -890,7 +890,7 @@ fn interpret_expression<'a, 'b>(
         NodeData::RegexTerminal { options: node_options, embed } => {
             let regex = interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 node.location,
                 node.text,
@@ -918,7 +918,7 @@ fn interpret_expression<'a, 'b>(
                 node_options,
                 embed,
             );
-            let regex = state.compiler.get_symbol(&regex);
+            let regex = state.compiler.get_symbol(regex);
             Some(Expression::Terminal {
                 regex,
                 options,
@@ -970,10 +970,8 @@ fn interpret_expression<'a, 'b>(
                     expressions.push(e);
                 }
             }
-            let expressions = state
-                .compiler
-                .allocator
-                .alloc_slice_fill_iter(expressions.into_iter());
+            let expressions =
+                state.compiler.allocator.alloc_slice_fill_iter(expressions);
 
             if expressions.len() != children.len() {
                 None
@@ -993,10 +991,8 @@ fn interpret_expression<'a, 'b>(
                     expressions.push(e);
                 }
             }
-            let expressions = state
-                .compiler
-                .allocator
-                .alloc_slice_fill_iter(expressions.into_iter());
+            let expressions =
+                state.compiler.allocator.alloc_slice_fill_iter(expressions);
 
             if expressions.len() != children.len() {
                 None
@@ -1011,9 +1007,9 @@ fn interpret_expression<'a, 'b>(
     }
 }
 
-fn parse_terminal_options<'a, 'b>(
+fn parse_terminal_options<'a>(
     state: &mut State<'a>,
-    meta_state: &MetaState<'a, 'b>,
+    meta_state: &MetaState<'a, '_>,
     var_map: &VarMap,
     node_options: &'a Option<Box<Node<'a>>>,
     node_embed: &'a Option<Box<Node<'a>>>,
@@ -1041,7 +1037,7 @@ fn parse_terminal_options<'a, 'b>(
                 if i == 0 {
                     let interpolated = interpolate_string(
                         state,
-                        &meta_state.collection,
+                        meta_state.collection,
                         var_map,
                         option.location,
                         option.text,
@@ -1063,15 +1059,17 @@ fn parse_terminal_options<'a, 'b>(
                 let value_text = trim_ascii(value_node.text);
                 let value = interpolate_string(
                     state,
-                    &meta_state.collection,
+                    meta_state.collection,
                     var_map,
                     value_node.location,
                     value_text,
                 );
 
                 // The first set of keyword arguments determine captures
-                if let Some(group) = key.parse::<u16>().ok() {
-                    if options.captures.contains_key(&group) {
+                if let Ok(group) = key.parse::<u16>() {
+                    if let Entry::Vacant(e) = options.captures.entry(group) {
+                        e.insert(parse_scope(meta_state.metadata, &value));
+                    } else {
                         // TODO: Improve error message
                         state.errors.push(
                             Error::from_str(
@@ -1080,11 +1078,6 @@ fn parse_terminal_options<'a, 'b>(
                                 vec![],
                             )
                             .with_traceback(state.stack.clone()),
-                        );
-                    } else {
-                        options.captures.insert(
-                            group,
-                            parse_scope(meta_state.metadata, &value),
                         );
                     }
                 } else {
@@ -1138,7 +1131,7 @@ fn parse_rule_options<'a, 'b>(
         if i == 0 && argument.data == NodeData::PositionalOption {
             let interpolated = interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 argument.location,
                 argument.text,
@@ -1157,7 +1150,7 @@ fn parse_rule_options<'a, 'b>(
             let value_text = trim_ascii(value_node.text);
             let value = interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 value_node.location,
                 value_text,
@@ -1173,18 +1166,16 @@ fn parse_rule_options<'a, 'b>(
                             (node.location, "first used here".to_string()),
                         ],
                     ));
+                } else if let Ok(v) = value.parse::<bool>() {
+                    include_prototype = Some((argument, v));
                 } else {
-                    if let Ok(v) = value.parse::<bool>() {
-                        include_prototype = Some((argument, v));
-                    } else {
-                        state.errors.push(Error::new(
-                            format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
-                            Some(value_node.location),
-                            vec!(
-                                (value_node.location, "expected either 'true' or 'false'".to_string()),
-                                (argument.location, "for this argument".to_string()),
-                            )));
-                    }
+                    state.errors.push(Error::new(
+                        format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
+                        Some(value_node.location),
+                        vec!(
+                            (value_node.location, "expected either 'true' or 'false'".to_string()),
+                            (argument.location, "for this argument".to_string()),
+                        )));
                 }
             } else {
                 state.errors.push(Error::new(
@@ -1208,9 +1199,9 @@ fn parse_rule_options<'a, 'b>(
     }
 }
 
-fn parse_terminal_embed<'a, 'b>(
+fn parse_terminal_embed<'a>(
     state: &mut State<'a>,
-    meta_state: &MetaState<'a, 'b>,
+    meta_state: &MetaState<'a, '_>,
     var_map: &VarMap,
     node_embed: &'a Option<Box<Node<'a>>>,
 ) -> TerminalEmbed {
@@ -1256,7 +1247,7 @@ fn parse_terminal_embed<'a, 'b>(
         {
             interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 parameters[0].location,
                 parameters[0].text,
@@ -1282,7 +1273,7 @@ fn parse_terminal_embed<'a, 'b>(
 
         // Embed takes at least one option for the syntax to include and the
         // escape scope and capture scopes
-        if options.len() < 1 {
+        if options.is_empty() {
             state.errors.push(
                 Error::from_str(
                     "Expected at least one option for %embed",
@@ -1300,7 +1291,7 @@ fn parse_terminal_embed<'a, 'b>(
         let embed = match &options[0].data {
             NodeData::PositionalOption => interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 options[0].location,
                 options[0].text,
@@ -1311,7 +1302,7 @@ fn parse_terminal_embed<'a, 'b>(
                 assert!(value_node.data == NodeData::KeywordOptionValue);
                 let value_text = interpolate_string(
                     state,
-                    &meta_state.collection,
+                    meta_state.collection,
                     var_map,
                     value_node.location,
                     value_node.text,
@@ -1337,7 +1328,7 @@ fn parse_terminal_embed<'a, 'b>(
                     if i == 0 {
                         let interpolated = interpolate_string(
                             state,
-                            &meta_state.collection,
+                            meta_state.collection,
                             var_map,
                             option.location,
                             option.text,
@@ -1359,15 +1350,17 @@ fn parse_terminal_embed<'a, 'b>(
                     let value_text = trim_ascii(value_node.text);
                     let value = interpolate_string(
                         state,
-                        &meta_state.collection,
+                        meta_state.collection,
                         var_map,
                         value_node.location,
                         value_text,
                     );
 
                     // The first set of keyword arguments determine captures
-                    if let Some(group) = key.parse::<u16>().ok() {
-                        if escape_captures.contains_key(&group) {
+                    if let Ok(group) = key.parse::<u16>() {
+                        if let Entry::Vacant(e) = escape_captures.entry(group) {
+                            e.insert(parse_scope(meta_state.metadata, &value));
+                        } else {
                             // TODO: Improve error message
                             state.errors.push(
                                 Error::from_str(
@@ -1376,11 +1369,6 @@ fn parse_terminal_embed<'a, 'b>(
                                     vec![],
                                 )
                                 .with_traceback(state.stack.clone()),
-                            );
-                        } else {
-                            escape_captures.insert(
-                                group,
-                                parse_scope(meta_state.metadata, &value),
                             );
                         }
                     } else {
@@ -1480,7 +1468,7 @@ fn parse_terminal_embed<'a, 'b>(
         let context = match &options[0].data {
             NodeData::PositionalOption => interpolate_string(
                 state,
-                &meta_state.collection,
+                meta_state.collection,
                 var_map,
                 options[0].location,
                 options[0].text,
@@ -1491,7 +1479,7 @@ fn parse_terminal_embed<'a, 'b>(
                 assert!(value_node.data == NodeData::KeywordOptionValue);
                 let value_text = interpolate_string(
                     state,
-                    &meta_state.collection,
+                    meta_state.collection,
                     var_map,
                     value_node.location,
                     value_node.text,
@@ -1546,7 +1534,7 @@ fn str_from_iterators<'a>(
 
 // TODO: Tests
 // TODO: Move to parser
-fn interpolate_string<'a, 'b>(
+fn interpolate_string<'a>(
     state: &mut State<'a>,
     collection: &DefinitionMap<'a>,
     var_map: &VarMap,
@@ -1606,7 +1594,7 @@ fn interpolate_string<'a, 'b>(
 
                     let variable =
                         str_from_iterators(string, start, iter.clone());
-                    let name = state.compiler.get_symbol(&variable);
+                    let name = state.compiler.get_symbol(variable);
                     let end = iter.next();
                     assert!(end.unwrap() == ']');
 
@@ -1718,7 +1706,7 @@ pub mod tests {
     }
 
     pub fn expr_trm_noopt<'a>(regex: Symbol) -> Expression<'a> {
-        expr_trm(regex, TerminalOptions::new())
+        expr_trm(regex, TerminalOptions::default())
     }
 
     pub fn expr_pas<'a>(
@@ -1771,8 +1759,8 @@ pub mod tests {
         }
     }
 
-    fn interp<'a, 'b>(
-        compiler: &mut Compiler,
+    fn interp<'a>(
+        compiler: &Compiler,
         collection: &DefinitionMap<'a>,
         var_map: &VarMap,
         location: TextLocation,
@@ -1791,7 +1779,7 @@ pub mod tests {
             seen_definitions: HashSet::new(),
             variables: HashMap::new(),
             rules: HashMap::new(),
-            stack: CallStack::new(),
+            stack: CallStack::default(),
             errors: vec![],
             warnings: vec![],
         };
@@ -1809,7 +1797,7 @@ pub mod tests {
 
     #[test]
     fn interpolate_string_test() {
-        let mut compiler = Compiler::new();
+        let compiler = Compiler::default();
         let collection = DefinitionMap::new();
         let var_map = VarMap::from([(
             compiler.get_symbol("a"),
@@ -1823,43 +1811,43 @@ pub mod tests {
 
         assert_eq!(
             Some(compiler.get_symbol("")),
-            interp(&mut compiler, &collection, &var_map, location, "")
+            interp(&compiler, &collection, &var_map, location, "")
         );
         assert_eq!(
             Some(compiler.get_symbol("#")),
-            interp(&mut compiler, &collection, &var_map, location, "#")
+            interp(&compiler, &collection, &var_map, location, "#")
         );
         assert_eq!(
             Some(compiler.get_symbol("#!")),
-            interp(&mut compiler, &collection, &var_map, location, "#!")
+            interp(&compiler, &collection, &var_map, location, "#!")
         );
         assert_eq!(
             Some(compiler.get_symbol("#a")),
-            interp(&mut compiler, &collection, &var_map, location, "#a")
+            interp(&compiler, &collection, &var_map, location, "#a")
         );
         assert_eq!(
             None,
-            interp(&mut compiler, &collection, &var_map, location, "#[")
+            interp(&compiler, &collection, &var_map, location, "#[")
         );
         assert_eq!(
             None,
-            interp(&mut compiler, &collection, &var_map, location, "#[]")
+            interp(&compiler, &collection, &var_map, location, "#[]")
         );
         assert_eq!(
             Some(compiler.get_symbol("#]")),
-            interp(&mut compiler, &collection, &var_map, location, "#]")
+            interp(&compiler, &collection, &var_map, location, "#]")
         );
         assert_eq!(
             Some(compiler.get_symbol("b")),
-            interp(&mut compiler, &collection, &var_map, location, "#[a]")
+            interp(&compiler, &collection, &var_map, location, "#[a]")
         );
         assert_eq!(
             Some(compiler.get_symbol("aba")),
-            interp(&mut compiler, &collection, &var_map, location, "a#[a]a")
+            interp(&compiler, &collection, &var_map, location, "a#[a]a")
         );
         assert_eq!(
             Some(compiler.get_symbol("#[a]")),
-            interp(&mut compiler, &collection, &var_map, location, "\\#[a]")
+            interp(&compiler, &collection, &var_map, location, "\\#[a]")
         );
     }
 }
