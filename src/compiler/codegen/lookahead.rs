@@ -331,7 +331,7 @@ impl<'a> Lookahead<'a> {
                     end: End::None,
                     empty: next.empty,
                 })),
-                _ => todo!(),
+                End::Push(p) => End::Push(p),
             },
             End::None => match next.end {
                 End::Illegal => End::Push(Box::new(Lookahead {

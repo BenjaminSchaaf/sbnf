@@ -3,7 +3,7 @@ use std::process::Command;
 
 const ST_BUILD: u32 = 4138;
 
-const LANGUAGES: [&str; 13] = [
+const LANGUAGES: &[&str] = &[
     "regexp",
     "sbnf",
     "simplec",
@@ -13,6 +13,7 @@ const LANGUAGES: [&str; 13] = [
     "tests/issue_16",
     "tests/issue_18",
     "tests/issue_24",
+    "tests/issue_32",
     "tests/meta_scopes",
     "tests/passive",
     "tests/recursive_branch_points",
@@ -49,7 +50,7 @@ fn main() -> std::io::Result<()> {
     assert!(status.success(), "Failed to compile sbnf");
 
     // Copy all the tests cleanly from the test languages
-    for language in &LANGUAGES {
+    for language in LANGUAGES {
         let mut sbnfs: Vec<PathBuf> = vec![];
         let mut tests: Vec<PathBuf> = vec![];
 

@@ -1,0 +1,7 @@
+main : (~any)* ;
+any
+: `(`{open} (~any)* `)`{close}
+| 'end'{end1}
+| 'drop'{drop} 'if'{if}?
+| 'natural'{natural}? 'end'{end2}
+;

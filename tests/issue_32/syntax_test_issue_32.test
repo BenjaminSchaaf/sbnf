@@ -1,0 +1,30 @@
+# SYNTAX TEST "Packages/tests/issue_32/issue_32.sublime-syntax"
+
+ (  )
+#^ open
+#   ^ close
+
+ end
+#^^^ end1
+
+ natural end
+#^^^^^^^ natural
+#        ^^^ end2
+
+ asdasd
+#^^^^^^ - invalid
+
+ if
+#^^ - if
+
+ drop if
+#^^^^ drop
+#     ^^ if
+
+ (  () end end )
+#^ open
+#   ^ open
+#    ^ close
+#      ^^^ end1
+#          ^^^ end1
+#              ^ close
