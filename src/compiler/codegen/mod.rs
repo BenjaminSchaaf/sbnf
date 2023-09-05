@@ -403,9 +403,17 @@ fn gen_contexts<'a>(
                         }),
                     };
 
-                    let ctx_name =
-                        create_context_name(state, branch_key.clone());
-                    branches.push(ctx_name.clone());
+                    let ctx_name = if let Some(name) =
+                        state.context_cache.get(&branch_key)
+                    {
+                        branches.push(name.clone());
+                        None
+                    } else {
+                        let name =
+                            create_context_name(state, branch_key.clone());
+                        branches.push(name.clone());
+                        Some(name)
+                    };
 
                     let next_name = if let Some(lookahead) =
                         lookahead::advance_terminal(
@@ -433,41 +441,45 @@ fn gen_contexts<'a>(
                         None
                     };
 
-                    let scope =
-                        scope_for_match_stack(interpreted, None, terminal);
+                    if let Some(ctx_name) = ctx_name {
+                        let scope =
+                            scope_for_match_stack(interpreted, None, terminal);
 
-                    let (exit, pop) = if let Some(name) = next_name {
-                        // Using set in branch_point is broken, so we
-                        // have to use push.
-                        (sublime_syntax::ContextChange::Push(vec![name]), 1)
-                    } else {
-                        (sublime_syntax::ContextChange::None, 1)
-                    };
+                        let (exit, pop) = if let Some(name) = next_name {
+                            // Using set in branch_point is broken, so we
+                            // have to use push.
+                            (sublime_syntax::ContextChange::Push(vec![name]), 1)
+                        } else {
+                            (sublime_syntax::ContextChange::None, 1)
+                        };
 
-                    let terminal_match = gen_terminal(
-                        state,
-                        interpreted,
-                        &ctx_name,
-                        rule_key,
-                        &meta_content_scope,
-                        &branch_point,
-                        scope,
-                        terminal,
-                        exit,
-                        pop,
-                    );
+                        let terminal_match = gen_terminal(
+                            state,
+                            interpreted,
+                            &ctx_name,
+                            rule_key,
+                            &meta_content_scope,
+                            &branch_point,
+                            scope,
+                            terminal,
+                            exit,
+                            pop,
+                        );
 
-                    state.contexts.insert(
-                        ctx_name,
-                        sublime_syntax::Context {
-                            meta_scope: sublime_syntax::Scope::empty(),
-                            meta_content_scope: sublime_syntax::Scope::empty(),
-                            meta_include_prototype: false,
-                            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
-                            matches: vec![terminal_match],
-                            comment: None,
-                        },
-                    );
+                        state.contexts.insert(
+                            ctx_name,
+                            sublime_syntax::Context {
+                                meta_scope: sublime_syntax::Scope::empty(),
+                                meta_content_scope:
+                                    sublime_syntax::Scope::empty(),
+                                meta_include_prototype: false,
+                                clear_scopes:
+                                    sublime_syntax::ScopeClear::Amount(0),
+                                matches: vec![terminal_match],
+                                comment: None,
+                            },
+                        );
+                    }
                 }
 
                 assert!(branches.len() > 1);
