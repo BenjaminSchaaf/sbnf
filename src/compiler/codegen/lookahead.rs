@@ -27,7 +27,7 @@ use super::super::interpreter::{
     Expression, Interpreted, Key, TerminalOptions,
 };
 use crate::sbnf::TextLocation;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackEntryData<'a> {

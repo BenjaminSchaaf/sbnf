@@ -1,4 +1,6 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::fmt::Write;
+
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
 use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
@@ -568,7 +570,7 @@ fn resolve_definition<'a>(
             };
 
         if !key.arguments.is_empty() {
-            msg.push_str(&format!(" with {} arguments", key.arguments.len()));
+            write!(msg, " with {} arguments", key.arguments.len()).unwrap();
         }
 
         state.errors.push(

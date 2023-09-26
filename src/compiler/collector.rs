@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use super::common::{
     CompileOptions, CompileResult, Compiler, Error, Symbol, Value, VarMap,

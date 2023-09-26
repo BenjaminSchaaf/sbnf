@@ -1,6 +1,6 @@
 /// This file describes the structure of sublime-syntax files and defines a
 /// serializer for it.
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::fmt::{Error, Write};
 
 struct SerializeState<'a> {
@@ -429,10 +429,7 @@ pub enum ContextChange {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    extern crate maplit;
-    use maplit::hashmap;
+    use hashbrown::HashMap;
 
     use crate::sublime_syntax::*;
 
@@ -475,9 +472,14 @@ hidden: true\n"
             first_line_match: None,
             scope: Scope::parse("source.vars text.vars"),
             hidden: false,
-            variables: hashmap! {
-                "foo".to_string() => Pattern::from("^foo\\b.*$"),
-                "bar".to_string() => Pattern::from("\\bbar\\b|\\bfoo\\b"),
+            variables: {
+                let mut m = HashMap::new();
+                m.insert("foo".to_string(), Pattern::from("^foo\\b.*$"));
+                m.insert(
+                    "bar".to_string(),
+                    Pattern::from("\\bbar\\b|\\bfoo\\b"),
+                );
+                m
             },
             contexts: HashMap::new(),
         };
@@ -508,55 +510,67 @@ variables:
             scope: Scope::parse("source.ctx"),
             hidden: false,
             variables: HashMap::new(),
-            contexts: hashmap! {
-                "foo".to_string() => Context {
-                    meta_scope: Scope::empty(),
-                    meta_content_scope: Scope::parse("a b"),
-                    meta_include_prototype: true,
-                    clear_scopes: ScopeClear::All,
-                    matches: vec!(
-                        ContextPattern::Include("bar".to_string()),
-                        ContextPattern::Include("baz".to_string()),
-                        ContextPattern::Match(Match {
-                            pattern: Pattern::from("\\ba(b)\\b"),
-                            scope: Scope::empty(),
-                            captures: hashmap!{ 1 => Scope::parse("b") },
-                            change_context: ContextChange::None,
-                            pop: 0,
-                        }),
-                        ContextPattern::Match(Match {
-                            pattern: Pattern::from("(?=\\()"),
-                            scope: Scope::parse("a b"),
-                            captures: HashMap::new(),
-                            change_context: ContextChange::Push(
-                                vec!("foo".to_string())),
-                            pop: 0,
-                        }),
-                        ContextPattern::Match(Match {
-                            pattern: Pattern::from("(?={)"),
-                            scope: Scope::parse("a.b"),
-                            captures: HashMap::new(),
-                            change_context: ContextChange::Push(
-                                vec!("foo".to_string(), "bar".to_string())),
-                            pop: 0,
-                        }),
-                        ContextPattern::Match(Match {
-                            pattern: Pattern::from(""),
-                            scope: Scope::empty(),
-                            captures: HashMap::new(),
-                            change_context: ContextChange::None,
-                            pop: 1,
-                        }),
-                    ),
-                    comment: None,
-                },
-                "bar".to_string() => Context {
-                    meta_scope: Scope::empty(),
-                    meta_content_scope: Scope::empty(),
-                    meta_include_prototype: false,
-                    clear_scopes: ScopeClear::Amount(0),
-                    matches: vec!(
-                        ContextPattern::Match(Match {
+            contexts: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "foo".to_string(),
+                    Context {
+                        meta_scope: Scope::empty(),
+                        meta_content_scope: Scope::parse("a b"),
+                        meta_include_prototype: true,
+                        clear_scopes: ScopeClear::All,
+                        matches: vec![
+                            ContextPattern::Include("bar".to_string()),
+                            ContextPattern::Include("baz".to_string()),
+                            ContextPattern::Match(Match {
+                                pattern: Pattern::from("\\ba(b)\\b"),
+                                scope: Scope::empty(),
+                                captures: {
+                                    let mut m = HashMap::new();
+                                    m.insert(1, Scope::parse("b"));
+                                    m
+                                },
+                                change_context: ContextChange::None,
+                                pop: 0,
+                            }),
+                            ContextPattern::Match(Match {
+                                pattern: Pattern::from("(?=\\()"),
+                                scope: Scope::parse("a b"),
+                                captures: HashMap::new(),
+                                change_context: ContextChange::Push(vec![
+                                    "foo".to_string(),
+                                ]),
+                                pop: 0,
+                            }),
+                            ContextPattern::Match(Match {
+                                pattern: Pattern::from("(?={)"),
+                                scope: Scope::parse("a.b"),
+                                captures: HashMap::new(),
+                                change_context: ContextChange::Push(vec![
+                                    "foo".to_string(),
+                                    "bar".to_string(),
+                                ]),
+                                pop: 0,
+                            }),
+                            ContextPattern::Match(Match {
+                                pattern: Pattern::from(""),
+                                scope: Scope::empty(),
+                                captures: HashMap::new(),
+                                change_context: ContextChange::None,
+                                pop: 1,
+                            }),
+                        ],
+                        comment: None,
+                    },
+                );
+                m.insert(
+                    "bar".to_string(),
+                    Context {
+                        meta_scope: Scope::empty(),
+                        meta_content_scope: Scope::empty(),
+                        meta_include_prototype: false,
+                        clear_scopes: ScopeClear::Amount(0),
+                        matches: vec![ContextPattern::Match(Match {
                             pattern: Pattern::from("//"),
                             scope: Scope::parse("b"),
                             captures: HashMap::new(),
@@ -565,30 +579,42 @@ variables:
                                 meta_content_scope: Scope::empty(),
                                 meta_include_prototype: true,
                                 clear_scopes: ScopeClear::Amount(2),
-                                matches: vec!(
+                                matches: vec![
                                     ContextPattern::Match(Match {
                                         pattern: Pattern::from("(?=aa)"),
                                         scope: Scope::empty(),
                                         captures: HashMap::new(),
-                                        change_context: ContextChange::Embed(Embed {
-                                            embed: "Prolog.sublime-syntax".to_string(),
-                                            embed_scope: Scope::empty(),
-                                            escape: Some(Pattern::from("</(p)>")),
-                                            escape_captures: hashmap!{
-                                                2 => Scope::parse("c"),
+                                        change_context: ContextChange::Embed(
+                                            Embed {
+                                                embed: "Prolog.sublime-syntax"
+                                                    .to_string(),
+                                                embed_scope: Scope::empty(),
+                                                escape: Some(Pattern::from(
+                                                    "</(p)>",
+                                                )),
+                                                escape_captures: {
+                                                    let mut m = HashMap::new();
+                                                    m.insert(
+                                                        2,
+                                                        Scope::parse("c"),
+                                                    );
+                                                    m
+                                                },
                                             },
-                                        }),
+                                        ),
                                         pop: 0,
                                     }),
                                     ContextPattern::Match(Match {
                                         pattern: Pattern::from("b"),
                                         scope: Scope::empty(),
                                         captures: HashMap::new(),
-                                        change_context: ContextChange::IncludeEmbed(
+                                        change_context:
+                                            ContextChange::IncludeEmbed(
                                                 IncludeEmbed {
-                                            path: "D.sublime-syntax".to_string(),
-                                            use_push: true,
-                                            with_prototype: vec!(
+                                                    path: "D.sublime-syntax"
+                                                        .to_string(),
+                                                    use_push: true,
+                                                    with_prototype: vec!(
                                                 ContextPattern::Match(Match {
                                                     pattern: Pattern::from("c"),
                                                     scope: Scope::parse("c"),
@@ -598,17 +624,19 @@ variables:
                                                     pop: 3,
                                                 }),
                                             ),
-                                        }),
+                                                },
+                                            ),
                                         pop: 0,
                                     }),
-                                ),
+                                ],
                                 comment: Some("inner".to_string()),
                             }),
                             pop: 2,
-                        }),
-                    ),
-                    comment: Some("foo\nbar".to_string()),
-                },
+                        })],
+                        comment: Some("foo\nbar".to_string()),
+                    },
+                );
+                m
             },
         };
 

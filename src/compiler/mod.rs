@@ -47,7 +47,7 @@ mod tests {
     use crate::sublime_syntax::{
         Context, ContextChange, ContextPattern, Match, Pattern, Scope,
     };
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     fn compile_matches(
         source: &str,

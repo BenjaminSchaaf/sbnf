@@ -1,6 +1,8 @@
+use std::fmt::Write;
+
 use base64;
+use hashbrown::HashMap;
 use indexmap::IndexMap;
-use std::collections::HashMap;
 
 use super::common::{parse_scope, Compiler, Symbol};
 use super::interpreter::{Expression, Interpreted, Key, TerminalEmbed};
@@ -1054,8 +1056,8 @@ fn gen_meta_content_scope_context<'a>(
     let meta_content_scope = interpreted.rules[rule_key].options.scope.clone();
 
     if !meta_content_scope.is_empty() {
-        let rule_meta_ctx_name =
-            format!("{}|meta", build_rule_key_name(state, rule_key));
+        let mut rule_meta_ctx_name = build_rule_key_name(state, rule_key);
+        rule_meta_ctx_name.push_str("|meta");
 
         if !state.contexts.contains_key(&rule_meta_ctx_name) {
             state.contexts.insert(
@@ -1181,7 +1183,7 @@ fn build_rule_key_name(state: &State, rule_key: &Key) -> String {
         let mut s =
             format!("[{}", rule_key.arguments[0].with_compiler(state.compiler));
         for arg in &rule_key.arguments[1..] {
-            s.push_str(&format!(", {}", arg.with_compiler(state.compiler)));
+            write!(s, ", {}", arg.with_compiler(state.compiler)).unwrap();
         }
         s.push(']');
 
@@ -1212,7 +1214,7 @@ fn create_uncached_context_name<'a>(
             .insert(rule_key, Rule { context_count: 1, branch_point_count: 0 });
         0
     };
-    result.push_str(&format!("|{}", index));
+    write!(result, "|{}", index).unwrap();
 
     // Add optional branch point
     if let Some(branch_point) = &branch_point {
@@ -1269,7 +1271,7 @@ fn scope_for_match_stack<'a>(
 
     for entry in terminal.stack.iter().rev() {
         if let StackEntryData::Variable { key } = &entry.data {
-            let rule_options = &interpreted.rules[key].options;
+            let rule_options = &interpreted.rules[*key].options;
 
             scopes.extend(rule_options.scope.scopes.iter().cloned());
         }
