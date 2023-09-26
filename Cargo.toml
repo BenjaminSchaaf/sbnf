@@ -25,10 +25,9 @@ members = [
 default-members = ["cli"]
 
 [dependencies]
-indexmap = "1.9.3"
-base64 = "0.21.1"
-bumpalo = "3.13.0"
-symbol_table = "0.3.0"
+indexmap = "2.0"
+base64 = "0.21.4"
+bumpalo = "3.14.0"
 hashbrown = "0.14.0"
 
 [dev-dependencies]

@@ -1,17 +1,16 @@
 use hashbrown::HashMap;
 
 use bumpalo::Bump;
-use symbol_table::SymbolTable;
 
 use crate::sbnf::TextLocation;
 use crate::sublime_syntax;
+pub use crate::symbol_table::Symbol;
+use crate::symbol_table::SymbolTable;
 
 pub struct Compiler {
     interner: SymbolTable,
     pub allocator: Bump,
 }
-
-pub type Symbol = symbol_table::Symbol;
 
 impl Default for Compiler {
     fn default() -> Compiler {
