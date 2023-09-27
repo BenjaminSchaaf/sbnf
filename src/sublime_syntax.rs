@@ -144,7 +144,7 @@ pub struct Scope(pub String);
 
 impl Scope {
     pub fn empty() -> Scope {
-        Scope("".to_string())
+        Scope(String::new())
     }
 
     pub fn new(scope: String) -> Scope {
@@ -286,7 +286,7 @@ impl ContextPattern {
 pub struct Match {
     pub pattern: Pattern,
     pub scope: Scope,
-    pub captures: HashMap<u16, Scope>,
+    pub captures: Vec<Scope>,
     pub change_context: ContextChange,
     pub pop: u16,
 }
@@ -387,15 +387,15 @@ impl Match {
 fn write_captures(
     state: &mut SerializeState,
     name: &str,
-    captures: &HashMap<u16, Scope>,
+    captures: &Vec<Scope>,
 ) -> Result<(), Error> {
     if !captures.is_empty() {
         serializeln!(state, "{}:", name)?;
 
-        let mut keys = captures.keys().cloned().collect::<Vec<u16>>();
-        keys.sort();
-        for key in keys {
-            serializeln!(state, "  {}: {}", key, captures[&key])?;
+        for (i, scope) in captures.iter().enumerate() {
+            if !scope.is_empty() {
+                serializeln!(state, "  {}: {}", i, scope)?;
+            }
         }
     }
 
@@ -424,7 +424,7 @@ pub struct Embed {
     pub embed: String,
     pub embed_scope: Scope,
     pub escape: Option<Pattern>,
-    pub escape_captures: HashMap<u16, Scope>,
+    pub escape_captures: Vec<Scope>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -545,18 +545,17 @@ variables:
                             ContextPattern::Match(Match {
                                 pattern: Pattern::from("\\ba(b)\\b"),
                                 scope: Scope::empty(),
-                                captures: {
-                                    let mut m = HashMap::new();
-                                    m.insert(1, Scope::parse("b"));
-                                    m
-                                },
+                                captures: vec![
+                                    Scope::empty(),
+                                    Scope::parse("b"),
+                                ],
                                 change_context: ContextChange::None,
                                 pop: 0,
                             }),
                             ContextPattern::Match(Match {
                                 pattern: Pattern::from("(?=\\()"),
                                 scope: Scope::parse("a b"),
-                                captures: HashMap::new(),
+                                captures: vec![],
                                 change_context: ContextChange::Push(vec![
                                     "foo".to_string(),
                                 ]),
@@ -565,7 +564,7 @@ variables:
                             ContextPattern::Match(Match {
                                 pattern: Pattern::from("(?={)"),
                                 scope: Scope::parse("a.b"),
-                                captures: HashMap::new(),
+                                captures: vec![],
                                 change_context: ContextChange::Push(vec![
                                     "foo".to_string(),
                                     "bar".to_string(),
@@ -575,7 +574,7 @@ variables:
                             ContextPattern::Match(Match {
                                 pattern: Pattern::from(""),
                                 scope: Scope::empty(),
-                                captures: HashMap::new(),
+                                captures: vec![],
                                 change_context: ContextChange::None,
                                 pop: 1,
                             }),
@@ -593,7 +592,7 @@ variables:
                         matches: vec![ContextPattern::Match(Match {
                             pattern: Pattern::from("//"),
                             scope: Scope::parse("b"),
-                            captures: HashMap::new(),
+                            captures: vec![],
                             change_context: ContextChange::SetEmbed(Context {
                                 meta_scope: Scope::parse("c"),
                                 meta_content_scope: Scope::empty(),
@@ -603,7 +602,7 @@ variables:
                                     ContextPattern::Match(Match {
                                         pattern: Pattern::from("(?=aa)"),
                                         scope: Scope::empty(),
-                                        captures: HashMap::new(),
+                                        captures: vec![],
                                         change_context: ContextChange::Embed(
                                             Embed {
                                                 embed: "Prolog.sublime-syntax"
@@ -612,14 +611,11 @@ variables:
                                                 escape: Some(Pattern::from(
                                                     "</(p)>",
                                                 )),
-                                                escape_captures: {
-                                                    let mut m = HashMap::new();
-                                                    m.insert(
-                                                        2,
-                                                        Scope::parse("c"),
-                                                    );
-                                                    m
-                                                },
+                                                escape_captures: vec![
+                                                    Scope::empty(),
+                                                    Scope::empty(),
+                                                    Scope::parse("c"),
+                                                ],
                                             },
                                         ),
                                         pop: 0,
@@ -627,7 +623,7 @@ variables:
                                     ContextPattern::Match(Match {
                                         pattern: Pattern::from("b"),
                                         scope: Scope::empty(),
-                                        captures: HashMap::new(),
+                                        captures: vec![],
                                         change_context:
                                             ContextChange::IncludeEmbed(
                                                 IncludeEmbed {
@@ -638,7 +634,7 @@ variables:
                                                 ContextPattern::Match(Match {
                                                     pattern: Pattern::from("c"),
                                                     scope: Scope::parse("c"),
-                                                    captures: HashMap::new(),
+                                                    captures: vec![],
                                                     change_context:
                                                         ContextChange::None,
                                                     pop: 3,

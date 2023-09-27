@@ -507,7 +507,7 @@ fn gen_contexts<'a>(
                                     lookahead_regex,
                                 ),
                                 scope: sublime_syntax::Scope::empty(),
-                                captures: HashMap::new(),
+                                captures: vec![],
                                 change_context:
                                     sublime_syntax::ContextChange::Branch(
                                         branch_point_name,
@@ -592,7 +592,7 @@ fn gen_end_match<'a>(
             sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from(r"(?=\S)"),
                 scope: sublime_syntax::Scope::empty(),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: sublime_syntax::ContextChange::None,
                 pop: 1,
             }
@@ -602,7 +602,7 @@ fn gen_end_match<'a>(
             sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from(r"\S"),
                 scope: sublime_syntax::Scope::empty(),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: sublime_syntax::ContextChange::Fail(
                     branch_point.as_ref().unwrap().name.clone(),
                 ),
@@ -612,7 +612,7 @@ fn gen_end_match<'a>(
             sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from(r"\S"),
                 scope: parse_scope(&interpreted.metadata, "invalid.illegal"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: sublime_syntax::ContextChange::None,
                 pop: if capture { 0 } else { 1 },
             }
@@ -640,7 +640,7 @@ fn gen_end_match<'a>(
             Some(sublime_syntax::Match {
                 pattern: sublime_syntax::Pattern::from(r"(?=\S)"),
                 scope: sublime_syntax::Scope::empty(),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: sublime_syntax::ContextChange::Push(vec![name]),
                 pop: 1,
             })
@@ -703,7 +703,7 @@ fn gen_terminal<'a>(
                                             "",
                                         ),
                                         scope: sublime_syntax::Scope::empty(),
-                                        captures: HashMap::new(),
+                                        captures: vec![],
                                         change_context: embed_exit,
                                         pop: 1,
                                     },
@@ -780,7 +780,7 @@ fn gen_terminal<'a>(
                                             "",
                                         ),
                                         scope: sublime_syntax::Scope::empty(),
-                                        captures: HashMap::new(),
+                                        captures: vec![],
                                         change_context: include_exit,
                                         pop: 0,
                                     },
@@ -1069,7 +1069,7 @@ fn gen_meta_content_scope_context<'a>(
                         sublime_syntax::Match {
                             pattern: sublime_syntax::Pattern::from(""),
                             scope: sublime_syntax::Scope::empty(),
-                            captures: HashMap::new(),
+                            captures: vec![],
                             change_context: sublime_syntax::ContextChange::None,
                             pop: 1,
                         },

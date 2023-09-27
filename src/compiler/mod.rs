@@ -106,14 +106,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::parse("a.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -132,7 +132,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::parse("a.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec!(
                         "main|0".to_string()
                     )),
@@ -141,7 +141,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("(?=\\S)"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -154,14 +154,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::parse("b.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -180,21 +180,21 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::parse("a.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::parse("b.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -213,7 +213,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "main|0".to_string()
                     ]),
@@ -222,7 +222,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -235,7 +235,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "main|1".to_string()
                     ]),
@@ -244,14 +244,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("c"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -264,14 +264,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("c"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -293,7 +293,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("{"),
                     scope: Scope::parse("r.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(
                         vec!["r|0".to_string()]
                     ),
@@ -302,7 +302,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("(?=\\S)"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -318,7 +318,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("{"),
                     scope: Scope::parse("r.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(
                         vec!["r|0".to_string()]
                     ),
@@ -327,14 +327,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("}"),
                     scope: Scope::parse("r.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -357,7 +357,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("\\{"),
                 scope: Scope::parse("block.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(
                     vec!["block|0".to_string()]
                 ),
@@ -374,14 +374,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 0,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\{"),
                     scope: Scope::parse("block.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "block|0".to_string(),
                     ]),
@@ -390,14 +390,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\}"),
                     scope: Scope::parse("block.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -420,7 +420,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("a"),
                 scope: Scope::parse("a.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(vec!["a|0".to_string(),]),
                 pop: 0,
             }),]
@@ -434,7 +434,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(
                         vec!["a|1".to_string()],
                     ),
@@ -443,14 +443,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("d"),
                     scope: Scope::parse("a.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -465,14 +465,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("c"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -495,7 +495,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("(?=\\S)"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -507,7 +507,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("(?=c)"),
                 scope: Scope::empty(),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Branch(
                     "main@1".to_string(),
                     vec!("a|0|main@1".to_string(), "b|0|main@1".to_string())
@@ -522,7 +522,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("c"),
                 scope: Scope::parse("a.test ac.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(vec!(
                     "main|0|main@1".to_string()
                 )),
@@ -536,14 +536,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::parse("a.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 2,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Fail("main@1".to_string()),
                     pop: 0,
                 }),
@@ -556,7 +556,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("c"),
                 scope: Scope::parse("b.test bc.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(vec!(
                     "main|1|main@1".to_string()
                 )),
@@ -570,14 +570,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::parse("b.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 2,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -600,7 +600,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("ab"),
                 scope: Scope::parse("ba.b"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::None,
                 pop: 0,
             }),]
@@ -626,7 +626,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("(?=start)"),
                 scope: Scope::empty(),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Branch(
                     "main@1".to_string(),
                     vec![
@@ -645,7 +645,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("start"),
                 scope: Scope::parse("a.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(vec![
                     "main|1|main@1".to_string()
                 ]),
@@ -660,14 +660,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("end"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 2,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Fail("main@1".to_string()),
                     pop: 0,
                 }),
@@ -680,7 +680,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("start"),
                 scope: Scope::parse("b.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::None,
                 pop: 1,
             })]
@@ -692,7 +692,7 @@ mod tests {
             [ContextPattern::Match(Match {
                 pattern: Pattern::from("start"),
                 scope: Scope::parse("c.test"),
-                captures: HashMap::new(),
+                captures: vec![],
                 change_context: ContextChange::Push(vec![
                     "main|4|main@1".to_string()
                 ]),
@@ -707,7 +707,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("mid"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "main|5".to_string()
                     ]),
@@ -716,7 +716,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -730,14 +730,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("end"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -759,7 +759,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::parse("a.test ra.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "main|0".to_string(),
                     ]),
@@ -768,7 +768,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::parse("a.test b.test rb.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "main|0".to_string(),
                         "a|meta".to_string(),
@@ -779,7 +779,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -799,7 +799,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("b"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::Push(vec![
                         "a|0".to_string(),
                     ]),
@@ -808,7 +808,7 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("\\S"),
                     scope: Scope::parse("invalid.illegal.test"),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),
@@ -821,14 +821,14 @@ mod tests {
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("a"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 0,
                 }),
                 ContextPattern::Match(Match {
                     pattern: Pattern::from("(?=\\S)"),
                     scope: Scope::empty(),
-                    captures: HashMap::new(),
+                    captures: vec![],
                     change_context: ContextChange::None,
                     pop: 1,
                 }),

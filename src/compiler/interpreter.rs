@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use hashbrown::{hash_map::Entry, HashMap, HashSet};
+use hashbrown::{HashMap, HashSet};
 
 use super::collector::{Collection, Definition, DefinitionKind, DefinitionMap};
 use super::common::{
@@ -70,7 +70,7 @@ pub struct Rule<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalOptions {
     pub scope: sublime_syntax::Scope,
-    pub captures: HashMap<u16, sublime_syntax::Scope>,
+    pub captures: Vec<sublime_syntax::Scope>,
     pub embed: TerminalEmbed,
 }
 
@@ -78,7 +78,7 @@ impl Default for TerminalOptions {
     fn default() -> TerminalOptions {
         TerminalOptions {
             scope: sublime_syntax::Scope::empty(),
-            captures: HashMap::new(),
+            captures: vec![],
             embed: TerminalEmbed::None,
         }
     }
@@ -90,7 +90,7 @@ pub enum TerminalEmbed {
         embed: String,
         embed_scope: sublime_syntax::Scope,
         escape: String,
-        escape_captures: HashMap<u16, sublime_syntax::Scope>,
+        escape_captures: Vec<sublime_syntax::Scope>,
     },
     Include {
         context: String,
@@ -1018,7 +1018,7 @@ fn parse_terminal_options<'a>(
 ) -> TerminalOptions {
     let mut options = TerminalOptions {
         scope: sublime_syntax::Scope::empty(),
-        captures: HashMap::new(),
+        captures: vec![],
         embed: parse_terminal_embed(state, meta_state, var_map, node_embed),
     };
 
@@ -1068,9 +1068,19 @@ fn parse_terminal_options<'a>(
                 );
 
                 // The first set of keyword arguments determine captures
-                if let Ok(group) = key.parse::<u16>() {
-                    if let Entry::Vacant(e) = options.captures.entry(group) {
-                        e.insert(parse_scope(meta_state.metadata, &value));
+                if let Ok(group) = key.parse::<u8>() {
+                    let group = group as usize;
+
+                    if group >= options.captures.len() {
+                        options.captures.resize_with(
+                            group + 1,
+                            sublime_syntax::Scope::empty,
+                        );
+                    }
+
+                    if options.captures[group].is_empty() {
+                        options.captures[group] =
+                            parse_scope(meta_state.metadata, &value);
                     } else {
                         // TODO: Improve error message
                         state.errors.push(
@@ -1324,7 +1334,7 @@ fn parse_terminal_embed<'a>(
         };
 
         let mut embed_scope = sublime_syntax::Scope::empty();
-        let mut escape_captures = HashMap::new();
+        let mut escape_captures = vec![];
 
         for (i, option) in options[1..].iter().enumerate() {
             match &option.data {
@@ -1363,9 +1373,18 @@ fn parse_terminal_embed<'a>(
                     );
 
                     // The first set of keyword arguments determine captures
-                    if let Ok(group) = key.parse::<u16>() {
-                        if let Entry::Vacant(e) = escape_captures.entry(group) {
-                            e.insert(parse_scope(meta_state.metadata, &value));
+                    if let Ok(group) = key.parse::<u8>() {
+                        let group = group as usize;
+                        if group >= escape_captures.len() {
+                            escape_captures.resize_with(
+                                group + 1,
+                                sublime_syntax::Scope::empty,
+                            );
+                        }
+
+                        if escape_captures[group].is_empty() {
+                            escape_captures[group] =
+                                parse_scope(meta_state.metadata, &value);
                         } else {
                             // TODO: Improve error message
                             state.errors.push(
