@@ -140,52 +140,72 @@ impl std::fmt::Display for Pattern {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct Scope {
-    pub scopes: Vec<String>,
-}
+pub struct Scope(pub String);
 
 impl Scope {
     pub fn empty() -> Scope {
-        Scope { scopes: vec![] }
+        Scope("".to_string())
     }
 
-    pub fn new(scopes: Vec<String>) -> Scope {
-        Scope { scopes }
+    pub fn new(scope: String) -> Scope {
+        debug_assert!(Self::parse(&scope).0 == scope);
+        Scope(scope)
     }
 
     pub fn parse(scopes: &str) -> Scope {
-        Scope::new(
-            scopes
-                .split_ascii_whitespace()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>(),
-        )
+        let mut s = String::new();
+        for (i, part) in scopes.split_ascii_whitespace().enumerate() {
+            if i != 0 {
+                write!(s, " ").unwrap();
+            }
+            s.push_str(part);
+        }
+        Scope(s)
     }
 
-    pub fn len(&self) -> usize {
-        self.scopes.len()
+    pub fn parse_with_postfix(scopes: &str, postfix: &str) -> Scope {
+        let mut s = String::new();
+        for (i, part) in scopes.split_ascii_whitespace().enumerate() {
+            if i != 0 {
+                write!(s, " ").unwrap();
+            }
+            s.push_str(part);
+            s.push('.');
+            s.push_str(postfix);
+        }
+        Scope(s)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.scopes.is_empty()
+        self.0.is_empty()
+    }
+
+    pub fn prepend(&mut self, other: &Scope) {
+        if self.is_empty() {
+            *self = other.clone();
+        } else if !other.is_empty() {
+            self.0.insert(0, ' ');
+            self.0.insert_str(0, &other.0);
+        }
+    }
+
+    pub fn extend(&mut self, other: &Scope) {
+        if self.is_empty() {
+            *self = other.clone();
+        } else if !other.is_empty() {
+            self.0.push(' ');
+            self.0.push_str(&other.0);
+        }
     }
 }
 
 impl std::fmt::Display for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.scopes.is_empty() {
+        if self.0.is_empty() {
             return Ok(());
         }
 
-        write!(f, "{}", self.scopes[0])?;
-
-        if self.scopes.len() > 1 {
-            for s in &self.scopes[1..] {
-                write!(f, " {}", s)?;
-            }
-        }
-
-        Ok(())
+        write!(f, "{}", self.0)
     }
 }
 

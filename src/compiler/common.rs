@@ -364,13 +364,5 @@ pub struct Metadata {
 }
 
 pub fn parse_scope(metadata: &Metadata, s: &str) -> sublime_syntax::Scope {
-    let mut s = sublime_syntax::Scope::parse(s);
-    for scope in &mut s.scopes {
-        let postfix = &metadata.scope_postfix;
-        if !postfix.is_empty() {
-            scope.push('.');
-            scope.push_str(postfix);
-        }
-    }
-    s
+    sublime_syntax::Scope::parse_with_postfix(s, &metadata.scope_postfix)
 }

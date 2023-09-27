@@ -813,9 +813,7 @@ fn gen_terminal<'a>(
 
     if let sublime_syntax::ContextChange::None = &exit {
         if pop_amount > 0 {
-            scope
-                .scopes
-                .splice(0..0, meta_content_scope.scopes.iter().cloned());
+            scope.prepend(meta_content_scope);
         }
     }
 
@@ -1263,23 +1261,22 @@ fn scope_for_match_stack<'a>(
     rule_key: Option<&'a Key>,
     terminal: &Terminal<'a>,
 ) -> sublime_syntax::Scope {
-    let mut scopes = vec![];
+    let mut scope = sublime_syntax::Scope::empty();
 
     if let Some(rule_key) = rule_key {
-        scopes = interpreted.rules[rule_key].options.scope.scopes.clone();
+        scope = interpreted.rules[rule_key].options.scope.clone();
     }
 
     for entry in terminal.stack.iter().rev() {
         if let StackEntryData::Variable { key } = &entry.data {
             let rule_options = &interpreted.rules[*key].options;
 
-            scopes.extend(rule_options.scope.scopes.iter().cloned());
+            scope.extend(&rule_options.scope);
         }
     }
 
-    scopes.extend(terminal.options.unwrap().scope.scopes.iter().cloned());
-
-    sublime_syntax::Scope::new(scopes)
+    scope.extend(&terminal.options.unwrap().scope);
+    scope
 }
 
 fn parse_regex_mode(regex: &str) -> Option<(&str, &str)> {

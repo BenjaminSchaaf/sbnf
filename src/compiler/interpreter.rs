@@ -335,13 +335,13 @@ fn collect_metadata<'a>(
     let scope = interpret_metadata_variable(state, collection, "SCOPE", true)
         .map_or_else(
             || {
-                sublime_syntax::Scope::new(vec![format!(
+                sublime_syntax::Scope::new(format!(
                     "source.{}",
                     name_ref.map_or_else(
                         || "".to_string(),
                         |s| s.to_ascii_lowercase()
                     ),
-                )])
+                ))
             },
             |s| sublime_syntax::Scope::parse(&s.1),
         );
@@ -1112,7 +1112,11 @@ fn parse_rule_options<'a, 'b>(
         let name = state.compiler.resolve_symbol(name);
 
         if state.options.debug_contexts {
-            scope.scopes.push(format!("{}.sbnf-dbg", name));
+            if !scope.is_empty() {
+                scope.0.push(' ');
+            }
+            scope.0.push_str(name);
+            scope.0.push_str(".sbnf-dbg");
         }
 
         if options.is_none() {
