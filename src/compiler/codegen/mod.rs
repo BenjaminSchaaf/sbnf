@@ -487,7 +487,7 @@ fn gen_contexts<'a>(
                 assert!(branches.len() > 1);
 
                 let lookahead_regex =
-                    build_lookahead_regex(state.compiler.resolve_symbol(regex));
+                    format!("(?={})", state.compiler.resolve_symbol(regex));
 
                 let comment = format!(
                     "Include context for branch point {}",
@@ -1277,49 +1277,4 @@ fn scope_for_match_stack<'a>(
 
     scope.extend(&terminal.options.unwrap().scope);
     scope
-}
-
-fn parse_regex_mode(regex: &str) -> Option<(&str, &str)> {
-    let mut iter = regex.chars();
-
-    if iter.next()? != '(' {
-        return None;
-    }
-
-    if iter.next()? != '?' {
-        return None;
-    }
-
-    while let Some(c) = iter.next() {
-        if c == ')' {
-            return Some(regex.split_at(regex.len() - iter.as_str().len()));
-        } else if !c.is_ascii_alphabetic() && c != '^' {
-            break;
-        }
-    }
-
-    None
-}
-
-fn build_lookahead_regex(regex: &str) -> String {
-    match parse_regex_mode(regex) {
-        Some((mode, regex)) => format!("{}(?={})", mode, regex),
-        None => format!("(?={})", regex),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn build_lookahead_regex_test() {
-        assert!(build_lookahead_regex("") == "(?=)");
-        assert!(build_lookahead_regex("a") == "(?=a)");
-        assert!(build_lookahead_regex("(?<=g)(?=f)") == "(?=(?<=g)(?=f))");
-        assert!(build_lookahead_regex("(?:a)") == "(?=(?:a))");
-        assert!(build_lookahead_regex("(?i)a") == "(?i)(?=a)");
-        assert!(build_lookahead_regex("(?^)a") == "(?^)(?=a)");
-        assert!(build_lookahead_regex("(?iia)(?:c)") == "(?iia)(?=(?:c))");
-    }
 }

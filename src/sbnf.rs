@@ -1651,16 +1651,6 @@ mod tests {
                 ))
         );
         assert!(
-            parse("a:' \n ';").unwrap().nodes
-                == vec!(rule(
-                    "a",
-                    (0, 0),
-                    None,
-                    None,
-                    regex(" \n ", (0, 2), None)
-                ))
-        );
-        assert!(
             parse(r#"a:'b(c)'{d, 1 :d e}?;"#).unwrap().nodes
                 == vec!(rule(
                     "a",

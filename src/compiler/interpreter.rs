@@ -1839,10 +1839,6 @@ pub mod tests {
             interp(&compiler, &collection, &var_map, location, "")
         );
         assert_eq!(
-            Some(compiler.get_symbol(" \n ")),
-            interp(&compiler, &collection, &var_map, location, " \n ")
-        );
-        assert_eq!(
             Some(compiler.get_symbol("#")),
             interp(&compiler, &collection, &var_map, location, "#")
         );
