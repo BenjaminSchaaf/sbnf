@@ -63,7 +63,9 @@ impl Syntax {
         }
 
         if let Some(pattern) = &self.first_line_match {
-            serializeln!(state, "first_line_match: {}", pattern)?;
+            state.write_indentation()?;
+            write!(&mut state.output, "first_line_match: ")?;
+            pattern.serializeln(&mut state)?;
         }
 
         if !self.scope.is_empty() {
@@ -80,12 +82,12 @@ impl Syntax {
             let mut keys = self.variables.keys().collect::<Vec<&String>>();
             keys.sort();
             for key in &keys {
-                serializeln!(
-                    state,
-                    "  {}: {}",
-                    key,
-                    self.variables.get::<str>(key).unwrap()
-                )?;
+                state.write_indentation()?;
+                write!(&mut state.output, "  {}: ", key)?;
+                self.variables
+                    .get::<str>(key)
+                    .unwrap()
+                    .serializeln(&mut state)?;
             }
         }
 
@@ -125,17 +127,28 @@ impl Pattern {
     pub fn new(regex: String) -> Pattern {
         Pattern { regex }
     }
+
+    fn serializeln(&self, state: &mut SerializeState) -> Result<(), Error> {
+        if self.regex.find('\n').is_some() {
+            writeln!(state.output, "|-")?;
+            indent!(state, {
+                indent!(state, {
+                    for line in self.regex.split('\n') {
+                        serializeln!(state, "{}", line)?;
+                    }
+                });
+            });
+        } else {
+            writeln!(state.output, "'{}'", self.regex.replace("\\'", "''"))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl From<&str> for Pattern {
     fn from(regex: &str) -> Pattern {
         Pattern { regex: regex.to_string() }
-    }
-}
-
-impl std::fmt::Display for Pattern {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "'{}'", self.regex.replace("\\'", "''"))
     }
 }
 
@@ -293,7 +306,9 @@ pub struct Match {
 
 impl Match {
     fn serialize(&self, state: &mut SerializeState) -> Result<(), Error> {
-        serializeln!(state, "- match: {}", self.pattern)?;
+        state.write_indentation()?;
+        write!(state.output, "- match: ")?;
+        self.pattern.serializeln(state)?;
 
         indent!(state, {
             if !self.scope.is_empty() {
@@ -336,7 +351,9 @@ impl Match {
                         )?;
                     }
                     if let Some(pattern) = &embed.escape {
-                        serializeln!(state, "escape: {}", pattern)?;
+                        state.write_indentation()?;
+                        write!(state.output, "escape: ")?;
+                        pattern.serializeln(state)?;
                     }
                     write_captures(
                         state,
