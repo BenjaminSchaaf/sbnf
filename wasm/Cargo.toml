@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 sbnf = { path = ".." }
-wasm-bindgen = "0.2.86"
+wasm-bindgen = "0.2.87"
 
 # wasm-pack is broken. The profiling profile is supposed to keep debug info, but
 # doesn't. See https://github.com/rustwasm/wasm-pack/issues/797
