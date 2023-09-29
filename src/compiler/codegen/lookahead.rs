@@ -135,6 +135,20 @@ impl<'a> Terminal<'a> {
         }
     }
 
+    pub fn has_any_remaining(&self) -> bool {
+        if !self.remaining.is_empty() {
+            return true;
+        }
+
+        for entry in self.stack.iter().rev() {
+            if !entry.remaining.is_empty() {
+                return true;
+            }
+        }
+
+        false
+    }
+
     pub fn with_compiler(
         &'a self,
         compiler: &'a Compiler,

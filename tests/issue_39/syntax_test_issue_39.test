@@ -1,0 +1,12 @@
+# SYNTAX TEST "Packages/tests/issue_39/issue_39.sublime-syntax"
+
+ name b=1 b=1 b b ;
+#     ^^^ keyword
+#         ^^^ keyword
+#             ^ entity
+#               ^ entity
+name b b b=1 b=1;
+#        ^^^ keyword
+#            ^^^ keyword
+#    ^ entity
+#      ^ entity

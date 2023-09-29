@@ -936,7 +936,7 @@ fn gen_simple_match<'a>(
         (sublime_syntax::ContextChange::Push(contexts), 1)
     };
 
-    if branch_point.is_some() && terminal.remaining.is_empty() {
+    if branch_point.is_some() && !terminal.has_any_remaining() {
         pop += 1;
     }
 
