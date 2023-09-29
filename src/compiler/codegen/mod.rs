@@ -936,7 +936,8 @@ fn gen_simple_match<'a>(
         (sublime_syntax::ContextChange::Push(contexts), 1)
     };
 
-    if branch_point.is_some() && terminal.remaining.is_empty() {
+    if branch_point.is_some() && terminal.remaining.is_empty() && !terminal.stack.last().map(|e| e.is_repetition()).unwrap_or(false) {
+        println!("{:?}", terminal.with_compiler(state.compiler));
         pop += 1;
     }
 

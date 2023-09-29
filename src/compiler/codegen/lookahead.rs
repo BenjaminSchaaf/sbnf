@@ -48,6 +48,13 @@ impl<'a> StackEntry<'a> {
     ) -> StackEntryWithCompiler {
         StackEntryWithCompiler { entry: self, compiler }
     }
+
+    pub fn is_repetition(&self) -> bool {
+        match self.data {
+            StackEntryData::Repetition { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct StackEntryWithCompiler<'a> {

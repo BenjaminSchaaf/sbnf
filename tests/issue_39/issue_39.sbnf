@@ -1,0 +1,4 @@
+main : (~test   )* ;
+test : 'name' (pprop | aarg)* ';|\n'{punctuation} ;
+pprop{keyword}   : 'b' '=' '1';
+aarg{entity} : 'b' '(?!=)' ;

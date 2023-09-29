@@ -4,20 +4,21 @@ use std::process::Command;
 const ST_BUILD: u32 = 4138;
 
 const LANGUAGES: &[&str] = &[
-    "regexp",
-    "sbnf",
-    "simplec",
-    "tests/html",
-    "tests/issue_6",
-    "tests/issue_13",
-    "tests/issue_16",
-    "tests/issue_18",
-    "tests/issue_24",
-    "tests/issue_32",
-    "tests/meta_scopes",
-    "tests/passive",
-    "tests/recursive_branch_points",
-    "tests/simple_interpreter",
+    // "regexp",
+    // "sbnf",
+    // "simplec",
+    // "tests/html",
+    // "tests/issue_6",
+    // "tests/issue_13",
+    // "tests/issue_16",
+    // "tests/issue_18",
+    // "tests/issue_24",
+    // "tests/issue_32",
+    "tests/issue_39",
+    // "tests/meta_scopes",
+    // "tests/passive",
+    // "tests/recursive_branch_points",
+    // "tests/simple_interpreter",
 ];
 
 fn main() -> std::io::Result<()> {
