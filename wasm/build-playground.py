@@ -23,7 +23,19 @@ def main(argv):
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
     # Compile WASM
-    subprocess.run(['wasm-pack', 'build', '--target', 'no-modules', '--no-typescript'], check=True)
+    wasmpack_args = [
+        'wasm-pack', 'build',
+        '--target', 'no-modules',
+        '--no-typescript',
+    ]
+    if not args.release:
+        wasmpack_args.append('--profiling')
+    wasmpack_args += [
+        '.',
+        '-Z', 'build-std=std,panic_abort',
+        '-Z', 'build-std-features=panic_immediate_abort'
+    ]
+    subprocess.run(wasmpack_args, check=True)
 
     # Install WASM
     shutil.copy('pkg/sbnf_wasm_bg.wasm', os.path.join(DEST, 'sbnf.wasm'))
