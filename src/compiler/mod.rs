@@ -835,4 +835,86 @@ mod tests {
             ]
         )
     }
+
+    #[test]
+    fn compile_stacked_meta_scope() {
+        let contexts =
+            compile_matches("main : s c ; s : 'a' 'b' ; c{c} : 'c' ;", vec![]);
+        // The meta scope on c necessitates an extra "entry" context
+        assert_eq!(contexts.len(), 4);
+        let main = contexts.get("main").unwrap();
+        assert_eq!(
+            main.matches,
+            [
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("a"),
+                    scope: Scope::empty(),
+                    captures: vec![],
+                    change_context: ContextChange::Push(vec![
+                        "c|0|entry-0".to_string(),
+                        "s|0".to_string(),
+                    ]),
+                    pop: 1,
+                }),
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("\\S"),
+                    scope: Scope::parse("invalid.illegal.test"),
+                    captures: vec![],
+                    change_context: ContextChange::None,
+                    pop: 1,
+                }),
+            ]
+        );
+        let s0 = contexts.get("s|0").unwrap();
+        assert_eq!(
+            s0.matches,
+            [
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("b"),
+                    scope: Scope::empty(),
+                    captures: vec![],
+                    change_context: ContextChange::None,
+                    pop: 1,
+                }),
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("\\S"),
+                    scope: Scope::parse("invalid.illegal.test"),
+                    captures: vec![],
+                    change_context: ContextChange::None,
+                    pop: 1,
+                }),
+            ]
+        );
+        let c0_entry = contexts.get("c|0|entry-0").unwrap();
+        assert_eq!(
+            c0_entry.matches,
+            [ContextPattern::Match(Match {
+                pattern: Pattern::from(""),
+                scope: Scope::empty(),
+                captures: vec![],
+                change_context: ContextChange::Set(vec!["c|0".to_string()]),
+                pop: 0,
+            })]
+        );
+        let c0 = contexts.get("c|0").unwrap();
+        assert_eq!(
+            c0.matches,
+            [
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("c"),
+                    scope: Scope::parse("c.test"),
+                    captures: vec![],
+                    change_context: ContextChange::None,
+                    pop: 1,
+                }),
+                ContextPattern::Match(Match {
+                    pattern: Pattern::from("\\S"),
+                    scope: Scope::parse("invalid.illegal.test"),
+                    captures: vec![],
+                    change_context: ContextChange::None,
+                    pop: 1,
+                }),
+            ]
+        );
+    }
 }

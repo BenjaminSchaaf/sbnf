@@ -68,6 +68,7 @@ impl<'a> std::fmt::Display for ContextKeyWithCompiler<'a> {
 struct Rule {
     context_count: usize,
     branch_point_count: usize,
+    entry_context_count: usize,
 }
 
 struct State<'a> {
@@ -76,6 +77,7 @@ struct State<'a> {
     context_queue: Vec<(String, ContextKey<'a>)>,
     context_cache: HashMap<ContextKey<'a>, String>,
     include_context_cache: HashMap<ContextKey<'a>, String>,
+    entry_contexts: HashMap<Vec<String>, String>,
     contexts: HashMap<String, sublime_syntax::Context>,
 }
 
@@ -89,6 +91,7 @@ pub fn codegen(
         context_queue: vec![],
         context_cache: HashMap::new(),
         include_context_cache: HashMap::new(),
+        entry_contexts: HashMap::new(),
         contexts: HashMap::new(),
     };
 
@@ -983,6 +986,11 @@ fn gen_simple_match_contexts<'a>(
         }
     }
 
+    // We need to create entry contexts for remaining terminals that have a meta
+    // content scope, otherwise they stack onto earlier terminals.
+    // See issue #36
+    let mut groups = vec![];
+
     for (i, entry) in stack[offset..].iter().enumerate().rev() {
         match &entry.data {
             StackEntryData::Variable { .. } => {
@@ -1000,7 +1008,7 @@ fn gen_simple_match_contexts<'a>(
                 &mut lookahead::LookaheadState::new(state.compiler),
             );
 
-            contexts.extend(gen_simple_match_remaining_context(
+            groups.push(gen_simple_match_remaining_context(
                 state,
                 interpreted,
                 is_top_level,
@@ -1021,7 +1029,7 @@ fn gen_simple_match_contexts<'a>(
                 if let Some(context) =
                     gen_meta_content_scope_context(state, interpreted, rule_key)
                 {
-                    contexts.push(context);
+                    groups.push((vec![context], None));
                 }
             }
         }
@@ -1034,13 +1042,26 @@ fn gen_simple_match_contexts<'a>(
             &mut lookahead::LookaheadState::new(state.compiler),
         );
 
-        contexts.extend(gen_simple_match_remaining_context(
+        groups.push(gen_simple_match_remaining_context(
             state,
             interpreted,
             is_top_level,
             rule_key,
             lookahead,
         ));
+    }
+
+    let last = groups.len();
+    for (i, (c, key)) in groups.into_iter().enumerate() {
+        if let Some(key) = key {
+            if i != last - 1 {
+                contexts.push(gen_entry_context(state, key, c));
+            } else {
+                contexts.extend(c);
+            }
+        } else {
+            contexts.extend(c);
+        }
     }
 
     contexts
@@ -1088,13 +1109,68 @@ fn gen_meta_content_scope_context<'a>(
     }
 }
 
+fn gen_entry_context<'a>(
+    state: &mut State<'a>,
+    rule_key: &'a Key,
+    contexts: Vec<String>,
+) -> String {
+    if let Some(context) = state.entry_contexts.get(&contexts) {
+        return context.clone();
+    }
+
+    let index = if let Some(rule) = state.rules.get_mut(rule_key) {
+        let i = rule.entry_context_count;
+        rule.entry_context_count += 1;
+        i
+    } else {
+        state.rules.insert(
+            rule_key,
+            Rule {
+                context_count: 0,
+                branch_point_count: 0,
+                entry_context_count: 1,
+            },
+        );
+        0
+    };
+
+    let mut entry_ctx = contexts.last().unwrap().to_string();
+    write!(entry_ctx, "|entry-{}", index).unwrap();
+
+    assert!(!state.contexts.contains_key(&entry_ctx));
+
+    state.contexts.insert(
+        entry_ctx.clone(),
+        sublime_syntax::Context {
+            meta_content_scope: sublime_syntax::Scope::empty(),
+            meta_scope: sublime_syntax::Scope::empty(),
+            meta_include_prototype: true,
+            clear_scopes: sublime_syntax::ScopeClear::Amount(0),
+            matches: vec![sublime_syntax::ContextPattern::Match(
+                sublime_syntax::Match {
+                    pattern: sublime_syntax::Pattern::from(""),
+                    scope: sublime_syntax::Scope::empty(),
+                    captures: vec![],
+                    change_context: sublime_syntax::ContextChange::Set(
+                        contexts.clone(),
+                    ),
+                    pop: 0,
+                },
+            )],
+            comment: None,
+        },
+    );
+    state.entry_contexts.insert(contexts, entry_ctx.clone());
+    entry_ctx
+}
+
 fn gen_simple_match_remaining_context<'a>(
     state: &mut State<'a>,
     interpreted: &'a Interpreted,
     mut is_top_level: bool,
     mut rule_key: &'a Key,
     mut lookahead: Lookahead<'a>,
-) -> Vec<String> {
+) -> (Vec<String>, Option<&'a Key>) {
     // We can end up in situations where we have a context/rule_key that has
     // redundant variables, ie. every match stack has the same variable at the
     // end. Using a similar algorithm to gen_simple_match_contexts we can
@@ -1165,7 +1241,15 @@ fn gen_simple_match_remaining_context<'a>(
         contexts.push(name);
     }
 
-    contexts
+    let key = if contexts.len() > 1
+        || !interpreted.rules[rule_key].options.scope.is_empty()
+    {
+        Some(rule_key)
+    } else {
+        None
+    };
+
+    (contexts, key)
 }
 
 fn build_rule_key_name(state: &State, rule_key: &Key) -> String {
@@ -1207,9 +1291,14 @@ fn create_uncached_context_name<'a>(
         rule.context_count += 1;
         i
     } else {
-        state
-            .rules
-            .insert(rule_key, Rule { context_count: 1, branch_point_count: 0 });
+        state.rules.insert(
+            rule_key,
+            Rule {
+                context_count: 1,
+                branch_point_count: 0,
+                entry_context_count: 0,
+            },
+        );
         0
     };
     write!(result, "|{}", index).unwrap();
@@ -1243,9 +1332,14 @@ fn create_branch_point_name<'a>(state: &mut State<'a>, key: &'a Key) -> String {
         rule.branch_point_count += 1;
         rule.branch_point_count
     } else {
-        state
-            .rules
-            .insert(key, Rule { context_count: 0, branch_point_count: 1 });
+        state.rules.insert(
+            key,
+            Rule {
+                context_count: 0,
+                branch_point_count: 1,
+                entry_context_count: 0,
+            },
+        );
         1
     };
 
