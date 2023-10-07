@@ -128,6 +128,7 @@ if [[ $PART == 'all' || $PART == 'package' ]]; then
     git add -A
     git status
     git commit -m "Release $VERSION"
+    git tag "$VERSION"
     cd -
 fi
 
@@ -153,6 +154,7 @@ if [[ $CONFIRMATION == 'y' || $CONFIRMATION == 'Y' ]]; then
     if [[ $PART == 'all' || $PART == 'package' ]]; then
         cd "$RELEASE_PATH"
         git push
+        git push origin "$VERSION"
         cd -
     fi
 
