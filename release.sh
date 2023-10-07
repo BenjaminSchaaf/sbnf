@@ -100,7 +100,7 @@ if [[ $PART == 'all' || $PART == 'package' ]]; then
         cp "sbnf/$F" target/sublime-package/
     done
     cp sbnf/sbnf.sublime-build-release target/sublime-package/sbnf.sublime-build
-    touch target/sublime-package/.sublime-package
+    touch target/sublime-package/.no-sublime-package
 fi
 
 if [[ $PART == 'all' || $PART == 'website' ]]; then
