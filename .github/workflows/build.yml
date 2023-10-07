@@ -1,0 +1,29 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  RUSTFLAGS: "-Dwarnings"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+    - uses: Swatinem/rust-cache@v1
+    - name: Check Formatting
+      run: cargo fmt --all -- --check
+    - name: Run Clippy
+      run: cargo clippy --workspace --all-targets --all-features
+    - name: Build SBNF
+      run: cargo build --verbose -p sbnf
+    - name: Test SBNF
+      run: cargo test --verbose -p sbnf
+    - name: Build CLI
+      run: cargo build --verbose -p sbnfc

@@ -6,3 +6,4 @@ simplec/simplec.sublime-syntax
 *.sublime-workspace
 /wasm/pkg
 /gh-pages
+/release
