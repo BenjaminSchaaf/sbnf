@@ -118,7 +118,7 @@ if [[ $PART == 'all' || $PART == 'package' ]]; then
     touch target/sublime-package/.no-sublime-package
 
     cd target/sublime-package
-    zip -FS -r ../SBNF.sublime-package *
+    zip -FS -r ../SBNF.sublime-package * .[!.]*
     cd -
     ARTIFACTS+=("target/SBNF.sublime-package")
 
