@@ -480,7 +480,7 @@ pub fn is_identifier_char(chr: char) -> bool {
 
 fn skip_whitespace(parser: &mut Parser) {
     while let Some(chr) = parser.peek() {
-        if chr == ' ' || chr == '\t' || chr == '\n' {
+        if chr == ' ' || chr == '\t' || chr == '\n' || chr == '\r' {
             parser.next();
         } else if chr == '#' {
             while parser.next().unwrap_or('\n') != '\n' {}
