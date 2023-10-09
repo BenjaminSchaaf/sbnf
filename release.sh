@@ -140,7 +140,7 @@ if [[ $PART == 'all' || $PART == 'package' ]]; then
                     "date": "$(date -u "+%Y-%m-%d %H:%M:%S")"
                 }
             ]
-        },
+        }
     ]
 }
 EOF
