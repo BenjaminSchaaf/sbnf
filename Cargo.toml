@@ -1,6 +1,6 @@
 [package]
 name = "sbnf"
-version = "0.6.3"
+version = "0.6.4"
 license-file = "LICENSE"
 repository = "https://github.com/BenjaminSchaaf/sbnf"
 description = "A BNF-style language for writing sublime-syntax files"

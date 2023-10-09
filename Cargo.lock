@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "sbnf"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "base64",
  "bumpalo",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "sbnf_wasm"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "sbnf",
  "wasm-bindgen",
@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "sbnfc"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "clap",
  "sbnf",

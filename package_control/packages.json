@@ -1,0 +1,20 @@
+{
+    "schema_version": "3.0.0",
+    "packages": [
+        {
+            "name": "SBNF",
+            "description": "A BNF-style language for writing sublime-syntax files",
+            "author": "Benjamin Schaaf",
+            "homepage": "https://github.com/BenjaminSchaaf/sbnf",
+            "readme": "https://raw.githubusercontent.com/BenjaminSchaaf/sbnf/master/README.md",
+            "releases": [
+                {
+                    "sublime_text": ">4077",
+                    "version": "0.6.4",
+                    "url": "https://github.com/BenjaminSchaaf/sbnf/releases/download/0.6.4/SBNF.sublime-package",
+                    "date": "2023-10-09 13:31:56"
+                }
+            ]
+        },
+    ]
+}
