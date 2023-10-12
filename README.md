@@ -23,6 +23,20 @@ SBNF attempts do the following:
 
 ## Installation
 
+Note that in order to use the generated syntax you'll need at minimum Sublime
+Text build 4077 with support for version 2 of Sublime Syntax.
+
+### Sublime Package
+
+Navigate to the [Releases page]
+(https://github.com/BenjaminSchaaf/sbnf/releases) and download the
+`SBNF.sublime-package` file. This is a zip file. You'll need to extract the
+contents of this zip file into the `Packages/SBNF` folder within the
+[Sublime Text data directory]
+(https://www.sublimetext.com/docs/side_by_side.html).
+
+### Cargo
+
 With [rust installed](https://www.rust-lang.org/tools/install) you can download,
 build and install the latest released version of SBNF using:
 
@@ -36,9 +50,6 @@ install using:
 ```bash
 $ cargo install --path cli
 ```
-
-Note that in order to use the generated syntax you'll need at minimum Sublime
-Text build 4077 with support for version 2 of Sublime Syntax.
 
 ### Sublime Syntax
 
