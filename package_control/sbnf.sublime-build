@@ -1,36 +1,30 @@
 {
-    "file_regex": "^.*\\((.*):([0-9]+):([0-9]+)\\).*$",
-    "working_dir": "${file_path}",
-    "selector": "source.sbnf",
+	"file_regex": "^.*\\((.*):([0-9]+):([0-9]+)\\).*$",
+	"working_dir": "${file_path}",
+	"selector": "source.sbnf",
 
-    "linux": {
-        "cmd": ["$packages/SBNF/sbnf-linux-universal.sh", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-        "variants":
-        [
-            {
-                "name": "Build Debug",
-                "cmd": ["$packages/SBNF/sbnf-linux-universal.sh", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-            }
-        ]
-    },
-    "windows": {
-        "cmd": ["$packages/SBNF/sbnf-windows-universal.bat", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-        "variants":
-        [
-            {
-                "name": "Build Debug",
-                "cmd": ["$packages/SBNF/sbnf-windows-universal.bat", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-            }
-        ]
-    },
-    "osx": {
-        "cmd": ["$packages/SBNF/sbnf-universal-apple-darwin", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-        "variants":
-        [
-            {
-                "name": "Build Debug",
-                "cmd": ["$packages/SBNF/sbnf-universal-apple-darwin", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
-            }
-        ]
-    },
+	"linux": {
+		"cmd": ["$packages/SBNF/sbnf-linux-universal.sh", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+	},
+	"osx": {
+		"cmd": ["$packages/SBNF/sbnf-universal-apple-darwin", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+	},
+	"windows": {
+		"cmd": ["$packages/SBNF/sbnf-windows-universal.bat", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+	},
+
+	"variants": [
+		{
+			"name": "Build Debug",
+			"linux": {
+				"cmd": ["$packages/SBNF/sbnf-linux-universal.sh", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+			},
+			"osx": {
+				"cmd": ["$packages/SBNF/sbnf-universal-apple-darwin", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+			},
+			"windows": {
+				"cmd": ["$packages/SBNF/sbnf-windows-universal.bat", "-g", "${file}", "-o", "${file_path}/${file_base_name}.sublime-syntax"],
+			},
+		}
+	],
 }
