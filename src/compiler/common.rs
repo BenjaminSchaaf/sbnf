@@ -2,7 +2,7 @@ use hashbrown::HashMap;
 
 use bumpalo::Bump;
 
-use crate::sbnf::TextLocation;
+use crate::TextLocation;
 use crate::sublime_syntax;
 pub use crate::symbol_table::Symbol;
 use crate::symbol_table::SymbolTable;

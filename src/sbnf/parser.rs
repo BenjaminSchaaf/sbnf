@@ -1,4 +1,6 @@
+use crate::TextLocation;
 use crate::util::str_from_iterators;
+use super::common::{ParseError, LookaheadChars, is_identifier_char, is_whitespace_char};
 /// This file implements a parser for the SBNF grammar
 use bumpalo::Bump;
 use std::str::Chars;
@@ -215,165 +217,29 @@ pub enum NodeData<'a> {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TextLocation {
-    pub line: u32,
-    pub column: u32,
-}
-
-impl TextLocation {
-    pub const INITIAL: TextLocation = TextLocation { line: 0, column: 0 };
-
-    pub fn new(line: u32, column: u32) -> TextLocation {
-        TextLocation { line, column }
-    }
-
-    pub fn from_tuple((line, column): (u32, u32)) -> TextLocation {
-        TextLocation::new(line, column)
-    }
-
-    pub fn invalid() -> TextLocation {
-        TextLocation::new(u32::MAX, u32::MAX)
-    }
-
-    fn increment(&mut self, chr: char) {
-        if chr == '\n' {
-            self.line += 1;
-            self.column = 0;
-        } else {
-            self.column += 1;
-        }
-    }
-
-    pub fn with_source<'a>(
-        &'a self,
-        source: &'a str,
-    ) -> TextLocationWithSource<'a> {
-        TextLocationWithSource { loc: *self, source }
-    }
-}
-
-impl std::fmt::Display for TextLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.line + 1, self.column + 1)
-    }
-}
-
-impl std::fmt::Debug for TextLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}:{:?}", self.line, self.column)
-    }
-}
-
-pub struct TextLocationWithSource<'a> {
-    loc: TextLocation,
-    source: &'a str,
-}
-
-impl std::fmt::Display for TextLocationWithSource<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let display_line = self.loc.line + 1;
-
-        // TODO: There's probably a fast way to do this...
-        let source_line =
-            self.source.split('\n').nth(self.loc.line as usize).unwrap();
-
-        writeln!(f, "{} | {}", display_line, source_line)?;
-
-        let line_log10 = ((display_line as f64).log2() / 10f64.log2()) as u32;
-        for _ in 0..line_log10 + 1 {
-            write!(f, " ")?;
-        }
-
-        write!(f, "   ")?;
-        for _ in 0..self.loc.column {
-            write!(f, " ")?;
-        }
-        write!(f, "^")
-    }
-}
-
-#[derive(Debug)]
-pub struct ParseError {
-    location: TextLocation,
-    message: String,
-}
-
-impl ParseError {
-    fn new(location: TextLocation, message: String) -> ParseError {
-        ParseError { location, message }
-    }
-
-    pub fn with_source<'a>(
-        &'a self,
-        origin: &'a str,
-        source: &'a str,
-    ) -> ParseErrorWithSource<'a> {
-        ParseErrorWithSource { error: self, origin, source }
-    }
-}
-
-pub struct ParseErrorWithSource<'a> {
-    error: &'a ParseError,
-    origin: &'a str,
-    source: &'a str,
-}
-
-impl std::fmt::Display for ParseErrorWithSource<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Parser Error: {} ({}:{})\n{}",
-            self.error.message,
-            self.origin,
-            self.error.location,
-            self.error.location.with_source(self.source)
-        )
-    }
-}
-
 // Can't use Peekable here, as you can't access the underlying iterator, which
 // is required for str_from_iterators. Why‽
 struct Parser<'a> {
     source: &'a str,
     allocator: &'a Bump,
-    location: TextLocation,
-
-    current: Chars<'a>,
-    peek: Option<(char, Chars<'a>)>,
+    iterator: LookaheadChars<'a>,
 }
 
 impl<'a> Parser<'a> {
     fn peek(&mut self) -> Option<char> {
-        if let Some((chr, _)) = &self.peek {
-            Some(*chr)
-        } else {
-            let mut ahead = self.current.clone();
-            let chr = ahead.next()?;
-            self.peek = Some((chr, ahead));
-            Some(chr)
-        }
+        self.iterator.peek()
     }
 
     fn next(&mut self) -> Option<char> {
-        let chr = if let Some((chr, iter)) = self.peek.take() {
-            self.current = iter;
-            chr
-        } else {
-            self.current.next()?
-        };
-
-        self.location.increment(chr);
-        Some(chr)
+        self.iterator.next()
     }
 
     fn char_error(&self, message: String) -> ParseError {
-        ParseError::new(self.location, message)
+        ParseError::new(self.iterator.location, message)
     }
 
     fn start_node_collection(&mut self) -> NodeCollector<'a> {
-        let location = self.location;
-        let start = self.current.clone();
+        let (start, location) = self.iterator.start_point();
 
         NodeCollector { location, start }
     }
@@ -405,7 +271,7 @@ impl<'a> NodeCollector<'a> {
         let text = str_from_iterators(
             parser.source,
             self.start.clone(),
-            parser.current.clone(),
+            parser.iterator.current.clone(),
         );
 
         self.end_from_text(text)
@@ -442,12 +308,28 @@ pub fn parse<'a>(
     source: &'a str,
     allocator: &'a Bump,
 ) -> Result<Grammar<'a>, ParseError> {
+    let result = parse_impl(source, allocator);
+
+    // Ensure the tokenizer and parser match up
+    if cfg!(debug_assertions) {
+        use super::tokenizer::{Tokenizer, TokenType};
+
+        let tokens: Vec<_> = Tokenizer::new(source).collect();
+        assert!(tokens.iter().flat_map(|t| t.value.chars()).collect::<String>() == source);
+        assert!(result.is_err() || tokens.iter().all(|t| t.type_ != TokenType::Error));
+    }
+
+    result
+}
+
+fn parse_impl<'a>(
+    source: &'a str,
+    allocator: &'a Bump,
+) -> Result<Grammar<'a>, ParseError> {
     let mut parser = Parser {
         source,
         allocator,
-        location: TextLocation::INITIAL,
-        current: source.chars(),
-        peek: None,
+        iterator: LookaheadChars::new(source),
     };
 
     let mut nodes = vec![];
@@ -465,13 +347,9 @@ pub fn parse<'a>(
     Ok(Grammar { source: parser.source, nodes })
 }
 
-pub fn is_identifier_char(chr: char) -> bool {
-    chr.is_alphanumeric() || chr == '_' || chr == '-' || chr == '.'
-}
-
 fn skip_whitespace(parser: &mut Parser) {
     while let Some(chr) = parser.peek() {
-        if chr == ' ' || chr == '\t' || chr == '\n' || chr == '\r' {
+        if is_whitespace_char(chr) {
             parser.next();
         } else if chr == '#' {
             while parser.next().unwrap_or('\n') != '\n' {}
@@ -1105,7 +983,7 @@ fn parse_regex<'a>(
     let first = parser.next().unwrap();
     assert!(first == '\'');
 
-    let start = parser.current.clone();
+    let start = parser.iterator.current.clone();
 
     let mut has_escape = false;
     loop {
@@ -1127,7 +1005,7 @@ fn parse_regex<'a>(
         parser.next();
     }
 
-    let end = parser.current.clone();
+    let end = parser.iterator.current.clone();
 
     let end_chr = parser.next().unwrap();
     assert!(end_chr == '\''); // sanity
@@ -1171,13 +1049,13 @@ fn parse_literal<'a>(
     let first = parser.next().unwrap();
     assert!(first == '`');
 
-    let start = parser.current.clone();
+    let start = parser.iterator.current.clone();
 
     while parser.peek().unwrap_or('`') != '`' {
         parser.next();
     }
 
-    let end = parser.current.clone();
+    let end = parser.iterator.current.clone();
 
     let end_chr = parser.next().ok_or(parser.char_error(
         "Expected the end of the terminal '`', but got EOF instead".to_string(),
@@ -1240,7 +1118,9 @@ fn literal_to_regex<'a>(literal: &'a str, allocator: &'a Bump) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    use crate::TextLocation;
     use crate::sbnf::*;
+    use bumpalo::Bump;
 
     #[test]
     fn parse_empty() {

@@ -26,7 +26,7 @@ use super::super::common::{Compiler, Symbol};
 use super::super::interpreter::{
     Expression, Interpreted, Key, TerminalOptions,
 };
-use crate::sbnf::TextLocation;
+use crate::TextLocation;
 use hashbrown::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -7,7 +7,8 @@ use super::common::{
     parse_scope, trim_ascii, CallStack, CompileOptions, CompileResult,
     Compiler, Error, Metadata, RuleOptions, Symbol, Value, VarMap,
 };
-use crate::sbnf::{is_identifier_char, Node, NodeData, TextLocation};
+use crate::TextLocation;
+use crate::sbnf::{is_identifier_char, Node, NodeData};
 use crate::sublime_syntax;
 use crate::util::str_from_iterators;
 
@@ -1787,7 +1788,7 @@ fn interpolate_string<'a>(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::sbnf::TextLocation;
+    use crate::TextLocation;
 
     pub fn expr_var<'a>(key: Key) -> Expression<'a> {
         Expression::Variable { key, location: TextLocation::INITIAL }

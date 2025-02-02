@@ -4,5 +4,8 @@
 pub mod compiler;
 pub mod sbnf;
 pub mod sublime_syntax;
+mod text_location;
 mod symbol_table;
 mod util;
+
+pub use text_location::{TextLocation, TextLocationWithSource};
