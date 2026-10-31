@@ -230,6 +230,10 @@ fn gen_contexts<'a>(
 
             meta_content_scope = if branch_point.is_none() && is_top_level {
                 rule.options.scope
+            } else if branch_point.is_some() {
+                // Branch contexts are active while waiting for the next
+                // token, so they must carry the enclosing meta scope.
+                meta_scope_for_lookahead(state, interpreted, &lookahead)
             } else {
                 sublime_syntax::Scope::EMPTY
             };
@@ -868,10 +872,14 @@ fn gen_terminal<'a>(
         }
     }
 
-    if let sublime_syntax::ContextChange::None = &exit {
-        if pop_amount > 0 {
-            scope =
-                meta_content_scope.extended(scope, &state.compiler.allocator);
+    // Branch contexts already carry their enclosing meta scope, and their
+    // match scopes include it, so don't add it twice.
+    if branch_point.is_none() {
+        if let sublime_syntax::ContextChange::None = &exit {
+            if pop_amount > 0 {
+                scope = meta_content_scope
+                    .extended(scope, &state.compiler.allocator);
+            }
         }
     }
 
@@ -1433,14 +1441,64 @@ fn scope_for_match_stack<'a>(
         scope = interpreted.rules[&rule_key].options.scope;
     }
 
+    scope = scope.extended(
+        meta_scope_for_terminal(state, interpreted, terminal),
+        &state.compiler.allocator,
+    );
+
+    scope.extended(terminal.options.unwrap().scope, &state.compiler.allocator)
+}
+
+fn meta_scope_for_terminal<'a>(
+    state: &mut State<'a>,
+    interpreted: &Interpreted<'a>,
+    terminal: &Terminal<'a>,
+) -> sublime_syntax::Scope<'a> {
+    let mut scope = sublime_syntax::Scope::EMPTY;
+
     for entry in terminal.stack.iter().rev() {
         if let StackEntryData::Variable { key } = &entry.data {
-            let rule_options = &interpreted.rules[key].options;
-
-            scope =
-                scope.extended(rule_options.scope, &state.compiler.allocator);
+            scope = scope.extended(
+                interpreted.rules[key].options.scope,
+                &state.compiler.allocator,
+            );
         }
     }
 
-    scope.extended(terminal.options.unwrap().scope, &state.compiler.allocator)
+    scope
+}
+
+fn meta_scope_for_lookahead<'a>(
+    state: &mut State<'a>,
+    interpreted: &Interpreted<'a>,
+    lookahead: &Lookahead<'a>,
+) -> sublime_syntax::Scope<'a> {
+    let mut scope = sublime_syntax::Scope::EMPTY;
+
+    let Some(first) = lookahead.terminals.first() else {
+        return scope;
+    };
+
+    for entry in first.stack.iter().rev() {
+        if let StackEntryData::Variable { key } = &entry.data {
+            let is_common = lookahead.terminals.iter().all(|terminal| {
+                terminal.stack.iter().any(|entry| {
+                    matches!(
+                        entry.data,
+                        StackEntryData::Variable { key: other }
+                            if other == *key
+                    )
+                })
+            });
+
+            if is_common {
+                scope = scope.extended(
+                    interpreted.rules[key].options.scope,
+                    &state.compiler.allocator,
+                );
+            }
+        }
+    }
+
+    scope
 }

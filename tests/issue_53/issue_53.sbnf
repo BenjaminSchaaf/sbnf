@@ -1,0 +1,25 @@
+prototype : ( ~comment )* ;
+
+main : statement ;
+
+statement{meta.statement}
+  : ( assignment | expression )
+    `;`{punctuation.terminator.statement} ;
+
+expression : literal | identifier;
+
+assignment
+  : identifier
+    `=`{keyword.operator.assignment}
+    expression
+  ;
+
+identifier : '[A-Z]+'{variable.other.readwrite} ;
+literal :  integer ;
+integer : '[0-9]+'{meta.number.integer.decimal constant.numeric.value} ;
+
+comment : line-comment ;
+line-comment{comment.line.double-slash}
+  : `//`{punctuation.definition.comment.begin}
+    ~'$\n?'
+  ;

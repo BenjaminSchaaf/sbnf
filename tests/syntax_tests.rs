@@ -16,6 +16,7 @@ const LANGUAGES: &[&str] = &[
     "tests/issue_32",
     "tests/issue_39",
     "tests/issue_49",
+    "tests/issue_53",
     "tests/issue_54",
     "tests/meta_scopes",
     "tests/passive",
