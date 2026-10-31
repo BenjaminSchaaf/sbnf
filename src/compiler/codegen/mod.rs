@@ -1055,13 +1055,14 @@ fn gen_simple_match_contexts<'a>(
                 &mut lookahead::LookaheadState::new(state.compiler),
             );
 
-            groups.push(gen_simple_match_remaining_context(
+            let (contexts, key) = gen_simple_match_remaining_context(
                 state,
                 interpreted,
                 is_top_level,
                 rule_key,
                 lookahead,
-            ));
+            );
+            groups.push((contexts, key, Some(rule_key)));
         }
 
         if let StackEntryData::Variable { key } = &entry.data {
@@ -1076,7 +1077,7 @@ fn gen_simple_match_contexts<'a>(
                 if let Some(context) =
                     gen_meta_content_scope_context(state, interpreted, rule_key)
                 {
-                    groups.push((vec![context], None));
+                    groups.push((vec![context], None, None));
                 }
             }
         }
@@ -1089,20 +1090,30 @@ fn gen_simple_match_contexts<'a>(
             &mut lookahead::LookaheadState::new(state.compiler),
         );
 
-        groups.push(gen_simple_match_remaining_context(
+        let (contexts, key) = gen_simple_match_remaining_context(
             state,
             interpreted,
             is_top_level,
             rule_key,
             lookahead,
-        ));
+        );
+        groups.push((contexts, key, None));
     }
 
     let last = groups.len();
-    for (i, (c, key)) in groups.into_iter().enumerate() {
+    for (i, (c, key, meta_key)) in groups.into_iter().enumerate() {
         if let Some(key) = key {
             if i != last - 1 {
                 contexts.push(gen_entry_context(state, key, c));
+                if let Some(meta_key) = meta_key {
+                    if let Some(context) = gen_meta_content_scope_context(
+                        state,
+                        interpreted,
+                        meta_key,
+                    ) {
+                        contexts.push(context);
+                    }
+                }
             } else {
                 contexts.extend(c);
             }

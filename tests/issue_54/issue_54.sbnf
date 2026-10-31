@@ -1,0 +1,5 @@
+SCOPE = 'test'
+
+main: suffix;
+suffix{comment.line}: x 'c';
+x: 'X' 'f';
