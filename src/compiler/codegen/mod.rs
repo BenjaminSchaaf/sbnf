@@ -874,13 +874,11 @@ fn gen_terminal<'a>(
 
     // Branch contexts already carry their enclosing meta scope, and their
     // match scopes include it, so don't add it twice.
-    if branch_point.is_none() {
-        if let sublime_syntax::ContextChange::None = &exit {
-            if pop_amount > 0 {
-                scope = meta_content_scope
-                    .extended(scope, &state.compiler.allocator);
-            }
-        }
+    if branch_point.is_none()
+        && matches!(exit, sublime_syntax::ContextChange::None)
+        && pop_amount > 0
+    {
+        scope = meta_content_scope.extended(scope, &state.compiler.allocator);
     }
 
     sublime_syntax::ContextPattern::Match(sublime_syntax::Match {
