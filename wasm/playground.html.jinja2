@@ -137,16 +137,15 @@
       :root {
         color-scheme: light dark;
         --background: #fff;
-        --text: #1f2328;
+        --background-active: #eee;
+        --background-hover: #f5f5f5;
         --border: #bcc3ce;
-        --input-background: #fff;
-        --placeholder: #8b949e;
         --accent: #5755d9;
-        --accent-hover: #4240d4;
         --focus-ring: rgba(87, 85, 217, .2);
-        --surface: #f5f5f5;
-        --surface-active: #eee;
-        --code-background: #eee;
+
+        --text: black;
+        --placeholder: #8b949e;
+
         --button-background: #161b22;
         --button-text: #f0f6fc;
         --button-text-hover: #ffffffb2;
@@ -155,19 +154,16 @@
       @media (prefers-color-scheme: dark) {
         :root {
           --background: #0d1117;
-          --text: #e6edf3;
+          --background-active: #161b22;
+          --background-hover: #21262d;
           --border: #30363d;
-          --input-background: #161b22;
-          --placeholder: #6e7681;
           --accent: #a5a3ff;
-          --accent-hover: #c7c5ff;
           --focus-ring: rgba(165, 163, 255, .25);
-          --surface: #21262d;
-          --surface-active: #161b22;
-          --code-background: #161b22;
+
+          --text: white;
+          --placeholder: #6e7681;
+
           --button-background: #21262d;
-          --button-text: #f0f6fc;
-          --button-text-hover: #ffffffb2;
         }
       }
 
@@ -229,7 +225,7 @@
 
       input[type=text], textarea {
         appearance: none;
-        background: var(--input-background);
+        background: var(--background);
         border: 0.05rem solid var(--border);
         border-radius: 0.2rem;
         color: var(--text);
@@ -289,20 +285,20 @@
       }
 
       .tabs > a:hover {
-        background-color: var(--surface);
+        background-color: var(--background-hover);
         transition: background-color 200ms linear;
-        color: var(--accent-hover);
+        color: var(--accent);
         transition: background-color 200ms linear;
       }
 
       .tabs > a.active {
         color: var(--accent);
-        background: var(--surface-active);
+        background: var(--background-active);
         border-bottom-color: var(--accent);
       }
 
       code {
-        background-color: var(--code-background);
+        background-color: var(--background-active);
         padding: .1rem .2rem;
         border-radius: .1rem;
       }
@@ -310,7 +306,7 @@
       pre {
         margin-top: 0;
         padding: 1em;
-        background: var(--code-background);
+        background: var(--background-active);
         min-height: 50%;
         overflow: scroll;
       }
