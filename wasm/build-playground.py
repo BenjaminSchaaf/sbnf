@@ -32,10 +32,15 @@ def main(argv):
         wasmpack_args.append('--profiling')
     wasmpack_args += [
         '.',
-        '-Z', 'build-std=std,panic_abort',
-        '-Z', 'build-std-features=panic_immediate_abort'
+        '-Zbuild-std=std,panic_abort',
     ]
-    subprocess.run(wasmpack_args, check=True)
+
+    # Enable immediate-abort using RUSTFLAGS
+    subenv = os.environ.copy()
+    subenv.setdefault('RUSTFLAGS', '')
+    subenv['RUSTFLAGS'] += ' -Zunstable-options -Cpanic=immediate-abort'
+
+    subprocess.run(wasmpack_args, check=True, env=subenv)
 
     # Install WASM
     shutil.copy('pkg/sbnf_wasm_bg.wasm', os.path.join(DEST, 'sbnf.wasm'))
