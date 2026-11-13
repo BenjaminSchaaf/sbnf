@@ -190,7 +190,7 @@ fn index_terminals(lookahead: &Lookahead<'_>) -> IndexMap<Symbol, Vec<usize>> {
 }
 
 /*
-*/
+ */
 fn gen_contexts<'a>(
     state: &mut State<'a>,
     interpreted: &Interpreted<'a>,
