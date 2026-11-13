@@ -1,0 +1,6 @@
+main : ( ~test )* ;
+
+test{meta.test}
+  : '"' ~ '"'
+  | '"'{punctuation.definition.string.end}
+  ;

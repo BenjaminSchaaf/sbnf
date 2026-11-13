@@ -1,0 +1,4 @@
+# SYNTAX TEST "Packages/tests/issue_54/issue_54.sublime-syntax"
+
+ Xfc
+#^^^ comment.line

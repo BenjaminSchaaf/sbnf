@@ -536,6 +536,7 @@ mod tests {
             }),]
         );
         let a1main0 = contexts.get("main|0|main@1").unwrap();
+        assert_eq!(a1main0.meta_content_scope, Scope::new("a.test"));
         assert_eq!(
             a1main0.matches,
             [

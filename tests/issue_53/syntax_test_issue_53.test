@@ -1,0 +1,4 @@
+# SYNTAX TEST "Packages/tests/issue_53/issue_53.sublime-syntax"
+
+ FOO = 1 ;
+#^^^^^^^^^ meta.statement
