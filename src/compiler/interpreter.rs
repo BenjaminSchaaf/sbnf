@@ -374,7 +374,7 @@ fn collect_metadata<'a>(
         state.errors.push(Error::from_str(
             "No syntax name provided. Use a 'NAME' variable to specify the name of the syntax",
             None,
-            vec!()));
+            vec![]));
     }
 
     let file_extensions =
@@ -1117,7 +1117,7 @@ fn parse_terminal_options<'a>(
                     state.errors.push(Error::from_str(
                         "Positional argument for terminal scope may only be the first argument",
                         Some(option.location),
-                        vec!()).with_traceback(state.stack.clone()));
+                        vec![]).with_traceback(state.stack.clone()));
                 }
             }
             NodeData::KeywordOption(value_node) => {
@@ -1163,9 +1163,9 @@ fn parse_terminal_options<'a>(
                     state.errors.push(Error::from_str(
                         "Unexpected keyword argument",
                         Some(option.location),
-                        vec!(
+                        vec![
                             (option.location, "There should be no arguments after capture groups".to_string()),
-                        )).with_traceback(state.stack.clone()));
+                        ]).with_traceback(state.stack.clone()));
                 }
             }
             _ => panic!(),
@@ -1230,10 +1230,10 @@ fn parse_rule_options<'a>(
             state.errors.push(Error::from_str(
                 "Rules may only have one positional argument specifying the meta scope",
                 Some(argument.location),
-                vec!(
+                vec![
                     (argument.location, "this argument".to_string()),
                     (options[0].location, "should be used here".to_string()),
-                )));
+                ]));
         } else if let NodeData::KeywordOption(value_node) = &argument.data {
             assert!(value_node.data == NodeData::KeywordOptionValue);
             let value_text = trim_ascii(value_node.text);
@@ -1261,10 +1261,10 @@ fn parse_rule_options<'a>(
                     state.errors.push(Error::new(
                         format!("Unexpected option value '{}' for 'include-prototype'", argument.text),
                         Some(value_node.location),
-                        vec!(
+                        vec![
                             (value_node.location, "expected either 'true' or 'false'".to_string()),
                             (argument.location, "for this argument".to_string()),
-                        )));
+                        ]));
                 }
             } else {
                 state.errors.push(Error::new(
@@ -1432,7 +1432,7 @@ fn parse_terminal_embed<'a>(
                         state.errors.push(Error::from_str(
                             "Positional argument for escape scope may only be the second argument",
                             Some(option.location),
-                            vec!()).with_traceback(state.stack.clone()));
+                            vec![]).with_traceback(state.stack.clone()));
                     }
                 }
                 NodeData::KeywordOption(value_node) => {
@@ -1479,9 +1479,9 @@ fn parse_terminal_embed<'a>(
                         state.errors.push(Error::from_str(
                             "Unexpected keyword argument",
                             Some(option.location),
-                            vec!(
+                            vec![
                                 (option.location, "There should be no arguments after capture groups".to_string()),
-                            )).with_traceback(state.stack.clone()));
+                            ]).with_traceback(state.stack.clone()));
                     }
                 }
                 _ => panic!(),
@@ -1673,7 +1673,7 @@ fn interpolate_string<'a>(
                                     state.errors.push(Error::new(
                                         format!("Unexpected character '{}' in string interpolation", c),
                                         Some(location),
-                                        vec!()).with_traceback(state.stack.clone()));
+                                        vec![]).with_traceback(state.stack.clone()));
                                     return result;
                                 }
                             }
@@ -1681,7 +1681,7 @@ fn interpolate_string<'a>(
                                 state.errors.push(Error::from_str(
                                     "Expected ']' before the end of the string to end string interpolation",
                                     Some(location),
-                                    vec!()).with_traceback(state.stack.clone()));
+                                    vec![]).with_traceback(state.stack.clone()));
                                 return result;
                             }
                         }
@@ -1762,9 +1762,9 @@ fn interpolate_string<'a>(
                         state.errors.push(Error::from_str(
                             "Variable in string interpolation not found",
                             Some(location),
-                            vec!(
+                            vec![
                                 (location, format!("{} must be defined as an argument to the rule", variable)),
-                            )).with_traceback(state.stack.clone()));
+                            ]).with_traceback(state.stack.clone()));
                     }
                 }
                 Some(next_chr) => {

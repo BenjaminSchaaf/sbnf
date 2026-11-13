@@ -28,11 +28,14 @@ macro_rules! serializeln {
 }
 
 macro_rules! indent {
-    ($state:expr, $fn:expr) => {{
-        $state.indent += 1;
-        $fn;
-        $state.indent -= 1;
-    }};
+    ($state:expr, $fn:expr) => {
+        #[allow(unused_assignments)]
+        {
+            $state.indent += 1;
+            $fn;
+            $state.indent -= 1;
+        }
+    };
 }
 
 #[derive(Debug)]
